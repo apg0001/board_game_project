@@ -363,6 +363,7 @@ func testRouter() http.Handler {
 		match.NewService(),
 		tutorial.NewService(),
 		realtime.NewHub(logger),
+		nil,
 	)
 }
 

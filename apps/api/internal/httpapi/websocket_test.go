@@ -48,6 +48,7 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		match.NewService(),
 		tutorial.NewService(),
 		hub,
+		nil,
 	))
 	defer server.Close()
 

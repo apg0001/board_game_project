@@ -7,7 +7,7 @@
 - [x] CI/CD
 - [x] Docker Compose 원클릭 실행
 - [x] PostgreSQL/Redis 개발 컨테이너
-- [ ] 실제 PostgreSQL 영속화
+- [x] 실제 PostgreSQL 영속화
 - [ ] Redis 기반 WebSocket/Presence 확장
 
 ## P1 플레이 가능한 로비
@@ -115,3 +115,16 @@
 - [x] 8. 타임아웃 종료 시 방 상태 finished 전환
 - [x] 9. 헬스체크 운영 메타데이터 확장
 - [x] 10. 타임아웃/만료 단위 테스트
+
+## 영속화 기반 Top 10
+
+- [x] 1. DATABASE_URL 설정 로딩
+- [x] 2. Postgres 연결/핑 헬퍼
+- [x] 3. API 시작 시 DB 마이그레이션 실행
+- [x] 4. schema_migrations 테이블
+- [x] 5. guest_users 테이블
+- [x] 6. user_game_stats 테이블
+- [x] 7. 게스트 세션 Postgres 저장소
+- [x] 8. 자체 회원/로그인 세션 Postgres 저장소
+- [x] 9. 전적/리더보드 Postgres 저장소
+- [x] 10. DB 헬스체크 및 Docker Go 1.25 런타임 정렬
