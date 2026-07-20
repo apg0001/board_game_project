@@ -469,6 +469,71 @@ h1 {
   gap: 12px;
 }
 
+.chat-list,
+.leaderboard-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chat-list span,
+.leaderboard-list span {
+  min-width: 0;
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: #46505c;
+  background: rgba(23, 33, 43, 0.06);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.chat-list strong {
+  color: #17212b;
+}
+
+.chat-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px;
+  gap: 8px;
+}
+
+.chat-actions input,
+.chat-actions button,
+.emoji-row button {
+  min-height: 40px;
+  border: 1px solid rgba(23, 33, 43, 0.12);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.chat-actions input {
+  min-width: 0;
+  padding: 0 10px;
+  outline: 0;
+}
+
+.chat-actions button {
+  color: #fff8e8;
+  background: #17212b;
+  font-weight: 850;
+}
+
+.emoji-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.emoji-row button {
+  width: 42px;
+}
+
+.leaderboard-panel {
+  margin-top: 18px;
+  border-top: 1px solid rgba(23, 33, 43, 0.08);
+  padding-top: 18px;
+}
+
 .game-session-panel p {
   margin-bottom: 0;
   color: #17212b;

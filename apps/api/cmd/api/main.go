@@ -10,12 +10,15 @@ import (
 	"time"
 
 	"board-game-platform/apps/api/internal/catalog"
+	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/config"
+	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/httpapi"
 	"board-game-platform/apps/api/internal/realtime"
+	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
 )
@@ -29,12 +32,15 @@ func main() {
 	guestService := guest.NewService(guest.NewMemoryStore(), time.Now)
 	roomService := room.NewService(room.NewMemoryStore(), time.Now)
 	sessionService := session.NewService(session.NewMemoryStore(), gameRegistry, time.Now)
+	chatService := chat.NewService(time.Now, 50)
+	presenceService := connection.NewService(time.Now, 60*time.Second)
+	recordService := record.NewService(time.Now)
 	hub := realtime.NewHub(logger)
 	go hub.Run()
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, roomService, sessionService, hub),
+		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, roomService, sessionService, chatService, presenceService, recordService, hub),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

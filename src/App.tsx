@@ -197,7 +197,39 @@ interface RealtimeMessage {
   payload: {
     room?: Room;
     session?: GameSession;
+    message?: ChatMessage;
+    presence?: Presence;
   };
+}
+
+interface ChatMessage {
+  id: string;
+  roomId: string;
+  user: {
+    id: string;
+    nickname: string;
+  };
+  text: string;
+  kind: "chat" | "emoji";
+  createdAt: string;
+}
+
+interface Presence {
+  userId: string;
+  roomId: string;
+  sessionId?: string;
+  status: "ONLINE" | "DISCONNECTED";
+  expiresAt?: string;
+}
+
+interface LeaderboardRow {
+  userId: string;
+  gameId: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  playCount: number;
+  mmr: number;
 }
 
 const guestStorageKey = "board-table.guest-session";
@@ -212,6 +244,10 @@ export function App() {
   const [guessTileIndex, setGuessTileIndex] = useState(0);
   const [guessColor, setGuessColor] = useState<"black" | "white">("black");
   const [guessValue, setGuessValue] = useState(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [presenceByUser, setPresenceByUser] = useState<Record<string, Presence>>({});
+  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
 
@@ -258,6 +294,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const current = readGuestSession();
+    if (!current?.sessionToken) return;
+    authorizedJSON<{ presence: Presence }>("/api/reconnect", current.sessionToken, { method: "POST" })
+      .then((data) => {
+        setPresenceByUser((previous) => ({ ...previous, [data.presence.userId]: data.presence }));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     if (!currentRoom || !guestSession) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
@@ -273,12 +319,21 @@ export function App() {
 
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data) as RealtimeMessage;
-      if (message.type !== "room.updated") return;
-
-      const nextRoom = message.payload.room;
-      if (!nextRoom) return;
-      setCurrentRoom(nextRoom);
-      setRoomMessage(`${nextRoom.code} 방 상태가 갱신되었습니다.`);
+      if (message.type === "room.updated") {
+        const nextRoom = message.payload.room;
+        if (!nextRoom) return;
+        setCurrentRoom(nextRoom);
+        setRoomMessage(`${nextRoom.code} 방 상태가 갱신되었습니다.`);
+      }
+      if (message.type === "chat.message" && message.payload.message) {
+        setChatMessages((previous) => [...previous.slice(-49), message.payload.message!]);
+      }
+      if (message.type === "presence.updated" && message.payload.presence) {
+        setPresenceByUser((previous) => ({
+          ...previous,
+          [message.payload.presence!.userId]: message.payload.presence!
+        }));
+      }
     };
 
     socket.onclose = () => {
@@ -289,6 +344,41 @@ export function App() {
       socket.close();
     };
   }, [currentRoom?.id, guestSession]);
+
+  useEffect(() => {
+    if (!currentRoom || !guestSession) return;
+
+    fetchRoomChat(currentRoom.id)
+      .then(setChatMessages)
+      .catch(() => undefined);
+
+    markPresence(currentRoom.id, currentSession?.id, "ONLINE").catch(() => undefined);
+
+    const markDisconnected = () => {
+      const token = readGuestSession()?.sessionToken;
+      if (!token) return;
+      const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+      const body = JSON.stringify({
+        status: "DISCONNECTED",
+        sessionId: currentSession?.id
+      });
+      fetch(`${apiURL}/api/rooms/${currentRoom.id}/presence`, {
+        method: "POST",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body
+      }).catch(() => undefined);
+    };
+    window.addEventListener("beforeunload", markDisconnected);
+    return () => window.removeEventListener("beforeunload", markDisconnected);
+  }, [currentRoom?.id, currentSession?.id, guestSession]);
+
+  useEffect(() => {
+    fetchLeaderboard().then(setLeaderboard).catch(() => undefined);
+  }, [currentSession?.status]);
 
   useEffect(() => {
     if (!currentRoom?.activeSessionId || !guestSession) return;
@@ -433,7 +523,11 @@ export function App() {
                   <span>{participant.user.nickname.slice(0, 1)}</span>
                   <div>
                     <strong>{participant.user.nickname}</strong>
-                    <small>{participant.host ? "방장" : participant.ready ? "준비 완료" : "대기 중"}</small>
+                    <small>
+                      {participant.host ? "방장" : participant.ready ? "준비 완료" : "대기 중"}
+                      {" · "}
+                      {presenceByUser[participant.user.id]?.status === "DISCONNECTED" ? "재접속 대기" : "온라인"}
+                    </small>
                   </div>
                 </div>
               ))}
@@ -665,6 +759,57 @@ export function App() {
             </div>
           ) : null}
 
+          {currentRoom ? (
+            <div className="room-card">
+              <div className="section-title">
+                <div>
+                  <span>채팅</span>
+                  <h2>로비 메시지</h2>
+                </div>
+                <MessageCircle size={22} />
+              </div>
+              <div className="chat-list">
+                {chatMessages.slice(-5).map((message) => (
+                  <span key={message.id}>
+                    <strong>{message.user.nickname}</strong> {message.text}
+                  </span>
+                ))}
+              </div>
+              <div className="chat-actions">
+                <input
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  placeholder="메시지"
+                  aria-label="채팅 메시지"
+                />
+                <button
+                  onClick={() => {
+                    sendChat(currentRoom.id, chatInput, "chat").then((message) => {
+                      setChatMessages((previous) => [...previous.slice(-49), message]);
+                      setChatInput("");
+                    });
+                  }}
+                >
+                  전송
+                </button>
+              </div>
+              <div className="emoji-row">
+                {["👍", "🎉", "😮"].map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() =>
+                      sendChat(currentRoom.id, emoji, "emoji").then((message) =>
+                        setChatMessages((previous) => [...previous.slice(-49), message])
+                      )
+                    }
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="status-strip">
             <span>
               <ShieldCheck size={17} />
@@ -742,6 +887,27 @@ export function App() {
               </article>
             ))}
           </div>
+
+          <div className="leaderboard-panel">
+            <div className="section-title">
+              <div>
+                <span>Leaderboard</span>
+                <h2>다빈치 코드 랭킹</h2>
+              </div>
+              <Trophy size={22} />
+            </div>
+            <div className="leaderboard-list">
+              {leaderboard.length === 0 ? (
+                <span>아직 기록이 없습니다.</span>
+              ) : (
+                leaderboard.slice(0, 5).map((row, index) => (
+                  <span key={row.userId}>
+                    {index + 1}. {row.userId} · {row.mmr} MMR · {row.wins}승
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
         </section>
       </section>
 
@@ -815,6 +981,7 @@ async function createRoom(
     });
     onRoom(data.room);
     onMessage(`${data.room.code} 코드를 친구에게 공유하세요.`);
+    markPresence(data.room.id, undefined, "ONLINE").catch(() => undefined);
   } catch {
     onMessage("방 생성에 실패했습니다.");
   }
@@ -838,9 +1005,49 @@ async function joinRoom(
     });
     onRoom(data.room);
     onMessage(`${data.room.code} 방에 입장했습니다.`);
+    markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
   } catch {
     onMessage("방 코드를 확인해주세요.");
   }
+}
+
+async function sendChat(roomID: string, text: string, kind: "chat" | "emoji"): Promise<ChatMessage> {
+  const guest = readGuestSession();
+  if (!guest) throw new Error("missing guest");
+  const data = await authorizedJSON<{ message: ChatMessage }>(`/api/rooms/${roomID}/chat`, guest.sessionToken, {
+    method: "POST",
+    body: JSON.stringify({ text, kind })
+  });
+  return data.message;
+}
+
+async function fetchRoomChat(roomID: string): Promise<ChatMessage[]> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const response = await fetch(`${apiURL}/api/rooms/${roomID}/chat`);
+  if (!response.ok) throw new Error("failed to fetch chat");
+  const data = (await response.json()) as { messages: ChatMessage[] };
+  return data.messages;
+}
+
+async function markPresence(
+  roomID: string,
+  sessionID: string | undefined,
+  status: "ONLINE" | "DISCONNECTED"
+) {
+  const guest = readGuestSession();
+  if (!guest) return;
+  await authorizedJSON<{ presence: Presence }>(`/api/rooms/${roomID}/presence`, guest.sessionToken, {
+    method: "POST",
+    body: JSON.stringify({ sessionId: sessionID, status })
+  });
+}
+
+async function fetchLeaderboard(): Promise<LeaderboardRow[]> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const response = await fetch(`${apiURL}/api/leaderboard?gameId=davinci&limit=5`);
+  if (!response.ok) throw new Error("failed to fetch leaderboard");
+  const data = (await response.json()) as { rows: LeaderboardRow[] };
+  return data.rows;
 }
 
 async function setReady(
