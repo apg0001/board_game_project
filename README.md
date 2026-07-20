@@ -53,7 +53,11 @@ docker compose -f docker-compose.dev.yml up --build
 ```txt
 api  -> http://localhost:4000
 web  -> http://localhost:5173
+postgres -> localhost:5432
+redis -> localhost:6379
 ```
+
+현재 앱 런타임 저장소는 인메모리이고, PostgreSQL/Redis는 다음 영속화 작업을 위한 개발 컨테이너로 함께 실행됩니다.
 
 같은 Wi-Fi의 모바일에서 접속하려면 PC의 로컬 IP를 확인한 뒤 다음처럼 환경변수를 조정합니다.
 

@@ -39,6 +39,7 @@
 - Docker Compose 설정 검증
 - Docker Compose 서비스 빌드 검증
 - `.env.example` 기반 로컬/LAN 실행 가이드
+- PostgreSQL/Redis 개발 컨테이너
 
 ## P1 바로 플레이 가능한 로비
 
@@ -224,6 +225,11 @@ feature/#5-room-realtime
 5. 루미큐브
 6. 한 밤의 늑대인간
 7. 뱅!
+
+현재 완료:
+
+- 다빈치 코드 MVP
+- 할리갈리 MVP
 
 ## 지금부터 진행 순서
 

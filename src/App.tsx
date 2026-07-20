@@ -262,6 +262,7 @@ export function App() {
   const [chatInput, setChatInput] = useState("");
   const [presenceByUser, setPresenceByUser] = useState<Record<string, Presence>>({});
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
+  const [selectedGameId, setSelectedGameId] = useState("davinci");
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
 
@@ -491,11 +492,11 @@ export function App() {
               방 코드, 퀵매치, 재접속, 관전, 채팅까지 하나의 앱 화면에서 이어지는 보드게임 플랫폼입니다.
             </p>
             <div className="hero-actions">
-              <button className="primary-button" onClick={() => quickMatch(setCurrentRoom, setRoomMessage)}>
+              <button className="primary-button" onClick={() => quickMatch(selectedGameId, setCurrentRoom, setRoomMessage)}>
                 <Play size={18} />
                 퀵매치
               </button>
-              <button className="secondary-button" onClick={() => createRoom(setCurrentRoom, setRoomMessage)}>
+              <button className="secondary-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
                 <Plus size={18} />
                 방 만들기
               </button>
@@ -557,7 +558,7 @@ export function App() {
               <LockKeyhole size={22} />
             </div>
             <div className="room-actions">
-              <button className="wide-button" onClick={() => createRoom(setCurrentRoom, setRoomMessage)}>
+              <button className="wide-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
                 방 만들기
                 <ChevronRight size={18} />
               </button>
@@ -686,6 +687,25 @@ export function App() {
                   </div>
                 ) : (
                   <div className="room-actions">
+                    {currentSession.gameId === "halli-galli" ? (
+                      <div className="room-actions">
+                        <button
+                          className="wide-button"
+                          onClick={() => sendGameAction(currentSession.id, currentRoom?.id, "halli-galli.flip", setCurrentSession)}
+                        >
+                          카드 펼치기
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button play-now"
+                          onClick={() => sendGameAction(currentSession.id, currentRoom?.id, "halli-galli.ring", setCurrentSession)}
+                        >
+                          종 치기
+                          <ChevronRight size={18} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
                     <div className="tile-board" aria-label="내 타일">
                       <span>내 타일</span>
                       <div className="tile-row">
@@ -767,6 +787,8 @@ export function App() {
                       턴 넘기기
                       <ChevronRight size={18} />
                     </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -917,7 +939,7 @@ export function App() {
 
           <div className="filter-row" aria-label="카테고리 필터">
             {["전체", "전략", "블러핑", "순발력", "숫자/조합"].map((category) => (
-              <button className={category === "전체" ? "active" : ""} key={category}>
+                <button className={category === "전체" ? "active" : ""} key={category}>
                 {category}
               </button>
             ))}
@@ -958,8 +980,15 @@ export function App() {
                     </div>
                   </dl>
                 </div>
-                <button className="game-action" aria-label={`${game.title} 선택`}>
-                  선택
+                <button
+                  className="game-action"
+                  aria-label={`${game.title} 선택`}
+                  onClick={() => {
+                    setSelectedGameId(game.id);
+                    setRoomMessage(`${game.title} 선택됨`);
+                  }}
+                >
+                  {selectedGameId === game.id ? "선택됨" : "선택"}
                   <ChevronRight size={17} />
                 </button>
               </article>
@@ -1082,6 +1111,7 @@ async function login(username: string, password: string): Promise<AuthSession> {
 }
 
 async function createRoom(
+  gameId: string,
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
@@ -1094,7 +1124,7 @@ async function createRoom(
   try {
     const data = await authorizedJSON<{ room: Room }>("/api/rooms", session.sessionToken, {
       method: "POST",
-      body: JSON.stringify({ gameId: "davinci", maxPlayers: 4 })
+      body: JSON.stringify({ gameId, maxPlayers: 4 })
     });
     onRoom(data.room);
     onMessage(`${data.room.code} 코드를 친구에게 공유하세요.`);
@@ -1105,6 +1135,7 @@ async function createRoom(
 }
 
 async function quickMatch(
+  gameId: string,
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
@@ -1117,7 +1148,7 @@ async function quickMatch(
   try {
     const data = await authorizedJSON<{ room: Room; matched: boolean }>("/api/match/quick", session.sessionToken, {
       method: "POST",
-      body: JSON.stringify({ gameId: "davinci" })
+      body: JSON.stringify({ gameId })
     });
     onRoom(data.room);
     markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
@@ -1243,7 +1274,7 @@ async function startGame(
 async function sendGameAction(
   sessionID: string,
   roomID: string | undefined,
-  type: "davinci.pass" | "davinci.finish",
+  type: "davinci.pass" | "davinci.finish" | "halli-galli.flip" | "halli-galli.ring",
   onSession: (session: GameSession) => void
 ) {
   const guest = readGuestSession();

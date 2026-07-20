@@ -17,6 +17,7 @@ import (
 	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
+	"board-game-platform/apps/api/internal/games/halligalli"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/match"
 	"board-game-platform/apps/api/internal/realtime"
@@ -39,7 +40,7 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		auth.NewService(nil),
 		guest.NewService(guest.NewMemoryStore(), nil),
 		room.NewService(room.NewMemoryStore(), nil),
-		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(davinci.NewModule()), nil),
+		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(davinci.NewModule(), halligalli.NewModule()), nil),
 		chat.NewService(nil, 50),
 		connection.NewService(nil, 0),
 		record.NewService(nil),
