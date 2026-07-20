@@ -152,15 +152,36 @@ interface Room {
   id: string;
   code: string;
   gameId: string;
+  status: "LOBBY" | "PLAYING" | "FINISHED" | "CLOSED";
   maxPlayers: number;
   participants: RoomParticipant[];
+}
+
+interface GameSession {
+  id: string;
+  roomId: string;
+  gameId: string;
+  status: "ACTIVE" | "FINISHED" | "ABORTED";
+  state: {
+    turnIndex?: number;
+    round?: number;
+    log?: string[];
+    finished?: boolean;
+  };
+  results?: Array<{
+    playerId: string;
+    rank: number;
+    score: number;
+    outcome: "WIN" | "LOSE" | "DRAW";
+  }>;
 }
 
 interface RealtimeMessage {
   room: string;
   type: string;
   payload: {
-    room: Room;
+    room?: Room;
+    session?: GameSession;
   };
 }
 
@@ -171,6 +192,7 @@ export function App() {
   const [serverStatus, setServerStatus] = useState<"연결됨" | "오프라인 모드">("오프라인 모드");
   const [guestSession, setGuestSession] = useState<GuestSession | null>(() => readGuestSession());
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+  const [currentSession, setCurrentSession] = useState<GameSession | null>(null);
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
 
@@ -235,6 +257,7 @@ export function App() {
       if (message.type !== "room.updated") return;
 
       const nextRoom = message.payload.room;
+      if (!nextRoom) return;
       setCurrentRoom(nextRoom);
       setRoomMessage(`${nextRoom.code} 방 상태가 갱신되었습니다.`);
     };
@@ -247,6 +270,29 @@ export function App() {
       socket.close();
     };
   }, [currentRoom?.id, guestSession]);
+
+  useEffect(() => {
+    if (!currentSession || !guestSession) return;
+
+    const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
+    const socket = new WebSocket(
+      `${wsURL}?room=${encodeURIComponent(`game:${currentSession.id}`)}&user=${encodeURIComponent(
+        guestSession.user.id
+      )}`
+    );
+
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data) as RealtimeMessage;
+      if (message.type !== "game.updated") return;
+      if (!message.payload.session) return;
+
+      setCurrentSession(message.payload.session);
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [currentSession?.id, guestSession]);
 
   const recommendedGames = useMemo(() => {
     if (apiGames.length === 0) return fallbackRecommendedGames;
@@ -399,9 +445,68 @@ export function App() {
                   <ChevronRight size={18} />
                 </button>
               ) : null}
+              {currentRoom ? (
+                <button
+                  className="wide-button play-now"
+                  onClick={() => startGame(currentRoom.id, setCurrentRoom, setCurrentSession, setRoomMessage)}
+                >
+                  게임 시작
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
             </div>
             <p className="room-message">{roomMessage}</p>
           </div>
+
+          {currentSession ? (
+            <div className="room-card">
+              <div className="section-title">
+                <div>
+                  <span>게임 세션</span>
+                  <h2>{currentSession.status === "FINISHED" ? "결과 확인" : "진행 중"}</h2>
+                </div>
+                <Gamepad2 size={22} />
+              </div>
+              <div className="game-session-panel">
+                <p>라운드 {currentSession.state.round ?? 1}</p>
+                <div className="session-log">
+                  {(currentSession.state.log ?? []).slice(-3).map((item) => (
+                    <span key={item}>{item}</span>
+                  ))}
+                </div>
+                {currentSession.status === "FINISHED" ? (
+                  <div className="session-log">
+                    {(currentSession.results ?? []).map((result) => (
+                      <span key={result.playerId}>
+                        {result.rank}위 · {result.outcome} · {result.score}점
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="room-actions">
+                    <button
+                      className="wide-button"
+                      onClick={() =>
+                        sendGameAction(currentSession.id, currentRoom?.id, "demo.advance", setCurrentSession)
+                      }
+                    >
+                      턴 진행
+                      <ChevronRight size={18} />
+                    </button>
+                    <button
+                      className="wide-button dark"
+                      onClick={() =>
+                        sendGameAction(currentSession.id, currentRoom?.id, "demo.finish", setCurrentSession)
+                      }
+                    >
+                      게임 종료
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           <div className="status-strip">
             <span>
@@ -603,6 +708,56 @@ async function setReady(
   } catch {
     onMessage("Ready 변경에 실패했습니다.");
   }
+}
+
+async function startGame(
+  roomID: string,
+  onRoom: (room: Room) => void,
+  onSession: (session: GameSession) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room; session: GameSession }>(
+      `/api/rooms/${roomID}/start`,
+      session.sessionToken,
+      { method: "POST" }
+    );
+    onRoom(data.room);
+    onSession(data.session);
+    onMessage("게임을 시작했습니다.");
+  } catch {
+    onMessage("모든 참가자가 Ready 상태인지 확인해주세요.");
+  }
+}
+
+async function sendGameAction(
+  sessionID: string,
+  roomID: string | undefined,
+  type: "demo.advance" | "demo.finish",
+  onSession: (session: GameSession) => void
+) {
+  const guest = readGuestSession();
+  if (!guest || !roomID) return;
+
+  const data = await authorizedJSON<{ session: GameSession }>(
+    `/api/sessions/${sessionID}/actions`,
+    guest.sessionToken,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        roomId: roomID,
+        type,
+        clientRequestId: crypto.randomUUID()
+      })
+    }
+  );
+  onSession(data.session);
 }
 
 async function authorizedJSON<T>(

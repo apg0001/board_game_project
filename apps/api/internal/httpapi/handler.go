@@ -6,18 +6,22 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"board-game-platform/apps/api/internal/catalog"
+	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/realtime"
 	"board-game-platform/apps/api/internal/room"
+	"board-game-platform/apps/api/internal/session"
 )
 
 type Handler struct {
-	games  catalog.Catalog
-	guests *guest.Service
-	rooms  *room.Service
-	hub    *realtime.Hub
+	games    catalog.Catalog
+	guests   *guest.Service
+	rooms    *room.Service
+	sessions *session.Service
+	hub      *realtime.Hub
 }
 
 func (h Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -145,6 +149,99 @@ func (h Handler) setReady(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
 }
 
+func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	found, err := h.rooms.FindByID(r.PathValue("roomID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+	if found.HostUserID != user.ID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only host can start game"})
+		return
+	}
+
+	created, err := h.sessions.Start(found)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, session.ErrRoomNotReady) || errors.Is(err, session.ErrGameNotRegistered) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+
+	updatedRoom, err := h.rooms.SetStatus(found.ID, room.StatusPlaying)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update room status"})
+		return
+	}
+
+	h.publishRoomUpdated(updatedRoom)
+	h.publishGameUpdated(created)
+	writeJSON(w, http.StatusCreated, map[string]any{"session": created, "room": updatedRoom})
+}
+
+func (h Handler) getSession(w http.ResponseWriter, r *http.Request) {
+	found, err := h.sessions.FindByID(r.PathValue("sessionID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"session": found})
+}
+
+func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		RoomID          string `json:"roomId"`
+		Type            string `json:"type"`
+		Payload         any    `json:"payload"`
+		ClientRequestID string `json:"clientRequestId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid action payload"})
+		return
+	}
+
+	foundRoom, err := h.rooms.FindByID(body.RoomID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+
+	updated, events, err := h.sessions.ApplyAction(r.Context(), foundRoom, r.PathValue("sessionID"), gamecore.Action{
+		Type:            body.Type,
+		PlayerID:        gamecore.PlayerID(user.ID),
+		Payload:         body.Payload,
+		ClientRequestID: body.ClientRequestID,
+		CreatedAt:       timeNowUTC(),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+
+	h.publishGameUpdated(updated)
+	for _, event := range events {
+		h.hub.Broadcast(realtime.Message{
+			Room:    "game:" + updated.ID,
+			Type:    event.Type,
+			Payload: event.Payload,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": updated})
+}
+
 func (h Handler) recommendGames(w http.ResponseWriter, r *http.Request) {
 	playerCount, err := strconv.Atoi(r.URL.Query().Get("players"))
 	if err != nil || playerCount < 1 {
@@ -173,6 +270,16 @@ func (h Handler) publishRoomUpdated(updated room.Room) {
 	})
 }
 
+func (h Handler) publishGameUpdated(updated session.Session) {
+	h.hub.Broadcast(realtime.Message{
+		Room: "game:" + updated.ID,
+		Type: "game.updated",
+		Payload: map[string]any{
+			"session": updated,
+		},
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -195,4 +302,8 @@ func (h Handler) requireGuest(w http.ResponseWriter, r *http.Request) (guest.Use
 		return guest.User{}, false
 	}
 	return user, true
+}
+
+func timeNowUTC() time.Time {
+	return time.Now().UTC()
 }
