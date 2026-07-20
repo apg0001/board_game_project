@@ -241,6 +241,18 @@ interface LeaderboardRow {
   mmr: number;
 }
 
+interface TutorialGuide {
+  gameId: string;
+  title: string;
+  summary: string;
+  tips: string[];
+  steps: Array<{
+    title: string;
+    description: string;
+    actionHint: string;
+  }>;
+}
+
 const guestStorageKey = "board-table.guest-session";
 const authStorageKey = "board-table.auth-session";
 
@@ -263,6 +275,7 @@ export function App() {
   const [presenceByUser, setPresenceByUser] = useState<Record<string, Presence>>({});
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [selectedGameId, setSelectedGameId] = useState("davinci");
+  const [tutorialGuide, setTutorialGuide] = useState<TutorialGuide | null>(null);
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
 
@@ -394,6 +407,10 @@ export function App() {
   useEffect(() => {
     fetchLeaderboard().then(setLeaderboard).catch(() => undefined);
   }, [currentSession?.status]);
+
+  useEffect(() => {
+    fetchTutorial(selectedGameId).then(setTutorialGuide).catch(() => setTutorialGuide(null));
+  }, [selectedGameId]);
 
   useEffect(() => {
     if (!currentRoom?.activeSessionId || !guestSession) return;
@@ -1015,6 +1032,26 @@ export function App() {
               )}
             </div>
           </div>
+
+          {tutorialGuide ? (
+            <div className="leaderboard-panel">
+              <div className="section-title">
+                <div>
+                  <span>Tutorial</span>
+                  <h2>{tutorialGuide.title}</h2>
+                </div>
+                <Bot size={22} />
+              </div>
+              <p className="tutorial-summary">{tutorialGuide.summary}</p>
+              <div className="tutorial-steps">
+                {tutorialGuide.steps.map((step, index) => (
+                  <span key={step.title}>
+                    {index + 1}. {step.title} · {step.actionHint}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
       </section>
 
@@ -1219,6 +1256,14 @@ async function fetchLeaderboard(): Promise<LeaderboardRow[]> {
   if (!response.ok) throw new Error("failed to fetch leaderboard");
   const data = (await response.json()) as { rows: LeaderboardRow[] };
   return data.rows;
+}
+
+async function fetchTutorial(gameId: string): Promise<TutorialGuide> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const response = await fetch(`${apiURL}/api/tutorials/${gameId}`);
+  if (!response.ok) throw new Error("failed to fetch tutorial");
+  const data = (await response.json()) as { guide: TutorialGuide };
+  return data.guide;
 }
 
 async function setReady(

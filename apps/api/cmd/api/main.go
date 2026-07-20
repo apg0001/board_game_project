@@ -24,6 +24,7 @@ import (
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
+	"board-game-platform/apps/api/internal/tutorial"
 )
 
 func main() {
@@ -40,12 +41,13 @@ func main() {
 	presenceService := connection.NewService(time.Now, 60*time.Second)
 	recordService := record.NewService(time.Now)
 	matchService := match.NewService()
+	tutorialService := tutorial.NewService()
 	hub := realtime.NewHub(logger)
 	go hub.Run()
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, authService, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, hub),
+		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, authService, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, tutorialService, hub),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

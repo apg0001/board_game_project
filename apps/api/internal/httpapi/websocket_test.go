@@ -24,6 +24,7 @@ import (
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
+	"board-game-platform/apps/api/internal/tutorial"
 
 	"github.com/gorilla/websocket"
 )
@@ -45,6 +46,7 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		connection.NewService(nil, 0),
 		record.NewService(nil),
 		match.NewService(),
+		tutorial.NewService(),
 		hub,
 	))
 	defer server.Close()

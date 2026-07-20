@@ -487,6 +487,26 @@ h1 {
   line-height: 1.35;
 }
 
+.tutorial-summary {
+  margin-bottom: 10px;
+  color: #46505c;
+  line-height: 1.55;
+}
+
+.tutorial-steps {
+  display: grid;
+  gap: 6px;
+}
+
+.tutorial-steps span {
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: #17212b;
+  background: rgba(244, 201, 93, 0.18);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
 .chat-list strong {
   color: #17212b;
 }

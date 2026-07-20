@@ -22,6 +22,7 @@ import (
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
+	"board-game-platform/apps/api/internal/tutorial"
 )
 
 func TestHealth(t *testing.T) {
@@ -268,6 +269,7 @@ func testRouter() http.Handler {
 		connection.NewService(nil, 0),
 		record.NewService(nil),
 		match.NewService(),
+		tutorial.NewService(),
 		realtime.NewHub(logger),
 	)
 }

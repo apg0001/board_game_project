@@ -15,11 +15,12 @@ import (
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
+	"board-game-platform/apps/api/internal/tutorial"
 )
 
-func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, auths *auth.Service, guests *guest.Service, rooms *room.Service, sessions *session.Service, chats *chat.Service, presence *connection.Service, records *record.Service, matches *match.Service, hub *realtime.Hub) http.Handler {
+func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, auths *auth.Service, guests *guest.Service, rooms *room.Service, sessions *session.Service, chats *chat.Service, presence *connection.Service, records *record.Service, matches *match.Service, tutorials *tutorial.Service, hub *realtime.Hub) http.Handler {
 	mux := http.NewServeMux()
-	api := Handler{games: games, auths: auths, guests: guests, rooms: rooms, sessions: sessions, chats: chats, presence: presence, records: records, matches: matches, hub: hub}
+	api := Handler{games: games, auths: auths, guests: guests, rooms: rooms, sessions: sessions, chats: chats, presence: presence, records: records, matches: matches, tutorials: tutorials, hub: hub}
 
 	mux.HandleFunc("GET /health", api.health)
 	mux.HandleFunc("POST /api/guests", api.createGuest)
@@ -45,6 +46,8 @@ func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, au
 	mux.HandleFunc("GET /api/leaderboard", api.leaderboard)
 	mux.HandleFunc("GET /api/games", api.listGames)
 	mux.HandleFunc("GET /api/games/recommend", api.recommendGames)
+	mux.HandleFunc("GET /api/tutorials", api.listTutorials)
+	mux.HandleFunc("GET /api/tutorials/{gameID}", api.getTutorial)
 	mux.HandleFunc("GET /ws", api.websocket)
 
 	return withCORS(cfg, withRequestLog(logger, mux))
