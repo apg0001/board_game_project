@@ -477,11 +477,11 @@ export function App() {
               방 코드, 퀵매치, 재접속, 관전, 채팅까지 하나의 앱 화면에서 이어지는 보드게임 플랫폼입니다.
             </p>
             <div className="hero-actions">
-              <button className="primary-button">
+              <button className="primary-button" onClick={() => quickMatch(setCurrentRoom, setRoomMessage)}>
                 <Play size={18} />
                 퀵매치
               </button>
-              <button className="secondary-button">
+              <button className="secondary-button" onClick={() => createRoom(setCurrentRoom, setRoomMessage)}>
                 <Plus size={18} />
                 방 만들기
               </button>
@@ -984,6 +984,29 @@ async function createRoom(
     markPresence(data.room.id, undefined, "ONLINE").catch(() => undefined);
   } catch {
     onMessage("방 생성에 실패했습니다.");
+  }
+}
+
+async function quickMatch(
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room; matched: boolean }>("/api/match/quick", session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ gameId: "davinci" })
+    });
+    onRoom(data.room);
+    markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
+    onMessage(data.matched ? "대기 중인 방에 매칭되었습니다." : "퀵매치 방을 만들고 친구를 기다립니다.");
+  } catch {
+    onMessage("퀵매치에 실패했습니다.");
   }
 }
 

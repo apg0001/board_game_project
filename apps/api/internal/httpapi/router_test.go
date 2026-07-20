@@ -15,6 +15,7 @@ import (
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/guest"
+	"board-game-platform/apps/api/internal/match"
 	"board-game-platform/apps/api/internal/realtime"
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
@@ -208,6 +209,48 @@ func TestReturnLobbyAndLeaveRoom(t *testing.T) {
 	}
 }
 
+func TestQuickMatchCreatesThenJoinsWaitingRoom(t *testing.T) {
+	handler := testRouter()
+	firstToken := createGuestToken(t, handler)
+	secondToken := createGuestToken(t, handler)
+
+	firstRequest := httptest.NewRequest(http.MethodPost, "/api/match/quick", bytes.NewBufferString(`{"gameId":"davinci"}`))
+	firstRequest.Header.Set("Authorization", "Bearer "+firstToken)
+	firstResponse := httptest.NewRecorder()
+	handler.ServeHTTP(firstResponse, firstRequest)
+	if firstResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", firstResponse.Code)
+	}
+
+	var firstBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(firstResponse.Body).Decode(&firstBody); err != nil {
+		t.Fatal(err)
+	}
+
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/match/quick", bytes.NewBufferString(`{"gameId":"davinci"}`))
+	secondRequest.Header.Set("Authorization", "Bearer "+secondToken)
+	secondResponse := httptest.NewRecorder()
+	handler.ServeHTTP(secondResponse, secondRequest)
+	if secondResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", secondResponse.Code)
+	}
+
+	var secondBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(secondResponse.Body).Decode(&secondBody); err != nil {
+		t.Fatal(err)
+	}
+	if firstBody.Room.ID != secondBody.Room.ID {
+		t.Fatalf("expected same room, got %s and %s", firstBody.Room.ID, secondBody.Room.ID)
+	}
+	if len(secondBody.Room.Participants) != 2 {
+		t.Fatalf("expected two participants, got %d", len(secondBody.Room.Participants))
+	}
+}
+
 func testRouter() http.Handler {
 	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
 	registry := gamecore.NewRegistry(davinci.NewModule())
@@ -221,6 +264,7 @@ func testRouter() http.Handler {
 		chat.NewService(nil, 50),
 		connection.NewService(nil, 0),
 		record.NewService(nil),
+		match.NewService(),
 		realtime.NewHub(logger),
 	)
 }
