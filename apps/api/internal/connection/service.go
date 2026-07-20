@@ -94,3 +94,23 @@ func (s *Service) Resume(userID string) (Presence, bool) {
 	s.byUser[userID] = current
 	return current, true
 }
+
+func (s *Service) ExpireDisconnected() []Presence {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.clock().UTC()
+	expired := make([]Presence, 0)
+	for userID, current := range s.byUser {
+		if current.Status != StatusDisconnected || current.ExpiresAt.IsZero() || now.Before(current.ExpiresAt) {
+			continue
+		}
+		expired = append(expired, current)
+		delete(s.byUser, userID)
+	}
+	return expired
+}
+
+func (s *Service) GracePeriod() time.Duration {
+	return s.grace
+}

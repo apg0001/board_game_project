@@ -76,6 +76,29 @@ func TestWrongGuessRevealsOwnTile(t *testing.T) {
 	}
 }
 
+func TestTimeoutForfeitsPlayer(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p1", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if next.Players[0].Active {
+		t.Fatal("timed out player should be inactive")
+	}
+	for _, tile := range next.Players[0].Tiles {
+		if !tile.Revealed {
+			t.Fatal("timed out player tiles should be revealed")
+		}
+	}
+	if !next.Finished {
+		t.Fatal("two-player game should finish after one forfeit")
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		SessionID: "s1",

@@ -82,6 +82,10 @@ type Module interface {
 	CalculateResult(state any, gameCtx Context) []Result
 }
 
+type TimeoutHandler interface {
+	ApplyTimeout(ctx context.Context, state any, playerID PlayerID, gameCtx Context) (ActionResult, error)
+}
+
 type Registry struct {
 	modules map[GameID]Module
 }

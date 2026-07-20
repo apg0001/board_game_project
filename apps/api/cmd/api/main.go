@@ -28,6 +28,9 @@ import (
 )
 
 func main() {
+	appCtx, stopApp := context.WithCancel(context.Background())
+	defer stopApp()
+
 	cfg := config.Load()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -44,6 +47,19 @@ func main() {
 	tutorialService := tutorial.NewService()
 	hub := realtime.NewHub(logger)
 	go hub.Run()
+	sweepExpiredPresence := httpapi.NewPresenceSweeper(gameCatalog, authService, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, tutorialService, hub)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				sweepExpiredPresence(context.Background())
+			case <-appCtx.Done():
+				return
+			}
+		}
+	}()
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
@@ -64,6 +80,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
+	stopApp()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()

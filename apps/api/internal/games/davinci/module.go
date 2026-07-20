@@ -183,6 +183,40 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	}, nil
 }
 
+func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.PlayerID, _ gamecore.Context) (gamecore.ActionResult, error) {
+	current := asState(state)
+	index := findPlayerIndex(current, string(playerID))
+	if index < 0 || current.Finished {
+		return gamecore.ActionResult{State: current}, nil
+	}
+
+	for tileIndex := range current.Players[index].Tiles {
+		current.Players[index].Tiles[tileIndex].Revealed = true
+	}
+	current.Players[index].Active = false
+	current.Log = append(current.Log, string(playerID)+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
+	if current.CurrentPlayerIndex == index {
+		current = advanceTurn(current)
+	}
+	current = refreshActivePlayers(current)
+	if remainingActivePlayers(current) <= 1 {
+		current.Finished = true
+		current.Log = append(current.Log, "게임이 종료되었습니다.")
+	}
+
+	return gamecore.ActionResult{
+		State: current,
+		Events: []gamecore.Event{{
+			Type:       "game.player_timed_out",
+			Visibility: gamecore.VisibilityPublic,
+			Payload: map[string]any{
+				"playerId": string(playerID),
+				"policy":   "forfeit",
+			},
+		}},
+	}, nil
+}
+
 func (m Module) IsFinished(state any, _ gamecore.Context) bool {
 	return asState(state).Finished
 }

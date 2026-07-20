@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -56,4 +57,9 @@ func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, au
 	mux.HandleFunc("GET /ws", api.websocket)
 
 	return withCORS(cfg, withRequestLog(logger, mux))
+}
+
+func NewPresenceSweeper(games catalog.Catalog, auths *auth.Service, guests *guest.Service, rooms *room.Service, sessions *session.Service, chats *chat.Service, presence *connection.Service, records *record.Service, matches *match.Service, tutorials *tutorial.Service, hub *realtime.Hub) func(context.Context) {
+	api := Handler{games: games, auths: auths, guests: guests, rooms: rooms, sessions: sessions, chats: chats, presence: presence, records: records, matches: matches, tutorials: tutorials, hub: hub}
+	return api.SweepExpiredPresence
 }
