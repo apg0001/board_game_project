@@ -1,0 +1,35 @@
+{
+  "name": "Board Table",
+  "short_name": "BoardTable",
+  "description": "모바일과 데스크톱에서 함께 즐기는 PWA 보드게임 플랫폼",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f5f0e8",
+  "theme_color": "#17212b",
+  "categories": ["games", "entertainment", "social"],
+  "lang": "ko-KR",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/assets/table-pattern.svg",
+      "sizes": "1200x800",
+      "type": "image/svg+xml",
+      "form_factor": "wide"
+    }
+  ]
+}
