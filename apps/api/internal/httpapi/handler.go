@@ -19,19 +19,21 @@ import (
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
+	"board-game-platform/apps/api/internal/tutorial"
 )
 
 type Handler struct {
-	games    catalog.Catalog
-	auths    *auth.Service
-	guests   *guest.Service
-	rooms    *room.Service
-	sessions *session.Service
-	chats    *chat.Service
-	presence *connection.Service
-	records  *record.Service
-	matches  *match.Service
-	hub      *realtime.Hub
+	games     catalog.Catalog
+	auths     *auth.Service
+	guests    *guest.Service
+	rooms     *room.Service
+	sessions  *session.Service
+	chats     *chat.Service
+	presence  *connection.Service
+	records   *record.Service
+	matches   *match.Service
+	tutorials *tutorial.Service
+	hub       *realtime.Hub
 }
 
 func (h Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -481,6 +483,19 @@ func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
 func (h Handler) leaderboard(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	writeJSON(w, http.StatusOK, map[string]any{"rows": h.records.Leaderboard(r.URL.Query().Get("gameId"), limit)})
+}
+
+func (h Handler) listTutorials(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"guides": h.tutorials.All()})
+}
+
+func (h Handler) getTutorial(w http.ResponseWriter, r *http.Request) {
+	guide, ok := h.tutorials.Find(r.PathValue("gameID"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tutorial not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"guide": guide})
 }
 
 func (h Handler) recommendGames(w http.ResponseWriter, r *http.Request) {
