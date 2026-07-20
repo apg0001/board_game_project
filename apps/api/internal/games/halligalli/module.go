@@ -1,0 +1,284 @@
+package halligalli
+
+import (
+	"context"
+	"errors"
+	"hash/fnv"
+	"math/rand"
+
+	"board-game-platform/apps/api/internal/gamecore"
+)
+
+const (
+	ActionFlip = "halli-galli.flip"
+	ActionRing = "halli-galli.ring"
+)
+
+type Card struct {
+	Fruit string `json:"fruit"`
+	Count int    `json:"count"`
+}
+
+type PlayerState struct {
+	PlayerID string `json:"playerId"`
+	Deck     []Card `json:"deck"`
+	FaceUp   []Card `json:"faceUp"`
+	Score    int    `json:"score"`
+	Active   bool   `json:"active"`
+}
+
+type State struct {
+	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
+	Round              int           `json:"round"`
+	Players            []PlayerState `json:"players"`
+	Log                []string      `json:"log"`
+	Finished           bool          `json:"finished"`
+}
+
+type Module struct{}
+
+func NewModule() Module {
+	return Module{}
+}
+
+func (m Module) ID() gamecore.GameID {
+	return "halli-galli"
+}
+
+func (m Module) Name() string {
+	return "할리갈리"
+}
+
+func (m Module) MinPlayers() int {
+	return 2
+}
+
+func (m Module) MaxPlayers() int {
+	return 6
+}
+
+func (m Module) CreateInitialState(ctx gamecore.Context) any {
+	deck := shuffledDeck(ctx.RandomSeed)
+	players := make([]PlayerState, 0, len(ctx.Players))
+	for index, player := range ctx.Players {
+		hand := make([]Card, 0)
+		for cardIndex := index; cardIndex < len(deck); cardIndex += len(ctx.Players) {
+			hand = append(hand, deck[cardIndex])
+		}
+		players = append(players, PlayerState{
+			PlayerID: string(player.ID),
+			Deck:     hand,
+			FaceUp:   []Card{},
+			Score:    0,
+			Active:   len(hand) > 0,
+		})
+	}
+	return State{
+		CurrentPlayerIndex: 0,
+		Round:              1,
+		Players:            players,
+		Log:                []string{"할리갈리가 시작되었습니다."},
+	}
+}
+
+func (m Module) PublicState(state any, _ gamecore.PlayerID) any {
+	current := asState(state)
+	for index := range current.Players {
+		current.Players[index].Deck = make([]Card, len(current.Players[index].Deck))
+	}
+	return current
+}
+
+func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) error {
+	current := asState(state)
+	if current.Finished {
+		return errors.New("game is already finished")
+	}
+	switch action.Type {
+	case ActionFlip:
+		if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
+			return errors.New("not your turn")
+		}
+	case ActionRing:
+		return nil
+	default:
+		return errors.New("unsupported action")
+	}
+	return nil
+}
+
+func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
+	current := asState(state)
+	switch action.Type {
+	case ActionFlip:
+		current = flip(current, string(action.PlayerID))
+	case ActionRing:
+		current = ring(current, string(action.PlayerID))
+	}
+	current = refresh(current)
+	return gamecore.ActionResult{
+		State: current,
+		Events: []gamecore.Event{{
+			Type:       "game.state_updated",
+			Visibility: gamecore.VisibilityPublic,
+			Payload:    m.PublicState(current, ""),
+		}},
+	}, nil
+}
+
+func (m Module) IsFinished(state any, _ gamecore.Context) bool {
+	return asState(state).Finished
+}
+
+func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result {
+	current := asState(state)
+	results := make([]gamecore.Result, 0, len(current.Players))
+	for index, player := range sortedPlayers(current.Players) {
+		outcome := gamecore.OutcomeLose
+		if index == 0 {
+			outcome = gamecore.OutcomeWin
+		}
+		results = append(results, gamecore.Result{
+			PlayerID: gamecore.PlayerID(player.PlayerID),
+			Rank:     index + 1,
+			Score:    player.Score + len(player.Deck),
+			Outcome:  outcome,
+		})
+	}
+	return results
+}
+
+func flip(state State, playerID string) State {
+	index := findPlayer(state, playerID)
+	if index < 0 || len(state.Players[index].Deck) == 0 {
+		return state
+	}
+	card := state.Players[index].Deck[0]
+	state.Players[index].Deck = state.Players[index].Deck[1:]
+	state.Players[index].FaceUp = append(state.Players[index].FaceUp, card)
+	state.Log = append(state.Log, playerID+" 님이 카드를 펼쳤습니다.")
+	state.CurrentPlayerIndex = nextActiveIndex(state, state.CurrentPlayerIndex)
+	state.Round++
+	return state
+}
+
+func ring(state State, playerID string) State {
+	if hasFiveFruit(state) {
+		index := findPlayer(state, playerID)
+		if index >= 0 {
+			won := collectFaceUp(&state)
+			state.Players[index].Score += won
+			state.Log = append(state.Log, playerID+" 님이 종을 맞게 눌렀습니다.")
+		}
+	} else {
+		index := findPlayer(state, playerID)
+		if index >= 0 && state.Players[index].Score > 0 {
+			state.Players[index].Score--
+		}
+		state.Log = append(state.Log, playerID+" 님이 종을 잘못 눌렀습니다.")
+	}
+	return state
+}
+
+func refresh(state State) State {
+	active := 0
+	for index := range state.Players {
+		state.Players[index].Active = len(state.Players[index].Deck) > 0
+		if state.Players[index].Active {
+			active++
+		}
+	}
+	if active <= 1 {
+		state.Finished = true
+		state.Log = append(state.Log, "할리갈리가 종료되었습니다.")
+	}
+	return state
+}
+
+func hasFiveFruit(state State) bool {
+	counts := map[string]int{}
+	for _, player := range state.Players {
+		if len(player.FaceUp) == 0 {
+			continue
+		}
+		card := player.FaceUp[len(player.FaceUp)-1]
+		counts[card.Fruit] += card.Count
+	}
+	for _, count := range counts {
+		if count == 5 {
+			return true
+		}
+	}
+	return false
+}
+
+func collectFaceUp(state *State) int {
+	total := 0
+	for playerIndex := range state.Players {
+		total += len(state.Players[playerIndex].FaceUp)
+		state.Players[playerIndex].FaceUp = []Card{}
+	}
+	return total
+}
+
+func nextActiveIndex(state State, current int) int {
+	for step := 1; step <= len(state.Players); step++ {
+		next := (current + step) % len(state.Players)
+		if state.Players[next].Active {
+			return next
+		}
+	}
+	return current
+}
+
+func findPlayer(state State, playerID string) int {
+	for index, player := range state.Players {
+		if player.PlayerID == playerID {
+			return index
+		}
+	}
+	return -1
+}
+
+func shuffledDeck(seed string) []Card {
+	fruits := []string{"banana", "strawberry", "lime", "plum"}
+	deck := make([]Card, 0, 56)
+	for _, fruit := range fruits {
+		for count := 1; count <= 5; count++ {
+			for copy := 0; copy < 3; copy++ {
+				deck = append(deck, Card{Fruit: fruit, Count: count})
+			}
+		}
+	}
+	random := rand.New(rand.NewSource(seedToInt(seed)))
+	random.Shuffle(len(deck), func(i, j int) {
+		deck[i], deck[j] = deck[j], deck[i]
+	})
+	return deck
+}
+
+func seedToInt(seed string) int64 {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(seed))
+	return int64(hash.Sum64())
+}
+
+func sortedPlayers(players []PlayerState) []PlayerState {
+	copyPlayers := append([]PlayerState(nil), players...)
+	for i := range copyPlayers {
+		for j := i + 1; j < len(copyPlayers); j++ {
+			if copyPlayers[j].Score+len(copyPlayers[j].Deck) > copyPlayers[i].Score+len(copyPlayers[i].Deck) {
+				copyPlayers[i], copyPlayers[j] = copyPlayers[j], copyPlayers[i]
+			}
+		}
+	}
+	return copyPlayers
+}
+
+func asState(state any) State {
+	typed, ok := state.(State)
+	if ok {
+		return typed
+	}
+	return State{}
+}

@@ -16,6 +16,7 @@ import (
 	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
+	"board-game-platform/apps/api/internal/games/halligalli"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/httpapi"
 	"board-game-platform/apps/api/internal/match"
@@ -31,7 +32,7 @@ func main() {
 
 	gameCatalog := catalog.NewInMemoryCatalog(catalog.DefaultGames())
 	authService := auth.NewService(time.Now)
-	gameRegistry := gamecore.NewRegistry(davinci.NewModule())
+	gameRegistry := gamecore.NewRegistry(davinci.NewModule(), halligalli.NewModule())
 	guestService := guest.NewService(guest.NewMemoryStore(), time.Now)
 	roomService := room.NewService(room.NewMemoryStore(), time.Now)
 	sessionService := session.NewService(session.NewMemoryStore(), gameRegistry, time.Now)
