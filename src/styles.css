@@ -194,6 +194,7 @@ h1 {
 .primary-button,
 .secondary-button,
 .wide-button,
+.code-input,
 .game-action {
   min-height: 46px;
   border: 0;
@@ -410,6 +411,47 @@ h1 {
   padding: 0 14px;
   color: #17212b;
   background: #f4c95d;
+}
+
+.wide-button.dark {
+  color: #fff8e8;
+  background: #17212b;
+}
+
+.wide-button.ready {
+  color: #17212b;
+  background: #9fd8c7;
+}
+
+.room-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.code-input {
+  min-height: 44px;
+  border: 1px solid rgba(23, 33, 43, 0.12);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.code-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0 12px;
+  color: #17212b;
+  background: transparent;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.room-message {
+  margin: 10px 0 0;
+  color: #68727e;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .status-strip {

@@ -138,12 +138,33 @@ interface GuestSession {
   };
 }
 
+interface RoomParticipant {
+  user: {
+    id: string;
+    nickname: string;
+  };
+  ready: boolean;
+  host: boolean;
+  seatIndex: number;
+}
+
+interface Room {
+  id: string;
+  code: string;
+  gameId: string;
+  maxPlayers: number;
+  participants: RoomParticipant[];
+}
+
 const guestStorageKey = "board-table.guest-session";
 
 export function App() {
   const [apiGames, setApiGames] = useState<ApiGame[]>([]);
   const [serverStatus, setServerStatus] = useState<"연결됨" | "오프라인 모드">("오프라인 모드");
   const [guestSession, setGuestSession] = useState<GuestSession | null>(() => readGuestSession());
+  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+  const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
 
   useEffect(() => {
     const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -205,6 +226,12 @@ export function App() {
       };
     });
   }, [apiGames]);
+
+  const activePlayerCount = currentRoom?.participants.length ?? playerCount;
+  const partyMembers = currentRoom?.participants ?? [];
+  const me = currentRoom?.participants.find(
+    (participant) => participant.user.id === guestSession?.user.id
+  );
 
   return (
     <main className="app-shell">
@@ -276,17 +303,17 @@ export function App() {
             <div className="section-title">
               <div>
                 <span>{guestSession?.user.nickname ?? "게스트 준비 중"}</span>
-                <h2>{playerCount}명 입장 중</h2>
+              <h2>{activePlayerCount}명 입장 중</h2>
               </div>
               <UsersRound size={22} />
             </div>
             <div className="party-list">
-              {["Guest_8391", "Nara", "Min", "Seo"].map((name, index) => (
-                <div className="party-member" key={name}>
-                  <span>{name.slice(0, 1)}</span>
+              {(partyMembers.length > 0 ? partyMembers : demoParticipants()).map((participant) => (
+                <div className="party-member" key={participant.user.id}>
+                  <span>{participant.user.nickname.slice(0, 1)}</span>
                   <div>
-                    <strong>{name}</strong>
-                    <small>{index === 0 ? "방장" : "준비 완료"}</small>
+                    <strong>{participant.user.nickname}</strong>
+                    <small>{participant.host ? "방장" : participant.ready ? "준비 완료" : "대기 중"}</small>
                   </div>
                 </div>
               ))}
@@ -297,14 +324,43 @@ export function App() {
             <div className="section-title">
               <div>
                 <span>방 코드</span>
-                <h2>DK-4821</h2>
+                <h2>{currentRoom?.code ?? "없음"}</h2>
               </div>
               <LockKeyhole size={22} />
             </div>
-            <button className="wide-button">
-              초대 코드 공유
-              <ChevronRight size={18} />
-            </button>
+            <div className="room-actions">
+              <button className="wide-button" onClick={() => createRoom(setCurrentRoom, setRoomMessage)}>
+                방 만들기
+                <ChevronRight size={18} />
+              </button>
+              <label className="code-input">
+                <input
+                  value={roomCodeInput}
+                  onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase())}
+                  placeholder="초대 코드"
+                  aria-label="초대 코드"
+                />
+              </label>
+              <button
+                className="wide-button dark"
+                onClick={() => joinRoom(roomCodeInput, setCurrentRoom, setRoomMessage)}
+              >
+                코드 입장
+                <ChevronRight size={18} />
+              </button>
+              {currentRoom ? (
+                <button
+                  className="wide-button ready"
+                  onClick={() =>
+                    setReady(currentRoom.id, !(me?.ready ?? false), setCurrentRoom, setRoomMessage)
+                  }
+                >
+                  {me?.ready ? "준비 취소" : "Ready"}
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
+            </div>
+            <p className="room-message">{roomMessage}</p>
           </div>
 
           <div className="status-strip">
@@ -326,7 +382,7 @@ export function App() {
                 <Sparkles size={15} />
                 인원 기반 추천
               </span>
-              <h2>{playerCount}명이 바로 플레이 가능한 게임</h2>
+              <h2>{activePlayerCount}명이 바로 플레이 가능한 게임</h2>
             </div>
             <label className="search-box">
               <Search size={17} aria-hidden="true" />
@@ -409,6 +465,15 @@ export function App() {
   );
 }
 
+function demoParticipants(): RoomParticipant[] {
+  return ["Guest_8391", "Nara", "Min", "Seo"].map((nickname, index) => ({
+    user: { id: `demo-${nickname}`, nickname },
+    ready: index > 0,
+    host: index === 0,
+    seatIndex: index
+  }));
+}
+
 function readGuestSession(): GuestSession | null {
   try {
     const raw = localStorage.getItem(guestStorageKey);
@@ -429,4 +494,92 @@ async function createGuest(apiURL: string): Promise<GuestSession> {
   const session = (await response.json()) as GuestSession;
   saveGuestSession(session);
   return session;
+}
+
+async function createRoom(
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room }>("/api/rooms", session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ gameId: "davinci", maxPlayers: 4 })
+    });
+    onRoom(data.room);
+    onMessage(`${data.room.code} 코드를 친구에게 공유하세요.`);
+  } catch {
+    onMessage("방 생성에 실패했습니다.");
+  }
+}
+
+async function joinRoom(
+  code: string,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room }>("/api/rooms/join", session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ code })
+    });
+    onRoom(data.room);
+    onMessage(`${data.room.code} 방에 입장했습니다.`);
+  } catch {
+    onMessage("방 코드를 확인해주세요.");
+  }
+}
+
+async function setReady(
+  roomID: string,
+  ready: boolean,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/ready`, session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ ready })
+    });
+    onRoom(data.room);
+    onMessage(ready ? "준비 완료했습니다." : "준비를 취소했습니다.");
+  } catch {
+    onMessage("Ready 변경에 실패했습니다.");
+  }
+}
+
+async function authorizedJSON<T>(
+  path: string,
+  token: string,
+  init: RequestInit
+): Promise<T> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const response = await fetch(`${apiURL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...init.headers
+    }
+  });
+
+  if (!response.ok) throw new Error("request failed");
+  return (await response.json()) as T;
 }
