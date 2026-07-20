@@ -176,6 +176,12 @@ interface DavinciTile {
 interface DavinciPlayer {
   playerId: string;
   tiles: DavinciTile[];
+  deck?: unknown[];
+  faceUp?: Array<{
+    fruit: string;
+    count: number;
+  }>;
+  score?: number;
   active: boolean;
 }
 
@@ -255,6 +261,8 @@ interface TutorialGuide {
 
 const guestStorageKey = "board-table.guest-session";
 const authStorageKey = "board-table.auth-session";
+const roomStorageKey = "board-table.current-room-id";
+const sessionStorageKey = "board-table.current-session-id";
 
 export function App() {
   const [apiGames, setApiGames] = useState<ApiGame[]>([]);
@@ -332,6 +340,49 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!guestSession) return;
+
+    const roomID = localStorage.getItem(roomStorageKey);
+    const sessionID = localStorage.getItem(sessionStorageKey);
+
+    if (roomID) {
+      fetchRoom(roomID)
+        .then((room) => {
+          setCurrentRoom(room);
+          setSelectedGameId(room.gameId);
+          setRoomMessage(`${room.code} 방을 복구했습니다.`);
+        })
+        .catch(() => localStorage.removeItem(roomStorageKey));
+    }
+
+    if (sessionID) {
+      fetchSession(sessionID, guestSession.sessionToken)
+        .then((session) => {
+          setCurrentSession(session);
+          setSelectedGameId(session.gameId);
+        })
+        .catch(() => localStorage.removeItem(sessionStorageKey));
+    }
+  }, [guestSession]);
+
+  useEffect(() => {
+    if (currentRoom) {
+      localStorage.setItem(roomStorageKey, currentRoom.id);
+      setSelectedGameId(currentRoom.gameId);
+      return;
+    }
+    localStorage.removeItem(roomStorageKey);
+  }, [currentRoom]);
+
+  useEffect(() => {
+    if (currentSession) {
+      localStorage.setItem(sessionStorageKey, currentSession.id);
+      return;
+    }
+    localStorage.removeItem(sessionStorageKey);
+  }, [currentSession]);
+
+  useEffect(() => {
     if (!currentRoom || !guestSession) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
@@ -405,8 +456,8 @@ export function App() {
   }, [currentRoom?.id, currentSession?.id, guestSession]);
 
   useEffect(() => {
-    fetchLeaderboard().then(setLeaderboard).catch(() => undefined);
-  }, [currentSession?.status]);
+    fetchLeaderboard(selectedGameId).then(setLeaderboard).catch(() => undefined);
+  }, [currentSession?.status, selectedGameId]);
 
   useEffect(() => {
     fetchTutorial(selectedGameId).then(setTutorialGuide).catch(() => setTutorialGuide(null));
@@ -474,6 +525,10 @@ export function App() {
   const targetPlayer = opponentPlayers.find((player) => player.playerId === guessTarget) ?? opponentPlayers[0];
   const currentTurnPlayer = davinciPlayers[currentSession?.state.currentPlayerIndex ?? 0];
   const isMyTurn = currentTurnPlayer?.playerId === guestSession?.user.id;
+  const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
+  const everyoneReady = partyMembers.length > 0 && partyMembers.every((participant) => participant.ready);
+  const amHost = Boolean(me?.host);
+  const canStartGame = Boolean(currentRoom && amHost && everyoneReady && currentRoom.status === "LOBBY");
 
   return (
     <main className="app-shell">
@@ -575,6 +630,10 @@ export function App() {
               <LockKeyhole size={22} />
             </div>
             <div className="room-actions">
+              <div className="selected-game-strip">
+                <span>선택 게임</span>
+                <strong>{selectedGame.title}</strong>
+              </div>
               <button className="wide-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
                 방 만들기
                 <ChevronRight size={18} />
@@ -609,8 +668,27 @@ export function App() {
                 <button
                   className="wide-button play-now"
                   onClick={() => startGame(currentRoom.id, setCurrentRoom, setCurrentSession, setRoomMessage)}
+                  disabled={!canStartGame}
+                  title={canStartGame ? "게임 시작" : "방장이고 모든 참가자가 Ready여야 시작할 수 있습니다."}
                 >
                   게임 시작
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
+              {currentRoom ? (
+                <button
+                  className="wide-button dark"
+                  onClick={() =>
+                    roomPostAction(
+                      currentRoom.id,
+                      "leave",
+                      setCurrentRoom,
+                      () => setCurrentSession(null),
+                      setRoomMessage
+                    )
+                  }
+                >
+                  방 나가기
                   <ChevronRight size={18} />
                 </button>
               ) : null}
@@ -706,16 +784,47 @@ export function App() {
                   <div className="room-actions">
                     {currentSession.gameId === "halli-galli" ? (
                       <div className="room-actions">
+                        <div className="halli-board">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>{player.score ?? 0}점 · 덱 {player.deck?.length ?? 0}장</span>
+                              <div className="halli-cards">
+                                {(player.faceUp ?? []).slice(-3).map((card, index) => (
+                                  <span key={`${player.playerId}-${card.fruit}-${card.count}-${index}`}>
+                                    {fruitLabel(card.fruit)} {card.count}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                         <button
                           className="wide-button"
-                          onClick={() => sendGameAction(currentSession.id, currentRoom?.id, "halli-galli.flip", setCurrentSession)}
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "halli-galli.flip",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
                         >
                           카드 펼치기
                           <ChevronRight size={18} />
                         </button>
                         <button
                           className="wide-button play-now"
-                          onClick={() => sendGameAction(currentSession.id, currentRoom?.id, "halli-galli.ring", setCurrentSession)}
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "halli-galli.ring",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
                         >
                           종 치기
                           <ChevronRight size={18} />
@@ -787,7 +896,8 @@ export function App() {
                             color: guessColor,
                             value: guessValue
                           },
-                          setCurrentSession
+                          setCurrentSession,
+                          setRoomMessage
                         )
                       }
                       disabled={!isMyTurn || !targetPlayer}
@@ -798,7 +908,13 @@ export function App() {
                     <button
                       className="wide-button dark"
                       onClick={() =>
-                        sendGameAction(currentSession.id, currentRoom?.id, "davinci.pass", setCurrentSession)
+                        sendGameAction(
+                          currentSession.id,
+                          currentRoom?.id,
+                          "davinci.pass",
+                          setCurrentSession,
+                          setRoomMessage
+                        )
                       }
                     >
                       턴 넘기기
@@ -1016,7 +1132,7 @@ export function App() {
             <div className="section-title">
               <div>
                 <span>Leaderboard</span>
-                <h2>다빈치 코드 랭킹</h2>
+                <h2>{selectedGame.title} 랭킹</h2>
               </div>
               <Trophy size={22} />
             </div>
@@ -1043,6 +1159,11 @@ export function App() {
                 <Bot size={22} />
               </div>
               <p className="tutorial-summary">{tutorialGuide.summary}</p>
+              <div className="tutorial-tips">
+                {tutorialGuide.tips.map((tip) => (
+                  <span key={tip}>{tip}</span>
+                ))}
+              </div>
               <div className="tutorial-steps">
                 {tutorialGuide.steps.map((step, index) => (
                   <span key={step.title}>
@@ -1159,9 +1280,10 @@ async function createRoom(
   }
 
   try {
+    const game = games.find((item) => item.id === gameId);
     const data = await authorizedJSON<{ room: Room }>("/api/rooms", session.sessionToken, {
       method: "POST",
-      body: JSON.stringify({ gameId, maxPlayers: 4 })
+      body: JSON.stringify({ gameId, maxPlayers: game?.maxPlayers ?? 4 })
     });
     onRoom(data.room);
     onMessage(`${data.room.code} 코드를 친구에게 공유하세요.`);
@@ -1183,9 +1305,10 @@ async function quickMatch(
   }
 
   try {
+    const game = games.find((item) => item.id === gameId);
     const data = await authorizedJSON<{ room: Room; matched: boolean }>("/api/match/quick", session.sessionToken, {
       method: "POST",
-      body: JSON.stringify({ gameId })
+      body: JSON.stringify({ gameId, maxPlayers: game?.maxPlayers ?? 4 })
     });
     onRoom(data.room);
     markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
@@ -1237,6 +1360,14 @@ async function fetchRoomChat(roomID: string): Promise<ChatMessage[]> {
   return data.messages;
 }
 
+async function fetchRoom(roomID: string): Promise<Room> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const response = await fetch(`${apiURL}/api/rooms/${roomID}`);
+  if (!response.ok) throw new Error("failed to fetch room");
+  const data = (await response.json()) as { room: Room };
+  return data.room;
+}
+
 async function markPresence(
   roomID: string,
   sessionID: string | undefined,
@@ -1250,9 +1381,9 @@ async function markPresence(
   });
 }
 
-async function fetchLeaderboard(): Promise<LeaderboardRow[]> {
+async function fetchLeaderboard(gameId: string): Promise<LeaderboardRow[]> {
   const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}/api/leaderboard?gameId=davinci&limit=5`);
+  const response = await fetch(`${apiURL}/api/leaderboard?gameId=${gameId}&limit=5`);
   if (!response.ok) throw new Error("failed to fetch leaderboard");
   const data = (await response.json()) as { rows: LeaderboardRow[] };
   return data.rows;
@@ -1320,24 +1451,30 @@ async function sendGameAction(
   sessionID: string,
   roomID: string | undefined,
   type: "davinci.pass" | "davinci.finish" | "halli-galli.flip" | "halli-galli.ring",
-  onSession: (session: GameSession) => void
+  onSession: (session: GameSession) => void,
+  onMessage: (message: string) => void
 ) {
   const guest = readGuestSession();
   if (!guest || !roomID) return;
 
-  const data = await authorizedJSON<{ session: GameSession }>(
-    `/api/sessions/${sessionID}/actions`,
-    guest.sessionToken,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        roomId: roomID,
-        type,
-        clientRequestId: crypto.randomUUID()
-      })
-    }
-  );
-  onSession(data.session);
+  try {
+    const data = await authorizedJSON<{ session: GameSession }>(
+      `/api/sessions/${sessionID}/actions`,
+      guest.sessionToken,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          roomId: roomID,
+          type,
+          clientRequestId: crypto.randomUUID()
+        })
+      }
+    );
+    onSession(data.session);
+    onMessage("액션이 반영되었습니다.");
+  } catch {
+    onMessage("지금은 해당 액션을 할 수 없습니다.");
+  }
 }
 
 async function sendGuessAction(
@@ -1349,25 +1486,31 @@ async function sendGuessAction(
     color: "black" | "white";
     value: number;
   },
-  onSession: (session: GameSession) => void
+  onSession: (session: GameSession) => void,
+  onMessage: (message: string) => void
 ) {
   const guest = readGuestSession();
   if (!guest || !roomID || !payload.targetPlayerId) return;
 
-  const data = await authorizedJSON<{ session: GameSession }>(
-    `/api/sessions/${sessionID}/actions`,
-    guest.sessionToken,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        roomId: roomID,
-        type: "davinci.guess",
-        payload,
-        clientRequestId: crypto.randomUUID()
-      })
-    }
-  );
-  onSession(data.session);
+  try {
+    const data = await authorizedJSON<{ session: GameSession }>(
+      `/api/sessions/${sessionID}/actions`,
+      guest.sessionToken,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          roomId: roomID,
+          type: "davinci.guess",
+          payload,
+          clientRequestId: crypto.randomUUID()
+        })
+      }
+    );
+    onSession(data.session);
+    onMessage("추측 결과가 반영되었습니다.");
+  } catch {
+    onMessage("추측할 수 없는 대상이거나 내 차례가 아닙니다.");
+  }
 }
 
 async function roomPostAction(
@@ -1403,6 +1546,16 @@ async function fetchSession(sessionID: string, token: string): Promise<GameSessi
 
 function participantName(room: Room | null, playerID: string) {
   return room?.participants.find((participant) => participant.user.id === playerID)?.user.nickname ?? "상대";
+}
+
+function fruitLabel(fruit: string) {
+  const labels: Record<string, string> = {
+    banana: "바나나",
+    strawberry: "딸기",
+    lime: "라임",
+    plum: "자두"
+  };
+  return labels[fruit] ?? fruit;
 }
 
 async function authorizedJSON<T>(

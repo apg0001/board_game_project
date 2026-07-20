@@ -356,7 +356,8 @@ func (h Handler) quickMatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		GameID string `json:"gameId"`
+		GameID     string `json:"gameId"`
+		MaxPlayers int    `json:"maxPlayers"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.GameID == "" {
@@ -366,7 +367,7 @@ func (h Handler) quickMatch(w http.ResponseWriter, r *http.Request) {
 	for {
 		roomID, found := h.matches.NextWaiting(body.GameID)
 		if !found {
-			created, err := h.rooms.Create(user.Public(), body.GameID, 4)
+			created, err := h.rooms.Create(user.Public(), body.GameID, body.MaxPlayers)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create match room"})
 				return
