@@ -10,11 +10,13 @@ import (
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/realtime"
+	"board-game-platform/apps/api/internal/room"
 )
 
 type Handler struct {
 	games  catalog.Catalog
 	guests *guest.Service
+	rooms  *room.Service
 	hub    *realtime.Hub
 }
 
@@ -53,6 +55,93 @@ func (h Handler) listGames(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"games": h.games.All()})
 }
 
+func (h Handler) createRoom(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		GameID     string `json:"gameId"`
+		MaxPlayers int    `json:"maxPlayers"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && r.ContentLength != 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid room payload"})
+		return
+	}
+
+	created, err := h.rooms.Create(user.Public(), body.GameID, body.MaxPlayers)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create room"})
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{"room": created})
+}
+
+func (h Handler) joinRoom(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Code) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "room code is required"})
+		return
+	}
+
+	joined, err := h.rooms.JoinByCode(body.Code, user.Public())
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, room.ErrRoomNotFound) {
+			status = http.StatusNotFound
+		}
+		if errors.Is(err, room.ErrRoomFull) || errors.Is(err, room.ErrRoomNotJoinable) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"room": joined})
+}
+
+func (h Handler) getRoom(w http.ResponseWriter, r *http.Request) {
+	found, err := h.rooms.FindByID(r.PathValue("roomID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"room": found})
+}
+
+func (h Handler) setReady(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Ready bool `json:"ready"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ready payload"})
+		return
+	}
+
+	updated, err := h.rooms.ToggleReady(r.PathValue("roomID"), user.ID, body.Ready)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room participant not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
 func (h Handler) recommendGames(w http.ResponseWriter, r *http.Request) {
 	playerCount, err := strconv.Atoi(r.URL.Query().Get("players"))
 	if err != nil || playerCount < 1 {
@@ -84,4 +173,13 @@ func bearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(token)
+}
+
+func (h Handler) requireGuest(w http.ResponseWriter, r *http.Request) (guest.User, bool) {
+	user, err := h.guests.Me(bearerToken(r))
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "valid guest session is required"})
+		return guest.User{}, false
+	}
+	return user, true
 }

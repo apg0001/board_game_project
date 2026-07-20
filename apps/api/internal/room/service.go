@@ -1,0 +1,164 @@
+package room
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+
+	"board-game-platform/apps/api/internal/guest"
+)
+
+var (
+	ErrRoomFull        = errors.New("room is full")
+	ErrRoomNotJoinable = errors.New("room is not joinable")
+)
+
+type Clock func() time.Time
+
+type Service struct {
+	store Store
+	clock Clock
+}
+
+func NewService(store Store, clock Clock) *Service {
+	if clock == nil {
+		clock = time.Now
+	}
+	return &Service{store: store, clock: clock}
+}
+
+func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (Room, error) {
+	if gameID == "" {
+		gameID = "davinci"
+	}
+	if maxPlayers <= 0 {
+		maxPlayers = 4
+	}
+
+	now := s.clock().UTC()
+	id, err := randomHex(12)
+	if err != nil {
+		return Room{}, err
+	}
+	code, err := s.uniqueCode()
+	if err != nil {
+		return Room{}, err
+	}
+
+	room := Room{
+		ID:         "room_" + id,
+		Code:       code,
+		GameID:     gameID,
+		Status:     StatusLobby,
+		MaxPlayers: maxPlayers,
+		HostUserID: host.ID,
+		Participants: []Participant{{
+			User:      host,
+			Ready:     false,
+			Host:      true,
+			SeatIndex: 0,
+			JoinedAt:  now,
+		}},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := s.store.Save(room); err != nil {
+		return Room{}, err
+	}
+	return room, nil
+}
+
+func (s *Service) JoinByCode(code string, user guest.PublicUser) (Room, error) {
+	room, err := s.store.FindByCode(normalizeCode(code))
+	if err != nil {
+		return Room{}, err
+	}
+	if room.Status != StatusLobby {
+		return Room{}, ErrRoomNotJoinable
+	}
+	if room.HasParticipant(user.ID) {
+		return room, nil
+	}
+	if room.IsFull() {
+		return Room{}, ErrRoomFull
+	}
+
+	now := s.clock().UTC()
+	room.Participants = append(room.Participants, Participant{
+		User:      user,
+		Ready:     false,
+		Host:      false,
+		SeatIndex: len(room.Participants),
+		JoinedAt:  now,
+	})
+	room.UpdatedAt = now
+
+	if err := s.store.Save(room); err != nil {
+		return Room{}, err
+	}
+	return room, nil
+}
+
+func (s *Service) FindByID(id string) (Room, error) {
+	return s.store.FindByID(id)
+}
+
+func (s *Service) ToggleReady(roomID string, userID string, ready bool) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+
+	for index := range room.Participants {
+		if room.Participants[index].User.ID == userID {
+			room.Participants[index].Ready = ready
+			room.UpdatedAt = s.clock().UTC()
+			return room, s.store.Save(room)
+		}
+	}
+	return Room{}, ErrRoomNotFound
+}
+
+func (s *Service) uniqueCode() (string, error) {
+	for range 20 {
+		code, err := randomCode(6)
+		if err != nil {
+			return "", err
+		}
+		if !s.store.CodeExists(code) {
+			return code, nil
+		}
+	}
+	return "", fmt.Errorf("failed to generate unique room code")
+}
+
+func normalizeCode(code string) string {
+	return strings.ToUpper(strings.TrimSpace(code))
+}
+
+func randomCode(length int) (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	var builder strings.Builder
+	builder.Grow(length)
+	for range length {
+		index, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			return "", err
+		}
+		builder.WriteByte(alphabet[index.Int64()])
+	}
+	return builder.String(), nil
+}
+
+func randomHex(byteLength int) (string, error) {
+	buffer := make([]byte, byteLength)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buffer), nil
+}

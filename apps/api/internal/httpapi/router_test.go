@@ -12,6 +12,7 @@ import (
 	"board-game-platform/apps/api/internal/config"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/realtime"
+	"board-game-platform/apps/api/internal/room"
 )
 
 func TestHealth(t *testing.T) {
@@ -96,6 +97,49 @@ func TestMeRejectsMissingToken(t *testing.T) {
 	}
 }
 
+func TestCreateJoinAndReadyRoom(t *testing.T) {
+	handler := testRouter()
+	hostToken := createGuestToken(t, handler)
+	guestToken := createGuestToken(t, handler)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"gameId":"davinci","maxPlayers":4}`))
+	createRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createResponse.Code)
+	}
+
+	var createBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&createBody); err != nil {
+		t.Fatal(err)
+	}
+	if createBody.Room.Code == "" {
+		t.Fatal("expected room code")
+	}
+
+	joinRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/join", bytes.NewBufferString(`{"code":"`+createBody.Room.Code+`"}`))
+	joinRequest.Header.Set("Authorization", "Bearer "+guestToken)
+	joinResponse := httptest.NewRecorder()
+	handler.ServeHTTP(joinResponse, joinRequest)
+
+	if joinResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", joinResponse.Code)
+	}
+
+	readyRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createBody.Room.ID+"/ready", bytes.NewBufferString(`{"ready":true}`))
+	readyRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	readyResponse := httptest.NewRecorder()
+	handler.ServeHTTP(readyResponse, readyRequest)
+
+	if readyResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", readyResponse.Code)
+	}
+}
+
 func testRouter() http.Handler {
 	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
 	return NewRouter(
@@ -103,6 +147,27 @@ func testRouter() http.Handler {
 		logger,
 		catalog.NewInMemoryCatalog(catalog.DefaultGames()),
 		guest.NewService(guest.NewMemoryStore(), nil),
+		room.NewService(room.NewMemoryStore(), nil),
 		realtime.NewHub(logger),
 	)
+}
+
+func createGuestToken(t *testing.T, handler http.Handler) string {
+	t.Helper()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/guests", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", response.Code)
+	}
+
+	var body struct {
+		SessionToken string `json:"sessionToken"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	return body.SessionToken
 }
