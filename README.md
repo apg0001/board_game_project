@@ -48,15 +48,25 @@ go run ./cmd/api
 docker compose -f docker-compose.dev.yml up --build
 ```
 
+이 명령 하나로 Go API와 PWA 웹 클라이언트가 함께 실행됩니다.
+
+```txt
+api  -> http://localhost:4000
+web  -> http://localhost:5173
+```
+
 같은 Wi-Fi의 모바일에서 접속하려면 PC의 로컬 IP를 확인한 뒤 다음처럼 환경변수를 조정합니다.
 
 ```bash
-export CORS_ORIGINS="http://localhost:5173,http://192.168.0.21:5173"
 export VITE_API_URL="http://192.168.0.21:4000"
 export VITE_WS_URL="ws://192.168.0.21:4000/ws"
+export CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173,http://192.168.0.21:5173"
+docker compose -f docker-compose.dev.yml up --build
 ```
 
 모바일 브라우저에서는 `http://192.168.0.21:5173`으로 접속합니다.
+
+환경변수 예시는 [.env.example](.env.example)에 있습니다.
 
 ## PWA
 
@@ -115,7 +125,20 @@ npm run build
 
 cd apps/api
 go test ./...
+
+cd ../..
+docker compose -f docker-compose.dev.yml config
 ```
+
+## CI/CD
+
+GitHub Actions 워크플로는 [.github/workflows/ci.yml](.github/workflows/ci.yml)에 있습니다.
+
+- `develop`, `main` push 시 실행
+- `develop`, `main` 대상 Pull Request 시 실행
+- 프론트엔드: `npm ci`, `npm run lint`, `npm run build`
+- 백엔드: `go mod download`, `go test ./...`
+- Docker Compose: compose 설정 검증과 서비스 이미지 빌드
 
 ## Git 작업 흐름
 
