@@ -459,6 +459,30 @@ h1 {
   line-height: 1.45;
 }
 
+.selected-game-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  border-radius: 14px;
+  padding: 0 12px;
+  color: #17212b;
+  background: rgba(244, 201, 93, 0.2);
+}
+
+.selected-game-strip span {
+  color: #68727e;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.selected-game-strip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .game-session-panel {
   display: grid;
   gap: 12px;
@@ -493,11 +517,17 @@ h1 {
   line-height: 1.55;
 }
 
+.tutorial-tips,
 .tutorial-steps {
   display: grid;
   gap: 6px;
 }
 
+.tutorial-tips {
+  margin-bottom: 8px;
+}
+
+.tutorial-tips span,
 .tutorial-steps span {
   border-radius: 12px;
   padding: 8px 10px;
@@ -505,6 +535,11 @@ h1 {
   background: rgba(244, 201, 93, 0.18);
   font-size: 0.84rem;
   font-weight: 800;
+}
+
+.tutorial-tips span {
+  color: #46505c;
+  background: rgba(47, 142, 116, 0.1);
 }
 
 .chat-list strong {
@@ -677,6 +712,47 @@ button.davinci-tile {
   background: #fff;
   color: #17212b;
   font-weight: 850;
+}
+
+.halli-board {
+  display: grid;
+  gap: 8px;
+}
+
+.halli-player {
+  display: grid;
+  gap: 5px;
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(23, 33, 43, 0.06);
+}
+
+.halli-player strong,
+.halli-player > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.halli-player > span {
+  color: #68727e;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.halli-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.halli-cards span {
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: #17212b;
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
 .wide-button:disabled {
