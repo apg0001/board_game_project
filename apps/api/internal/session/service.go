@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrGameNotRegistered = errors.New("game module is not registered")
-	ErrRoomNotReady      = errors.New("room is not ready to start")
+	ErrGameNotRegistered  = errors.New("game module is not registered")
+	ErrRoomNotReady       = errors.New("room is not ready to start")
+	ErrTimeoutUnsupported = errors.New("game module does not support timeout handling")
 )
 
 type Clock func() time.Time
@@ -94,6 +95,43 @@ func (s *Service) ApplyAction(ctx context.Context, room room.Room, sessionID str
 	}
 
 	result, err := module.ApplyAction(ctx, current.State, action, gameCtx)
+	if err != nil {
+		return Session{}, nil, err
+	}
+
+	current.State = result.State
+	current.UpdatedAt = s.clock().UTC()
+	if module.IsFinished(current.State, gameCtx) {
+		current.Status = StatusFinished
+		current.Results = module.CalculateResult(current.State, gameCtx)
+	}
+
+	if err := s.store.Save(current); err != nil {
+		return Session{}, nil, err
+	}
+	return current, result.Events, nil
+}
+
+func (s *Service) ApplyTimeout(ctx context.Context, room room.Room, sessionID string, playerID gamecore.PlayerID) (Session, []gamecore.Event, error) {
+	current, err := s.store.FindByID(sessionID)
+	if err != nil {
+		return Session{}, nil, err
+	}
+	if current.Status != StatusActive {
+		return current, nil, nil
+	}
+
+	module, ok := s.registry.Find(gamecore.GameID(current.GameID))
+	if !ok {
+		return Session{}, nil, ErrGameNotRegistered
+	}
+	timeoutHandler, ok := module.(gamecore.TimeoutHandler)
+	if !ok {
+		return Session{}, nil, ErrTimeoutUnsupported
+	}
+
+	gameCtx := contextFromRoom(room, s.clock().UTC())
+	result, err := timeoutHandler.ApplyTimeout(ctx, current.State, playerID, gameCtx)
 	if err != nil {
 		return Session{}, nil, err
 	}

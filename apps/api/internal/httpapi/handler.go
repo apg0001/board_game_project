@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -37,7 +38,13 @@ type Handler struct {
 }
 
 func (h Handler) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"runtime": map[string]any{
+			"presenceGraceSeconds": int(h.presence.GracePeriod().Seconds()),
+			"games":                len(h.games.All()),
+		},
+	})
 }
 
 func (h Handler) createGuest(w http.ResponseWriter, _ *http.Request) {
@@ -455,6 +462,42 @@ func (h Handler) resumeConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	h.hub.Broadcast(realtime.Message{Room: "room:" + presence.RoomID, Type: "presence.updated", Payload: map[string]any{"presence": presence}})
 	writeJSON(w, http.StatusOK, map[string]any{"presence": presence})
+}
+
+func (h Handler) SweepExpiredPresence(ctx context.Context) {
+	for _, expired := range h.presence.ExpireDisconnected() {
+		h.hub.Broadcast(realtime.Message{
+			Room:    "room:" + expired.RoomID,
+			Type:    "presence.expired",
+			Payload: map[string]any{"presence": expired},
+		})
+		if expired.RoomID == "" || expired.SessionID == "" {
+			continue
+		}
+
+		foundRoom, err := h.rooms.FindByID(expired.RoomID)
+		if err != nil || foundRoom.ActiveSessionID != expired.SessionID {
+			continue
+		}
+		updated, events, err := h.sessions.ApplyTimeout(ctx, foundRoom, expired.SessionID, gamecore.PlayerID(expired.UserID))
+		if err != nil {
+			continue
+		}
+		if updated.Status == session.StatusFinished {
+			h.records.RecordSession(updated)
+			if finishedRoom, statusErr := h.rooms.SetStatus(foundRoom.ID, room.StatusFinished); statusErr == nil {
+				h.publishRoomUpdated(finishedRoom)
+			}
+		}
+		h.publishGameUpdated(updated)
+		for _, event := range events {
+			h.hub.Broadcast(realtime.Message{
+				Room:    "game:" + updated.ID,
+				Type:    event.Type,
+				Payload: event.Payload,
+			})
+		}
+	}
 }
 
 func (h Handler) quickMatch(w http.ResponseWriter, r *http.Request) {
