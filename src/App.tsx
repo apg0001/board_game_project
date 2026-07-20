@@ -509,12 +509,72 @@ export function App() {
                   ))}
                 </div>
                 {currentSession.status === "FINISHED" ? (
-                  <div className="session-log">
-                    {(currentSession.results ?? []).map((result) => (
-                      <span key={result.playerId}>
-                        {result.rank}위 · {result.outcome} · {result.score}점
-                      </span>
-                    ))}
+                  <div className="post-game-panel">
+                    <div className="session-log">
+                      {(currentSession.results ?? []).map((result) => (
+                        <span key={result.playerId}>
+                          {result.rank}위 · {result.outcome} · {result.score}점
+                        </span>
+                      ))}
+                    </div>
+                    <div className="room-actions">
+                      <button
+                        className="wide-button play-now"
+                        onClick={() =>
+                          roomPostAction(
+                            currentRoom?.id,
+                            "rematch",
+                            setCurrentRoom,
+                            () => setCurrentSession(null),
+                            setRoomMessage
+                          )
+                        }
+                      >
+                        다시 하기
+                        <ChevronRight size={18} />
+                      </button>
+                      <button
+                        className="wide-button"
+                        onClick={() =>
+                          roomPostAction(
+                            currentRoom?.id,
+                            "return-lobby",
+                            setCurrentRoom,
+                            () => setCurrentSession(null),
+                            setRoomMessage
+                          )
+                        }
+                      >
+                        로비로 가기
+                        <ChevronRight size={18} />
+                      </button>
+                      <button
+                        className="wide-button dark"
+                        onClick={() => {
+                          setCurrentRoom(null);
+                          setCurrentSession(null);
+                          setRoomMessage("홈으로 돌아왔습니다.");
+                        }}
+                      >
+                        홈으로 가기
+                        <ChevronRight size={18} />
+                      </button>
+                      <button
+                        className="wide-button dark"
+                        onClick={() =>
+                          roomPostAction(
+                            currentRoom?.id,
+                            "leave",
+                            setCurrentRoom,
+                            () => setCurrentSession(null),
+                            setRoomMessage
+                          )
+                        }
+                      >
+                        방 나가기
+                        <ChevronRight size={18} />
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="room-actions">
@@ -885,6 +945,30 @@ async function sendGuessAction(
     }
   );
   onSession(data.session);
+}
+
+async function roomPostAction(
+  roomID: string | undefined,
+  action: "rematch" | "return-lobby" | "leave",
+  onRoom: (room: Room | null) => void,
+  afterAction: () => void,
+  onMessage: (message: string) => void
+) {
+  const guest = readGuestSession();
+  if (!guest || !roomID) return;
+
+  const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/${action}`, guest.sessionToken, {
+    method: "POST"
+  });
+
+  if (action === "leave" || data.room.status === "CLOSED") {
+    onRoom(null);
+    onMessage("방에서 나왔습니다.");
+  } else {
+    onRoom(data.room);
+    onMessage(action === "rematch" ? "다시 하기 준비 로비로 돌아왔습니다." : "로비로 돌아왔습니다.");
+  }
+  afterAction();
 }
 
 async function fetchSession(sessionID: string, token: string): Promise<GameSession> {

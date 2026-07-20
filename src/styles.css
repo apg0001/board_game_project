@@ -464,6 +464,11 @@ h1 {
   gap: 12px;
 }
 
+.post-game-panel {
+  display: grid;
+  gap: 12px;
+}
+
 .game-session-panel p {
   margin-bottom: 0;
   color: #17212b;
