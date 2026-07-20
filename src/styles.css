@@ -405,6 +405,47 @@ h1 {
   color: #68727e;
 }
 
+.member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.member-actions button,
+.mini-command {
+  min-height: 30px;
+  border: 0;
+  border-radius: 9px;
+  padding: 0 9px;
+  color: #fff8e8;
+  background: #17212b;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.member-actions button:last-child,
+.mini-command.danger {
+  background: #c95f42;
+}
+
+.spectator-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.spectator-list span,
+.spectator-list small {
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: rgba(23, 33, 43, 0.06);
+  color: #46505c;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
 .wide-button {
   justify-content: space-between;
   width: 100%;

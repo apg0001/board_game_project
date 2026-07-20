@@ -43,6 +43,9 @@ func (s *Service) Add(roomID string, user guest.PublicUser, text string, kind st
 	if text == "" {
 		return Message{}, false
 	}
+	if len([]rune(text)) > 160 {
+		text = string([]rune(text)[:160])
+	}
 	if kind == "" {
 		kind = "chat"
 	}
