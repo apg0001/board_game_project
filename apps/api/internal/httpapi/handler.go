@@ -175,25 +175,48 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedRoom, err := h.rooms.SetStatus(found.ID, room.StatusPlaying)
+	updatedRoom, err := h.rooms.SetPlaying(found.ID, created.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update room status"})
 		return
 	}
 
+	publicSession, err := h.sessions.PublicView(updatedRoom, created, gamecore.PlayerID(user.ID))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build session view"})
+		return
+	}
+
 	h.publishRoomUpdated(updatedRoom)
 	h.publishGameUpdated(created)
-	writeJSON(w, http.StatusCreated, map[string]any{"session": created, "room": updatedRoom})
+	writeJSON(w, http.StatusCreated, map[string]any{"session": publicSession, "room": updatedRoom})
 }
 
 func (h Handler) getSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
 	found, err := h.sessions.FindByID(r.PathValue("sessionID"))
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"session": found})
+	foundRoom, err := h.rooms.FindByID(found.RoomID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+
+	publicSession, err := h.sessions.PublicView(foundRoom, found, gamecore.PlayerID(user.ID))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build session view"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"session": publicSession})
 }
 
 func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +254,12 @@ func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	publicSession, err := h.sessions.PublicView(foundRoom, updated, gamecore.PlayerID(user.ID))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build session view"})
+		return
+	}
+
 	h.publishGameUpdated(updated)
 	for _, event := range events {
 		h.hub.Broadcast(realtime.Message{
@@ -239,7 +268,7 @@ func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
 			Payload: event.Payload,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": updated})
+	writeJSON(w, http.StatusOK, map[string]any{"session": publicSession})
 }
 
 func (h Handler) recommendGames(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +300,14 @@ func (h Handler) publishRoomUpdated(updated room.Room) {
 }
 
 func (h Handler) publishGameUpdated(updated session.Session) {
+	foundRoom, err := h.rooms.FindByID(updated.RoomID)
+	if err == nil {
+		publicSession, viewErr := h.sessions.PublicView(foundRoom, updated, "")
+		if viewErr == nil {
+			updated = publicSession
+		}
+	}
+
 	h.hub.Broadcast(realtime.Message{
 		Room: "game:" + updated.ID,
 		Type: "game.updated",

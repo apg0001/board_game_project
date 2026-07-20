@@ -153,8 +153,21 @@ interface Room {
   code: string;
   gameId: string;
   status: "LOBBY" | "PLAYING" | "FINISHED" | "CLOSED";
+  activeSessionId?: string;
   maxPlayers: number;
   participants: RoomParticipant[];
+}
+
+interface DavinciTile {
+  color: "black" | "white" | "hidden";
+  value: number;
+  revealed: boolean;
+}
+
+interface DavinciPlayer {
+  playerId: string;
+  tiles: DavinciTile[];
+  active: boolean;
 }
 
 interface GameSession {
@@ -163,10 +176,12 @@ interface GameSession {
   gameId: string;
   status: "ACTIVE" | "FINISHED" | "ABORTED";
   state: {
+    currentPlayerIndex?: number;
     turnIndex?: number;
     round?: number;
     log?: string[];
     finished?: boolean;
+    players?: DavinciPlayer[];
   };
   results?: Array<{
     playerId: string;
@@ -193,6 +208,10 @@ export function App() {
   const [guestSession, setGuestSession] = useState<GuestSession | null>(() => readGuestSession());
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const [currentSession, setCurrentSession] = useState<GameSession | null>(null);
+  const [guessTarget, setGuessTarget] = useState("");
+  const [guessTileIndex, setGuessTileIndex] = useState(0);
+  const [guessColor, setGuessColor] = useState<"black" | "white">("black");
+  const [guessValue, setGuessValue] = useState(0);
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
 
@@ -272,6 +291,15 @@ export function App() {
   }, [currentRoom?.id, guestSession]);
 
   useEffect(() => {
+    if (!currentRoom?.activeSessionId || !guestSession) return;
+    if (currentSession?.id === currentRoom.activeSessionId) return;
+
+    fetchSession(currentRoom.activeSessionId, guestSession.sessionToken)
+      .then(setCurrentSession)
+      .catch(() => undefined);
+  }, [currentRoom?.activeSessionId, currentSession?.id, guestSession]);
+
+  useEffect(() => {
     if (!currentSession || !guestSession) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
@@ -318,6 +346,12 @@ export function App() {
   const me = currentRoom?.participants.find(
     (participant) => participant.user.id === guestSession?.user.id
   );
+  const davinciPlayers = currentSession?.state.players ?? [];
+  const myDavinciPlayer = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const opponentPlayers = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id);
+  const targetPlayer = opponentPlayers.find((player) => player.playerId === guessTarget) ?? opponentPlayers[0];
+  const currentTurnPlayer = davinciPlayers[currentSession?.state.currentPlayerIndex ?? 0];
+  const isMyTurn = currentTurnPlayer?.playerId === guestSession?.user.id;
 
   return (
     <main className="app-shell">
@@ -484,22 +518,85 @@ export function App() {
                   </div>
                 ) : (
                   <div className="room-actions">
+                    <div className="tile-board" aria-label="내 타일">
+                      <span>내 타일</span>
+                      <div className="tile-row">
+                        {(myDavinciPlayer?.tiles ?? []).map((tile, index) => (
+                          <span className={`davinci-tile ${tile.color}`} key={`${tile.color}-${tile.value}-${index}`}>
+                            {tile.value}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="tile-board" aria-label="상대 타일">
+                      <span>상대 타일</span>
+                      {opponentPlayers.map((player) => (
+                        <div className="opponent-row" key={player.playerId}>
+                          <strong>{participantName(currentRoom, player.playerId)}</strong>
+                          <div className="tile-row">
+                            {player.tiles.map((tile, index) => (
+                              <button
+                                className={`davinci-tile ${tile.color} ${
+                                  targetPlayer?.playerId === player.playerId && guessTileIndex === index ? "selected" : ""
+                                }`}
+                                key={`${player.playerId}-${index}`}
+                                onClick={() => {
+                                  setGuessTarget(player.playerId);
+                                  setGuessTileIndex(index);
+                                }}
+                              >
+                                {tile.value >= 0 ? tile.value : "?"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="guess-controls">
+                      <select
+                        value={guessColor}
+                        onChange={(event) => setGuessColor(event.target.value as "black" | "white")}
+                        aria-label="추측 색상"
+                      >
+                        <option value="black">검정</option>
+                        <option value="white">흰색</option>
+                      </select>
+                      <input
+                        type="number"
+                        min="0"
+                        max="11"
+                        value={guessValue}
+                        onChange={(event) => setGuessValue(Number(event.target.value))}
+                        aria-label="추측 숫자"
+                      />
+                    </div>
                     <button
                       className="wide-button"
                       onClick={() =>
-                        sendGameAction(currentSession.id, currentRoom?.id, "davinci.pass", setCurrentSession)
+                        sendGuessAction(
+                          currentSession.id,
+                          currentRoom?.id,
+                          {
+                            targetPlayerId: targetPlayer?.playerId ?? "",
+                            tileIndex: guessTileIndex,
+                            color: guessColor,
+                            value: guessValue
+                          },
+                          setCurrentSession
+                        )
                       }
+                      disabled={!isMyTurn || !targetPlayer}
                     >
-                      턴 진행
+                      추측하기
                       <ChevronRight size={18} />
                     </button>
                     <button
                       className="wide-button dark"
                       onClick={() =>
-                        sendGameAction(currentSession.id, currentRoom?.id, "davinci.finish", setCurrentSession)
+                        sendGameAction(currentSession.id, currentRoom?.id, "davinci.pass", setCurrentSession)
                       }
                     >
-                      게임 종료
+                      턴 넘기기
                       <ChevronRight size={18} />
                     </button>
                   </div>
@@ -758,6 +855,47 @@ async function sendGameAction(
     }
   );
   onSession(data.session);
+}
+
+async function sendGuessAction(
+  sessionID: string,
+  roomID: string | undefined,
+  payload: {
+    targetPlayerId: string;
+    tileIndex: number;
+    color: "black" | "white";
+    value: number;
+  },
+  onSession: (session: GameSession) => void
+) {
+  const guest = readGuestSession();
+  if (!guest || !roomID || !payload.targetPlayerId) return;
+
+  const data = await authorizedJSON<{ session: GameSession }>(
+    `/api/sessions/${sessionID}/actions`,
+    guest.sessionToken,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        roomId: roomID,
+        type: "davinci.guess",
+        payload,
+        clientRequestId: crypto.randomUUID()
+      })
+    }
+  );
+  onSession(data.session);
+}
+
+async function fetchSession(sessionID: string, token: string): Promise<GameSession> {
+  const data = await authorizedJSON<{ session: GameSession }>(`/api/sessions/${sessionID}`, token, {
+    method: "GET"
+  });
+  return data.session;
+}
+
+function participantName(room: Room | null, playerID: string) {
+  return room?.participants.find((participant) => participant.user.id === playerID)?.user.nickname ?? "상대";
 }
 
 async function authorizedJSON<T>(
