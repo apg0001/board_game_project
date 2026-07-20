@@ -76,6 +76,75 @@ func TestToggleReady(t *testing.T) {
 	}
 }
 
+func TestReturnToLobbyClearsReadyAndSession(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	playing, err := service.SetPlaying(created.ID, "session_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, err := service.ToggleReady(playing.ID, "u1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	returned, err := service.ReturnToLobby(ready.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if returned.Status != StatusLobby || returned.ActiveSessionID != "" {
+		t.Fatalf("expected lobby without active session, got %+v", returned)
+	}
+	if returned.Participants[0].Ready {
+		t.Fatal("expected ready to be reset")
+	}
+}
+
+func TestLeaveReassignsHost(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := service.JoinByCode(created.Code, testUser("u2", "Guest_1002"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.Leave(joined.ID, "u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if updated.HostUserID != "u2" {
+		t.Fatalf("expected u2 host, got %s", updated.HostUserID)
+	}
+	if !updated.Participants[0].Host {
+		t.Fatal("expected remaining participant to be host")
+	}
+}
+
+func TestLeaveClosesEmptyRoom(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.Leave(created.ID, "u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if updated.Status != StatusClosed {
+		t.Fatalf("expected closed room, got %s", updated.Status)
+	}
+}
+
 func testUser(id string, nickname string) guest.PublicUser {
 	now := time.Date(2026, 7, 20, 1, 0, 0, 0, time.UTC)
 	return guest.PublicUser{

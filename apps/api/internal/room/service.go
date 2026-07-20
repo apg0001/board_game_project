@@ -147,6 +147,53 @@ func (s *Service) SetPlaying(roomID string, sessionID string) (Room, error) {
 	return room, s.store.Save(room)
 }
 
+func (s *Service) ReturnToLobby(roomID string) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+
+	room.Status = StatusLobby
+	room.ActiveSessionID = ""
+	for index := range room.Participants {
+		room.Participants[index].Ready = false
+	}
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
+}
+
+func (s *Service) Leave(roomID string, userID string) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+
+	participants := make([]Participant, 0, len(room.Participants))
+	for _, participant := range room.Participants {
+		if participant.User.ID != userID {
+			participants = append(participants, participant)
+		}
+	}
+
+	room.Participants = participants
+	if len(room.Participants) == 0 {
+		room.Status = StatusClosed
+		room.HostUserID = ""
+		room.ActiveSessionID = ""
+	} else if room.HostUserID == userID {
+		room.HostUserID = room.Participants[0].User.ID
+		room.Participants[0].Host = true
+	}
+
+	for index := range room.Participants {
+		room.Participants[index].SeatIndex = index
+		room.Participants[index].Host = room.Participants[index].User.ID == room.HostUserID
+	}
+
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
+}
+
 func (s *Service) uniqueCode() (string, error) {
 	for range 20 {
 		code, err := randomCode(6)

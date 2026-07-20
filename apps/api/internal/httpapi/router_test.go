@@ -180,6 +180,31 @@ func TestStartGameAndApplyAction(t *testing.T) {
 	}
 }
 
+func TestReturnLobbyAndLeaveRoom(t *testing.T) {
+	handler := testRouter()
+	hostToken := createGuestToken(t, handler)
+	guestToken := createGuestToken(t, handler)
+	room := createReadyRoom(t, handler, hostToken, guestToken)
+
+	returnRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/return-lobby", nil)
+	returnRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	returnResponse := httptest.NewRecorder()
+	handler.ServeHTTP(returnResponse, returnRequest)
+
+	if returnResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", returnResponse.Code)
+	}
+
+	leaveRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/leave", nil)
+	leaveRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	leaveResponse := httptest.NewRecorder()
+	handler.ServeHTTP(leaveResponse, leaveRequest)
+
+	if leaveResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", leaveResponse.Code)
+	}
+}
+
 func testRouter() http.Handler {
 	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
 	registry := gamecore.NewRegistry(davinci.NewModule())

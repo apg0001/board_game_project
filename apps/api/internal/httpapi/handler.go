@@ -192,6 +192,37 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"session": publicSession, "room": updatedRoom})
 }
 
+func (h Handler) returnRoomToLobby(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireGuest(w, r); !ok {
+		return
+	}
+
+	updated, err := h.rooms.ReturnToLobby(r.PathValue("roomID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+
+	h.publishRoomUpdated(updated)
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
+func (h Handler) leaveRoom(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	updated, err := h.rooms.Leave(r.PathValue("roomID"), user.ID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+
+	h.publishRoomUpdated(updated)
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
 func (h Handler) getSession(w http.ResponseWriter, r *http.Request) {
 	user, ok := h.requireGuest(w, r)
 	if !ok {
@@ -258,6 +289,12 @@ func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build session view"})
 		return
+	}
+
+	if updated.Status == session.StatusFinished {
+		if finishedRoom, statusErr := h.rooms.SetStatus(foundRoom.ID, room.StatusFinished); statusErr == nil {
+			h.publishRoomUpdated(finishedRoom)
+		}
 	}
 
 	h.publishGameUpdated(updated)
