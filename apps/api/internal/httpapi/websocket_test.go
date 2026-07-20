@@ -11,11 +11,14 @@ import (
 	"time"
 
 	"board-game-platform/apps/api/internal/catalog"
+	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/config"
+	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/realtime"
+	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
 
@@ -34,6 +37,9 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		guest.NewService(guest.NewMemoryStore(), nil),
 		room.NewService(room.NewMemoryStore(), nil),
 		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(davinci.NewModule()), nil),
+		chat.NewService(nil, 50),
+		connection.NewService(nil, 0),
+		record.NewService(nil),
 		hub,
 	))
 	defer server.Close()

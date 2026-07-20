@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"board-game-platform/apps/api/internal/catalog"
+	"board-game-platform/apps/api/internal/chat"
+	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/realtime"
+	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
 )
@@ -21,6 +24,9 @@ type Handler struct {
 	guests   *guest.Service
 	rooms    *room.Service
 	sessions *session.Service
+	chats    *chat.Service
+	presence *connection.Service
+	records  *record.Service
 	hub      *realtime.Hub
 }
 
@@ -223,6 +229,72 @@ func (h Handler) leaveRoom(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
 }
 
+func (h Handler) recentChat(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"messages": h.chats.Recent(r.PathValue("roomID"))})
+}
+
+func (h Handler) sendChat(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+		Kind string `json:"kind"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid chat payload"})
+		return
+	}
+	message, saved := h.chats.Add(r.PathValue("roomID"), user.Public(), body.Text, body.Kind)
+	if !saved {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message is empty"})
+		return
+	}
+	h.hub.Broadcast(realtime.Message{Room: "room:" + r.PathValue("roomID"), Type: "chat.message", Payload: map[string]any{"message": message}})
+	writeJSON(w, http.StatusCreated, map[string]any{"message": message})
+}
+
+func (h Handler) markPresence(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		SessionID string `json:"sessionId"`
+		Status    string `json:"status"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	var presence connection.Presence
+	if body.Status == string(connection.StatusDisconnected) {
+		var found bool
+		presence, found = h.presence.MarkDisconnected(user.ID)
+		if !found {
+			presence = h.presence.MarkOnline(user.ID, r.PathValue("roomID"), body.SessionID)
+			presence, _ = h.presence.MarkDisconnected(user.ID)
+		}
+	} else {
+		presence = h.presence.MarkOnline(user.ID, r.PathValue("roomID"), body.SessionID)
+	}
+	h.hub.Broadcast(realtime.Message{Room: "room:" + r.PathValue("roomID"), Type: "presence.updated", Payload: map[string]any{"presence": presence}})
+	writeJSON(w, http.StatusOK, map[string]any{"presence": presence})
+}
+
+func (h Handler) resumeConnection(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	presence, resumed := h.presence.Resume(user.ID)
+	if !resumed {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "reconnect window expired"})
+		return
+	}
+	h.hub.Broadcast(realtime.Message{Room: "room:" + presence.RoomID, Type: "presence.updated", Payload: map[string]any{"presence": presence}})
+	writeJSON(w, http.StatusOK, map[string]any{"presence": presence})
+}
+
 func (h Handler) getSession(w http.ResponseWriter, r *http.Request) {
 	user, ok := h.requireGuest(w, r)
 	if !ok {
@@ -292,6 +364,7 @@ func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if updated.Status == session.StatusFinished {
+		h.records.RecordSession(updated)
 		if finishedRoom, statusErr := h.rooms.SetStatus(foundRoom.ID, room.StatusFinished); statusErr == nil {
 			h.publishRoomUpdated(finishedRoom)
 		}
@@ -306,6 +379,11 @@ func (h Handler) applyGameAction(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"session": publicSession})
+}
+
+func (h Handler) leaderboard(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	writeJSON(w, http.StatusOK, map[string]any{"rows": h.records.Leaderboard(r.URL.Query().Get("gameId"), limit)})
 }
 
 func (h Handler) recommendGames(w http.ResponseWriter, r *http.Request) {

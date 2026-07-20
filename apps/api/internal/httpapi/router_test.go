@@ -9,11 +9,14 @@ import (
 	"testing"
 
 	"board-game-platform/apps/api/internal/catalog"
+	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/config"
+	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/realtime"
+	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
 )
@@ -215,6 +218,9 @@ func testRouter() http.Handler {
 		guest.NewService(guest.NewMemoryStore(), nil),
 		room.NewService(room.NewMemoryStore(), nil),
 		session.NewService(session.NewMemoryStore(), registry, nil),
+		chat.NewService(nil, 50),
+		connection.NewService(nil, 0),
+		record.NewService(nil),
 		realtime.NewHub(logger),
 	)
 }
