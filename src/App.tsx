@@ -543,6 +543,7 @@ export function App() {
   const isMyTurn = currentTurnPlayer?.playerId === guestSession?.user.id;
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
   const everyoneReady = partyMembers.length > 0 && partyMembers.every((participant) => participant.ready);
+  const readyCount = partyMembers.filter((participant) => participant.ready).length;
   const amHost = Boolean(me?.host);
   const canStartGame = Boolean(currentRoom && amHost && everyoneReady && currentRoom.status === "LOBBY");
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
@@ -585,6 +586,15 @@ export function App() {
                 <Play size={18} />
                 퀵매치
               </button>
+              {currentRoom && amHost ? (
+                <button
+                  className="secondary-button"
+                  onClick={() => cancelQuickMatch(currentRoom.id, currentRoom.gameId, setRoomMessage)}
+                >
+                  <Search size={18} />
+                  매칭 취소
+                </button>
+              ) : null}
               <button className="secondary-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
                 <Plus size={18} />
                 방 만들기
@@ -617,7 +627,7 @@ export function App() {
             <div className="section-title">
               <div>
                 <span>{guestSession?.user.nickname ?? "게스트 준비 중"}</span>
-              <h2>{activePlayerCount}명 입장 중</h2>
+              <h2>{activePlayerCount}명 입장 중 · Ready {readyCount}/{partyMembers.length || activePlayerCount}</h2>
               </div>
               <UsersRound size={22} />
             </div>
@@ -632,10 +642,36 @@ export function App() {
                       {" · "}
                       {presenceByUser[participant.user.id]?.status === "DISCONNECTED" ? "재접속 대기" : "온라인"}
                     </small>
+                    {currentRoom && amHost && participant.user.id !== guestSession?.user.id ? (
+                      <div className="member-actions">
+                        <button
+                          onClick={() =>
+                            transferHost(currentRoom.id, participant.user.id, setCurrentRoom, setRoomMessage)
+                          }
+                        >
+                          위임
+                        </button>
+                        <button
+                          onClick={() =>
+                            kickPlayer(currentRoom.id, participant.user.id, setCurrentRoom, setRoomMessage)
+                          }
+                        >
+                          강퇴
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}
             </div>
+            {currentRoom?.spectators?.length ? (
+              <div className="spectator-list">
+                <span>관전 {currentRoom.spectators.length}명</span>
+                {currentRoom.spectators.map((spectator) => (
+                  <small key={spectator.user.id}>{spectator.user.nickname}</small>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="room-card">
@@ -1017,7 +1053,8 @@ export function App() {
               <div className="chat-actions">
                 <input
                   value={chatInput}
-                  onChange={(event) => setChatInput(event.target.value)}
+                  maxLength={160}
+                  onChange={(event) => setChatInput(event.target.value.slice(0, 160))}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" || !chatInput.trim()) return;
                     sendChat(currentRoom.id, chatInput, "chat").then((message) => {
@@ -1029,7 +1066,9 @@ export function App() {
                   aria-label="채팅 메시지"
                 />
                 <button
+                  disabled={!chatInput.trim()}
                   onClick={() => {
+                    if (!chatInput.trim()) return;
                     sendChat(currentRoom.id, chatInput, "chat").then((message) => {
                       setChatMessages((previous) => [...previous.slice(-49), message]);
                       setChatInput("");
@@ -1234,6 +1273,12 @@ export function App() {
                 ))
               )}
             </div>
+            <button
+              className="mini-command"
+              onClick={() => fetchLeaderboard(selectedGameId).then(setLeaderboard).catch(() => undefined)}
+            >
+              랭킹 새로고침
+            </button>
           </div>
 
           {tutorialGuide ? (
@@ -1260,6 +1305,28 @@ export function App() {
               </div>
             </div>
           ) : null}
+
+          <div className="leaderboard-panel">
+            <div className="section-title">
+              <div>
+                <span>Local</span>
+                <h2>세션 관리</h2>
+              </div>
+              <ShieldCheck size={22} />
+            </div>
+            <button
+              className="mini-command danger"
+              onClick={() => {
+                localStorage.removeItem(roomStorageKey);
+                localStorage.removeItem(sessionStorageKey);
+                setCurrentRoom(null);
+                setCurrentSession(null);
+                setRoomMessage("로컬 방/게임 복구 정보를 초기화했습니다.");
+              }}
+            >
+              로컬 세션 초기화
+            </button>
+          </div>
         </section>
       </section>
 
@@ -1472,6 +1539,60 @@ async function updateRoomOptions(
     onMessage(`턴 제한시간을 ${data.room.options.turnSeconds}초로 변경했습니다.`);
   } catch {
     onMessage("방장만 옵션을 바꿀 수 있습니다.");
+  }
+}
+
+async function kickPlayer(
+  roomID: string,
+  userID: string,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) return;
+  try {
+    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/kick`, session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ userId: userID })
+    });
+    onRoom(data.room);
+    onMessage("선택한 사용자를 방에서 내보냈습니다.");
+  } catch {
+    onMessage("방장만 강퇴할 수 있습니다.");
+  }
+}
+
+async function transferHost(
+  roomID: string,
+  userID: string,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) return;
+  try {
+    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/transfer-host`, session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ userId: userID })
+    });
+    onRoom(data.room);
+    onMessage("방장을 위임했습니다.");
+  } catch {
+    onMessage("방장만 권한을 위임할 수 있습니다.");
+  }
+}
+
+async function cancelQuickMatch(roomID: string, gameId: string, onMessage: (message: string) => void) {
+  const session = readGuestSession();
+  if (!session) return;
+  try {
+    const data = await authorizedJSON<{ cancelled: boolean }>("/api/match/cancel", session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ roomId: roomID, gameId })
+    });
+    onMessage(data.cancelled ? "퀵매치 대기를 취소했습니다." : "이미 매칭 대기열에 없습니다.");
+  } catch {
+    onMessage("퀵매치 취소에 실패했습니다.");
   }
 }
 

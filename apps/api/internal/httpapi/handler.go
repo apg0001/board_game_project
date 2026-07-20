@@ -257,6 +257,66 @@ func (h Handler) updateRoomOptions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
 }
 
+func (h Handler) kickPlayer(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	found, err := h.rooms.FindByID(r.PathValue("roomID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+	if found.HostUserID != user.ID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only host can kick"})
+		return
+	}
+	var body struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UserID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target user is required"})
+		return
+	}
+	updated, err := h.rooms.Kick(found.ID, body.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "target not found"})
+		return
+	}
+	h.publishRoomUpdated(updated)
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
+func (h Handler) transferHost(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	found, err := h.rooms.FindByID(r.PathValue("roomID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+	if found.HostUserID != user.ID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only host can transfer host"})
+		return
+	}
+	var body struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UserID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "next host is required"})
+		return
+	}
+	updated, err := h.rooms.TransferHost(found.ID, body.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "next host not found"})
+		return
+	}
+	h.publishRoomUpdated(updated)
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
 func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 	user, ok := h.requireGuest(w, r)
 	if !ok {
@@ -441,6 +501,36 @@ func (h Handler) quickMatch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"room": joined, "matched": true})
 		return
 	}
+}
+
+func (h Handler) cancelQuickMatch(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		RoomID string `json:"roomId"`
+		GameID string `json:"gameId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RoomID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "room is required"})
+		return
+	}
+	found, err := h.rooms.FindByID(body.RoomID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+	if found.HostUserID != user.ID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only host can cancel quick match"})
+		return
+	}
+	gameID := body.GameID
+	if gameID == "" {
+		gameID = found.GameID
+	}
+	cancelled := h.matches.Cancel(gameID, found.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})
 }
 
 func (h Handler) getSession(w http.ResponseWriter, r *http.Request) {

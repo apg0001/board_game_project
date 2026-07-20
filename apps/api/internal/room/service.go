@@ -234,6 +234,28 @@ func (s *Service) Leave(roomID string, userID string) (Room, error) {
 	return room, s.store.Save(room)
 }
 
+func (s *Service) Kick(roomID string, targetUserID string) (Room, error) {
+	return s.Leave(roomID, targetUserID)
+}
+
+func (s *Service) TransferHost(roomID string, nextHostUserID string) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+
+	if !room.HasParticipant(nextHostUserID) {
+		return Room{}, ErrRoomNotFound
+	}
+
+	room.HostUserID = nextHostUserID
+	for index := range room.Participants {
+		room.Participants[index].Host = room.Participants[index].User.ID == nextHostUserID
+	}
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
+}
+
 func (s *Service) uniqueCode() (string, error) {
 	for range 20 {
 		code, err := randomCode(6)

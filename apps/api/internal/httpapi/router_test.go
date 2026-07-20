@@ -246,6 +246,64 @@ func TestSpectateAndUpdateRoomOptions(t *testing.T) {
 	}
 }
 
+func TestKickAndTransferHost(t *testing.T) {
+	handler := testRouter()
+	hostToken := createGuestToken(t, handler)
+	guestToken := createGuestToken(t, handler)
+	createdRoom := createReadyRoom(t, handler, hostToken, guestToken)
+
+	var roomBody struct {
+		Room room.Room `json:"room"`
+	}
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/rooms/"+createdRoom.ID, nil)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	if err := json.NewDecoder(getResponse.Body).Decode(&roomBody); err != nil {
+		t.Fatal(err)
+	}
+	targetID := roomBody.Room.Participants[1].User.ID
+
+	transferRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createdRoom.ID+"/transfer-host", bytes.NewBufferString(`{"userId":"`+targetID+`"}`))
+	transferRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	transferResponse := httptest.NewRecorder()
+	handler.ServeHTTP(transferResponse, transferRequest)
+	if transferResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", transferResponse.Code)
+	}
+
+	kickRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createdRoom.ID+"/kick", bytes.NewBufferString(`{"userId":"`+roomBody.Room.Participants[0].User.ID+`"}`))
+	kickRequest.Header.Set("Authorization", "Bearer "+guestToken)
+	kickResponse := httptest.NewRecorder()
+	handler.ServeHTTP(kickResponse, kickRequest)
+	if kickResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", kickResponse.Code)
+	}
+}
+
+func TestCancelQuickMatch(t *testing.T) {
+	handler := testRouter()
+	token := createGuestToken(t, handler)
+	request := httptest.NewRequest(http.MethodPost, "/api/match/quick", bytes.NewBufferString(`{"gameId":"davinci"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	var body struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+
+	cancelRequest := httptest.NewRequest(http.MethodPost, "/api/match/cancel", bytes.NewBufferString(`{"roomId":"`+body.Room.ID+`","gameId":"davinci"}`))
+	cancelRequest.Header.Set("Authorization", "Bearer "+token)
+	cancelResponse := httptest.NewRecorder()
+	handler.ServeHTTP(cancelResponse, cancelRequest)
+	if cancelResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", cancelResponse.Code)
+	}
+}
+
 func TestQuickMatchCreatesThenJoinsWaitingRoom(t *testing.T) {
 	handler := testRouter()
 	firstToken := createGuestToken(t, handler)

@@ -128,6 +128,25 @@ func TestLeaveReassignsHost(t *testing.T) {
 	}
 }
 
+func TestTransferHost(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := service.JoinByCode(created.Code, testUser("u2", "Guest_1002"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.TransferHost(joined.ID, "u2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.HostUserID != "u2" || !updated.Participants[1].Host {
+		t.Fatalf("expected transferred host, got %+v", updated)
+	}
+}
+
 func TestLeaveClosesEmptyRoom(t *testing.T) {
 	service := NewService(NewMemoryStore(), fixedClock())
 	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
