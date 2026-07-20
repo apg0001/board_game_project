@@ -34,6 +34,10 @@ func NewHub(logger *slog.Logger) *Hub {
 	}
 }
 
+func (h *Hub) Broadcast(message Message) {
+	h.broadcast <- message
+}
+
 func (h *Hub) Run() {
 	for {
 		select {
