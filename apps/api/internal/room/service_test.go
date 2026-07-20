@@ -145,6 +145,39 @@ func TestLeaveClosesEmptyRoom(t *testing.T) {
 	}
 }
 
+func TestJoinSpectatorDoesNotOccupySeat(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.JoinSpectator(created.ID, testUser("u2", "Guest_1002"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(updated.Participants) != 1 || len(updated.Spectators) != 1 {
+		t.Fatalf("unexpected room users: %+v", updated)
+	}
+}
+
+func TestUpdateOptionsClampsTurnSeconds(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.UpdateOptions(created.ID, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Options.TurnSeconds != 10 {
+		t.Fatalf("expected clamped turn seconds, got %d", updated.Options.TurnSeconds)
+	}
+}
+
 func testUser(id string, nickname string) guest.PublicUser {
 	now := time.Date(2026, 7, 20, 1, 0, 0, 0, time.UTC)
 	return guest.PublicUser{

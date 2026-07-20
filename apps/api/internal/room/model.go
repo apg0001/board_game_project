@@ -23,6 +23,15 @@ type Participant struct {
 	JoinedAt  time.Time        `json:"joinedAt"`
 }
 
+type Spectator struct {
+	User     guest.PublicUser `json:"user"`
+	JoinedAt time.Time        `json:"joinedAt"`
+}
+
+type Options struct {
+	TurnSeconds int `json:"turnSeconds"`
+}
+
 type Room struct {
 	ID              string        `json:"id"`
 	Code            string        `json:"code"`
@@ -32,12 +41,23 @@ type Room struct {
 	MaxPlayers      int           `json:"maxPlayers"`
 	HostUserID      string        `json:"hostUserId"`
 	Participants    []Participant `json:"participants"`
+	Spectators      []Spectator   `json:"spectators"`
+	Options         Options       `json:"options"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	UpdatedAt       time.Time     `json:"updatedAt"`
 }
 
 func (r Room) IsFull() bool {
 	return len(r.Participants) >= r.MaxPlayers
+}
+
+func (r Room) HasSpectator(userID string) bool {
+	for _, spectator := range r.Spectators {
+		if spectator.User.ID == userID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r Room) HasParticipant(userID string) bool {

@@ -32,6 +32,8 @@ func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, au
 	mux.HandleFunc("POST /api/rooms/join", api.joinRoom)
 	mux.HandleFunc("GET /api/rooms/{roomID}", api.getRoom)
 	mux.HandleFunc("POST /api/rooms/{roomID}/ready", api.setReady)
+	mux.HandleFunc("POST /api/rooms/{roomID}/spectate", api.spectateRoom)
+	mux.HandleFunc("PATCH /api/rooms/{roomID}/options", api.updateRoomOptions)
 	mux.HandleFunc("POST /api/rooms/{roomID}/start", api.startGame)
 	mux.HandleFunc("POST /api/rooms/{roomID}/return-lobby", api.returnRoomToLobby)
 	mux.HandleFunc("POST /api/rooms/{roomID}/rematch", api.returnRoomToLobby)
