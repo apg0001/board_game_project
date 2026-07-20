@@ -487,7 +487,7 @@ export function App() {
                     <button
                       className="wide-button"
                       onClick={() =>
-                        sendGameAction(currentSession.id, currentRoom?.id, "demo.advance", setCurrentSession)
+                        sendGameAction(currentSession.id, currentRoom?.id, "davinci.pass", setCurrentSession)
                       }
                     >
                       턴 진행
@@ -496,7 +496,7 @@ export function App() {
                     <button
                       className="wide-button dark"
                       onClick={() =>
-                        sendGameAction(currentSession.id, currentRoom?.id, "demo.finish", setCurrentSession)
+                        sendGameAction(currentSession.id, currentRoom?.id, "davinci.finish", setCurrentSession)
                       }
                     >
                       게임 종료
@@ -739,7 +739,7 @@ async function startGame(
 async function sendGameAction(
   sessionID: string,
   roomID: string | undefined,
-  type: "demo.advance" | "demo.finish",
+  type: "davinci.pass" | "davinci.finish",
   onSession: (session: GameSession) => void
 ) {
   const guest = readGuestSession();

@@ -169,7 +169,7 @@ func TestStartGameAndApplyAction(t *testing.T) {
 	actionRequest := httptest.NewRequest(
 		http.MethodPost,
 		"/api/sessions/"+startBody.Session.ID+"/actions",
-		bytes.NewBufferString(`{"roomId":"`+room.ID+`","type":"demo.advance","clientRequestId":"test-1"}`),
+		bytes.NewBufferString(`{"roomId":"`+room.ID+`","type":"davinci.pass","clientRequestId":"test-1"}`),
 	)
 	actionRequest.Header.Set("Authorization", "Bearer "+hostToken)
 	actionResponse := httptest.NewRecorder()
