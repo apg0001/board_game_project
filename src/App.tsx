@@ -156,6 +156,14 @@ interface Room {
   participants: RoomParticipant[];
 }
 
+interface RealtimeMessage {
+  room: string;
+  type: string;
+  payload: {
+    room: Room;
+  };
+}
+
 const guestStorageKey = "board-table.guest-session";
 
 export function App() {
@@ -207,6 +215,38 @@ export function App() {
 
     createGuest(apiURL).then(setGuestSession).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!currentRoom || !guestSession) return;
+
+    const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
+    const socket = new WebSocket(
+      `${wsURL}?room=${encodeURIComponent(`room:${currentRoom.id}`)}&user=${encodeURIComponent(
+        guestSession.user.id
+      )}`
+    );
+
+    socket.onopen = () => {
+      setRoomMessage(`${currentRoom.code} 방에 실시간으로 연결되었습니다.`);
+    };
+
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data) as RealtimeMessage;
+      if (message.type !== "room.updated") return;
+
+      const nextRoom = message.payload.room;
+      setCurrentRoom(nextRoom);
+      setRoomMessage(`${nextRoom.code} 방 상태가 갱신되었습니다.`);
+    };
+
+    socket.onclose = () => {
+      setRoomMessage("방 실시간 연결이 끊겼습니다. API 상태는 유지됩니다.");
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [currentRoom?.id, guestSession]);
 
   const recommendedGames = useMemo(() => {
     if (apiGames.length === 0) return fallbackRecommendedGames;

@@ -76,6 +76,7 @@ func (h Handler) createRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishRoomUpdated(created)
 	writeJSON(w, http.StatusCreated, map[string]any{"room": created})
 }
 
@@ -106,6 +107,7 @@ func (h Handler) joinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishRoomUpdated(joined)
 	writeJSON(w, http.StatusOK, map[string]any{"room": joined})
 }
 
@@ -139,6 +141,7 @@ func (h Handler) setReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.publishRoomUpdated(updated)
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
 }
 
@@ -158,6 +161,16 @@ func (h Handler) recommendGames(w http.ResponseWriter, r *http.Request) {
 
 func (h Handler) websocket(w http.ResponseWriter, r *http.Request) {
 	realtime.ServeWebSocket(h.hub, w, r)
+}
+
+func (h Handler) publishRoomUpdated(updated room.Room) {
+	h.hub.Broadcast(realtime.Message{
+		Room: "room:" + updated.ID,
+		Type: "room.updated",
+		Payload: map[string]any{
+			"room": updated,
+		},
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
