@@ -11,6 +11,7 @@ import (
 
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/config"
+	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/httpapi"
 	"board-game-platform/apps/api/internal/realtime"
 )
@@ -20,12 +21,13 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	gameCatalog := catalog.NewInMemoryCatalog(catalog.DefaultGames())
+	guestService := guest.NewService(guest.NewMemoryStore(), time.Now)
 	hub := realtime.NewHub(logger)
 	go hub.Run()
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, hub),
+		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, hub),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
