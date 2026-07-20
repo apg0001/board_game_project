@@ -459,6 +459,48 @@ h1 {
   line-height: 1.45;
 }
 
+.status-badge {
+  display: inline-grid;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 8px;
+  color: #fff8e8;
+  background: #2f8e74;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.option-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px;
+  gap: 8px;
+}
+
+.option-row label {
+  display: grid;
+  gap: 4px;
+  color: #68727e;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.option-row input,
+.option-row button {
+  min-height: 38px;
+  border: 1px solid rgba(23, 33, 43, 0.12);
+  border-radius: 12px;
+  padding: 0 10px;
+  background: #fff;
+}
+
+.option-row button {
+  align-self: end;
+  color: #fff8e8;
+  background: #17212b;
+  font-weight: 850;
+}
+
 .selected-game-strip {
   display: flex;
   align-items: center;

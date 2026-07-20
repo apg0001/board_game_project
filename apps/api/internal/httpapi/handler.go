@@ -209,6 +209,54 @@ func (h Handler) setReady(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
 }
 
+func (h Handler) spectateRoom(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	updated, err := h.rooms.JoinSpectator(r.PathValue("roomID"), user.Public())
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+
+	h.publishRoomUpdated(updated)
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
+func (h Handler) updateRoomOptions(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	found, err := h.rooms.FindByID(r.PathValue("roomID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
+		return
+	}
+	if found.HostUserID != user.ID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only host can update options"})
+		return
+	}
+
+	var body struct {
+		TurnSeconds int `json:"turnSeconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid options payload"})
+		return
+	}
+
+	updated, err := h.rooms.UpdateOptions(found.ID, body.TurnSeconds)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update options"})
+		return
+	}
+	h.publishRoomUpdated(updated)
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
 func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 	user, ok := h.requireGuest(w, r)
 	if !ok {

@@ -157,6 +157,13 @@ interface RoomParticipant {
   seatIndex: number;
 }
 
+interface RoomSpectator {
+  user: {
+    id: string;
+    nickname: string;
+  };
+}
+
 interface Room {
   id: string;
   code: string;
@@ -164,6 +171,10 @@ interface Room {
   status: "LOBBY" | "PLAYING" | "FINISHED" | "CLOSED";
   activeSessionId?: string;
   maxPlayers: number;
+  spectators: RoomSpectator[];
+  options: {
+    turnSeconds: number;
+  };
   participants: RoomParticipant[];
 }
 
@@ -284,6 +295,9 @@ export function App() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [selectedGameId, setSelectedGameId] = useState("davinci");
   const [tutorialGuide, setTutorialGuide] = useState<TutorialGuide | null>(null);
+  const [gameSearch, setGameSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("전체");
+  const [turnSeconds, setTurnSeconds] = useState(60);
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
 
@@ -496,9 +510,7 @@ export function App() {
   }, [currentSession?.id, guestSession]);
 
   const recommendedGames = useMemo(() => {
-    if (apiGames.length === 0) return fallbackRecommendedGames;
-
-    return apiGames.map((apiGame) => {
+    const source = apiGames.length === 0 ? fallbackRecommendedGames : apiGames.map((apiGame) => {
       const fallback = games.find((game) => game.id === apiGame.id);
       return {
         id: apiGame.id,
@@ -512,7 +524,11 @@ export function App() {
         accent: fallback?.accent ?? "#2f8e74"
       };
     });
-  }, [apiGames]);
+
+    return source
+      .filter((game) => game.title.includes(gameSearch.trim()) || gameSearch.trim() === "")
+      .filter((game) => categoryFilter === "전체" || game.categories.includes(categoryFilter as GameCategory));
+  }, [apiGames, categoryFilter, gameSearch]);
 
   const activePlayerCount = currentRoom?.participants.length ?? playerCount;
   const partyMembers = currentRoom?.participants ?? [];
@@ -529,6 +545,7 @@ export function App() {
   const everyoneReady = partyMembers.length > 0 && partyMembers.every((participant) => participant.ready);
   const amHost = Boolean(me?.host);
   const canStartGame = Boolean(currentRoom && amHost && everyoneReady && currentRoom.status === "LOBBY");
+  const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
 
   return (
     <main className="app-shell">
@@ -626,6 +643,7 @@ export function App() {
               <div>
                 <span>방 코드</span>
                 <h2>{currentRoom?.code ?? "없음"}</h2>
+                <small className="status-badge">{currentRoom?.status ?? "HOME"}</small>
               </div>
               <LockKeyhole size={22} />
             </div>
@@ -655,12 +673,53 @@ export function App() {
               </button>
               {currentRoom ? (
                 <button
+                  className="wide-button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(currentRoom.code).catch(() => undefined);
+                    setRoomMessage(`${currentRoom.code} 코드를 복사했습니다.`);
+                  }}
+                >
+                  코드 복사
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
+              {currentRoom ? (
+                <button
                   className="wide-button ready"
                   onClick={() =>
                     setReady(currentRoom.id, !(me?.ready ?? false), setCurrentRoom, setRoomMessage)
                   }
                 >
                   {me?.ready ? "준비 취소" : "Ready"}
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
+              {currentRoom ? (
+                <div className="option-row">
+                  <label>
+                    턴 제한
+                    <input
+                      type="number"
+                      min="10"
+                      max="300"
+                      value={turnSeconds}
+                      onChange={(event) => setTurnSeconds(Number(event.target.value))}
+                    />
+                  </label>
+                  <button
+                    onClick={() => updateRoomOptions(currentRoom.id, turnSeconds, setCurrentRoom, setRoomMessage)}
+                    disabled={!amHost}
+                  >
+                    적용
+                  </button>
+                </div>
+              ) : null}
+              {currentRoom ? (
+                <button
+                  className="wide-button"
+                  onClick={() => spectateRoom(currentRoom.id, setCurrentRoom, setRoomMessage)}
+                >
+                  관전 입장
                   <ChevronRight size={18} />
                 </button>
               ) : null}
@@ -694,6 +753,17 @@ export function App() {
               ) : null}
             </div>
             <p className="room-message">{roomMessage}</p>
+            {currentRoom ? (
+              <p className="room-message">
+                {currentRoom.gameId} · {currentRoom.participants.length}/{currentRoom.maxPlayers}명 · 관전{" "}
+                {currentRoom.spectators?.length ?? 0}명 · 턴 {currentRoom.options?.turnSeconds ?? 60}초
+              </p>
+            ) : null}
+            {currentRoom ? (
+              <p className="room-message">
+                시작 조건: {selectedGame.minPlayers}-{selectedGame.maxPlayers}명 · 전원 Ready · 방장 시작
+              </p>
+            ) : null}
           </div>
 
           {currentSession ? (
@@ -706,7 +776,7 @@ export function App() {
                 <Gamepad2 size={22} />
               </div>
               <div className="game-session-panel">
-                <p>라운드 {currentSession.state.round ?? 1}</p>
+                <p>라운드 {currentSession.state.round ?? 1} · 현재 턴 {currentTurnName}</p>
                 <div className="session-log">
                   {(currentSession.state.log ?? []).slice(-3).map((item) => (
                     <span key={item}>{item}</span>
@@ -948,6 +1018,13 @@ export function App() {
                 <input
                   value={chatInput}
                   onChange={(event) => setChatInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" || !chatInput.trim()) return;
+                    sendChat(currentRoom.id, chatInput, "chat").then((message) => {
+                      setChatMessages((previous) => [...previous.slice(-49), message]);
+                      setChatInput("");
+                    });
+                  }}
                   placeholder="메시지"
                   aria-label="채팅 메시지"
                 />
@@ -1066,13 +1143,23 @@ export function App() {
             </div>
             <label className="search-box">
               <Search size={17} aria-hidden="true" />
-              <input type="search" placeholder="게임 검색" aria-label="게임 검색" />
+              <input
+                type="search"
+                placeholder="게임 검색"
+                aria-label="게임 검색"
+                value={gameSearch}
+                onChange={(event) => setGameSearch(event.target.value)}
+              />
             </label>
           </div>
 
           <div className="filter-row" aria-label="카테고리 필터">
             {["전체", "전략", "블러핑", "순발력", "숫자/조합"].map((category) => (
-                <button className={category === "전체" ? "active" : ""} key={category}>
+              <button
+                className={category === categoryFilter ? "active" : ""}
+                key={category}
+                onClick={() => setCategoryFilter(category)}
+              >
                 {category}
               </button>
             ))}
@@ -1339,6 +1426,52 @@ async function joinRoom(
     markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
   } catch {
     onMessage("방 코드를 확인해주세요.");
+  }
+}
+
+async function spectateRoom(
+  roomID: string,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/spectate`, session.sessionToken, {
+      method: "POST"
+    });
+    onRoom(data.room);
+    onMessage("관전자로 입장했습니다.");
+  } catch {
+    onMessage("관전 입장에 실패했습니다.");
+  }
+}
+
+async function updateRoomOptions(
+  roomID: string,
+  turnSeconds: number,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readGuestSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/options`, session.sessionToken, {
+      method: "PATCH",
+      body: JSON.stringify({ turnSeconds })
+    });
+    onRoom(data.room);
+    onMessage(`턴 제한시간을 ${data.room.options.turnSeconds}초로 변경했습니다.`);
+  } catch {
+    onMessage("방장만 옵션을 바꿀 수 있습니다.");
   }
 }
 

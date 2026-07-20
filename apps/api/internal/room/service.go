@@ -56,6 +56,9 @@ func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (
 		Status:     StatusLobby,
 		MaxPlayers: maxPlayers,
 		HostUserID: host.ID,
+		Options: Options{
+			TurnSeconds: 60,
+		},
 		Participants: []Participant{{
 			User:      host,
 			Ready:     false,
@@ -71,6 +74,36 @@ func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (
 		return Room{}, err
 	}
 	return room, nil
+}
+
+func (s *Service) JoinSpectator(roomID string, user guest.PublicUser) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if room.HasParticipant(user.ID) || room.HasSpectator(user.ID) {
+		return room, nil
+	}
+
+	room.Spectators = append(room.Spectators, Spectator{User: user, JoinedAt: s.clock().UTC()})
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
+}
+
+func (s *Service) UpdateOptions(roomID string, turnSeconds int) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if turnSeconds < 10 {
+		turnSeconds = 10
+	}
+	if turnSeconds > 300 {
+		turnSeconds = 300
+	}
+	room.Options.TurnSeconds = turnSeconds
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
 }
 
 func (s *Service) JoinByCode(code string, user guest.PublicUser) (Room, error) {
@@ -174,8 +207,15 @@ func (s *Service) Leave(roomID string, userID string) (Room, error) {
 			participants = append(participants, participant)
 		}
 	}
+	spectators := make([]Spectator, 0, len(room.Spectators))
+	for _, spectator := range room.Spectators {
+		if spectator.User.ID != userID {
+			spectators = append(spectators, spectator)
+		}
+	}
 
 	room.Participants = participants
+	room.Spectators = spectators
 	if len(room.Participants) == 0 {
 		room.Status = StatusClosed
 		room.HostUserID = ""
