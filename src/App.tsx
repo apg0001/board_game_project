@@ -130,9 +130,20 @@ interface ApiGame {
   categories: GameCategory[];
 }
 
+interface GuestSession {
+  sessionToken: string;
+  user: {
+    id: string;
+    nickname: string;
+  };
+}
+
+const guestStorageKey = "board-table.guest-session";
+
 export function App() {
   const [apiGames, setApiGames] = useState<ApiGame[]>([]);
   const [serverStatus, setServerStatus] = useState<"연결됨" | "오프라인 모드">("오프라인 모드");
+  const [guestSession, setGuestSession] = useState<GuestSession | null>(() => readGuestSession());
 
   useEffect(() => {
     const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -150,6 +161,30 @@ export function App() {
         setApiGames([]);
         setServerStatus("오프라인 모드");
       });
+  }, []);
+
+  useEffect(() => {
+    const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+    const current = readGuestSession();
+
+    if (current?.sessionToken) {
+      fetch(`${apiURL}/api/me`, {
+        headers: { Authorization: `Bearer ${current.sessionToken}` }
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("guest session expired");
+          return response.json() as Promise<{ user: GuestSession["user"] }>;
+        })
+        .then((data) => {
+          const refreshed = { sessionToken: current.sessionToken, user: data.user };
+          saveGuestSession(refreshed);
+          setGuestSession(refreshed);
+        })
+        .catch(() => createGuest(apiURL).then(setGuestSession).catch(() => undefined));
+      return;
+    }
+
+    createGuest(apiURL).then(setGuestSession).catch(() => undefined);
   }, []);
 
   const recommendedGames = useMemo(() => {
@@ -189,7 +224,7 @@ export function App() {
               <Bell size={19} />
             </button>
             <button className="profile-button" aria-label="내 프로필">
-              GP
+              {guestSession?.user.nickname.slice(-2) ?? "G"}
             </button>
           </div>
         </nav>
@@ -240,7 +275,7 @@ export function App() {
           <div className="room-card">
             <div className="section-title">
               <div>
-                <span>현재 파티</span>
+                <span>{guestSession?.user.nickname ?? "게스트 준비 중"}</span>
                 <h2>{playerCount}명 입장 중</h2>
               </div>
               <UsersRound size={22} />
@@ -372,4 +407,26 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function readGuestSession(): GuestSession | null {
+  try {
+    const raw = localStorage.getItem(guestStorageKey);
+    return raw ? (JSON.parse(raw) as GuestSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveGuestSession(session: GuestSession) {
+  localStorage.setItem(guestStorageKey, JSON.stringify(session));
+}
+
+async function createGuest(apiURL: string): Promise<GuestSession> {
+  const response = await fetch(`${apiURL}/api/guests`, { method: "POST" });
+  if (!response.ok) throw new Error("failed to create guest");
+
+  const session = (await response.json()) as GuestSession;
+  saveGuestSession(session);
+  return session;
 }
