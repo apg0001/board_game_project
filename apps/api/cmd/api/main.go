@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"board-game-platform/apps/api/internal/auth"
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/config"
@@ -29,6 +30,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	gameCatalog := catalog.NewInMemoryCatalog(catalog.DefaultGames())
+	authService := auth.NewService(time.Now)
 	gameRegistry := gamecore.NewRegistry(davinci.NewModule())
 	guestService := guest.NewService(guest.NewMemoryStore(), time.Now)
 	roomService := room.NewService(room.NewMemoryStore(), time.Now)
@@ -42,7 +44,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, hub),
+		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, authService, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, hub),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
