@@ -838,6 +838,99 @@ button.davinci-tile {
   font-weight: 900;
 }
 
+.splendor-bank {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(48px, 1fr));
+  gap: 6px;
+}
+
+.gem-button,
+.splendor-card {
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  cursor: pointer;
+  color: #17212b;
+}
+
+.gem-button {
+  display: grid;
+  min-height: 64px;
+  place-items: center;
+  border-radius: 12px;
+  padding: 7px 5px;
+  font-weight: 950;
+}
+
+.gem-button span,
+.splendor-card span,
+.splendor-card small {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gem-button strong {
+  font-size: 1.1rem;
+}
+
+.gem-button.white,
+.splendor-card.white {
+  background: #fff;
+}
+
+.gem-button.blue,
+.splendor-card.blue {
+  color: #f5fbff;
+  background: #2f78b7;
+}
+
+.gem-button.green,
+.splendor-card.green {
+  color: #f5fff9;
+  background: #2f8e74;
+}
+
+.gem-button.red,
+.splendor-card.red {
+  color: #fff8f6;
+  background: #c95f42;
+}
+
+.gem-button.black,
+.splendor-card.black {
+  color: #fff8e8;
+  background: #17212b;
+}
+
+.splendor-market {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.splendor-card {
+  display: grid;
+  min-height: 112px;
+  gap: 6px;
+  align-content: start;
+  border-radius: 12px;
+  padding: 10px;
+  text-align: left;
+}
+
+.splendor-card strong {
+  font-size: 1.1rem;
+}
+
+.splendor-card small {
+  font-weight: 850;
+}
+
+.splendor-players {
+  display: grid;
+  gap: 8px;
+}
+
 .wide-button:disabled {
   cursor: not-allowed;
   opacity: 0.54;
