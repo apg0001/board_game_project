@@ -3,15 +3,46 @@ package davinci
 import (
 	"context"
 	"errors"
+	"fmt"
+	"hash/fnv"
+	"math/rand"
+	"sort"
 
 	"board-game-platform/apps/api/internal/gamecore"
 )
 
+const (
+	ActionGuess  = "davinci.guess"
+	ActionPass   = "davinci.pass"
+	ActionFinish = "davinci.finish"
+)
+
+type Tile struct {
+	Color    string `json:"color"`
+	Value    int    `json:"value"`
+	Revealed bool   `json:"revealed"`
+}
+
+type PlayerState struct {
+	PlayerID string `json:"playerId"`
+	Tiles    []Tile `json:"tiles"`
+	Active   bool   `json:"active"`
+}
+
 type State struct {
-	TurnIndex int      `json:"turnIndex"`
-	Round     int      `json:"round"`
-	Log       []string `json:"log"`
-	Finished  bool     `json:"finished"`
+	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
+	Round              int           `json:"round"`
+	Players            []PlayerState `json:"players"`
+	Deck               []Tile        `json:"deck"`
+	Log                []string      `json:"log"`
+	Finished           bool          `json:"finished"`
+}
+
+type GuessPayload struct {
+	TargetPlayerID string `json:"targetPlayerId"`
+	TileIndex      int    `json:"tileIndex"`
+	Color          string `json:"color"`
+	Value          int    `json:"value"`
 }
 
 type Module struct{}
@@ -36,17 +67,48 @@ func (m Module) MaxPlayers() int {
 	return 4
 }
 
-func (m Module) CreateInitialState(_ gamecore.Context) any {
+func (m Module) CreateInitialState(ctx gamecore.Context) any {
+	deck := shuffledDeck(ctx.RandomSeed)
+	handSize := 3
+	if len(ctx.Players) == 2 {
+		handSize = 4
+	}
+
+	players := make([]PlayerState, 0, len(ctx.Players))
+	for _, player := range ctx.Players {
+		hand := append([]Tile(nil), deck[:handSize]...)
+		deck = deck[handSize:]
+		sortTiles(hand)
+		players = append(players, PlayerState{
+			PlayerID: string(player.ID),
+			Tiles:    hand,
+			Active:   true,
+		})
+	}
+
 	return State{
-		TurnIndex: 0,
-		Round:     1,
-		Log:       []string{"게임 세션이 시작되었습니다."},
-		Finished:  false,
+		CurrentPlayerIndex: 0,
+		Round:              1,
+		Players:            players,
+		Deck:               deck,
+		Log:                []string{"다빈치 코드가 시작되었습니다."},
+		Finished:           false,
 	}
 }
 
-func (m Module) PublicState(state any, _ gamecore.PlayerID) any {
-	return asState(state)
+func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
+	current := asState(state)
+	for playerIndex := range current.Players {
+		for tileIndex := range current.Players[playerIndex].Tiles {
+			tile := &current.Players[playerIndex].Tiles[tileIndex]
+			if current.Players[playerIndex].PlayerID == string(viewerID) || tile.Revealed {
+				continue
+			}
+			tile.Value = -1
+			tile.Color = "hidden"
+		}
+	}
+	return current
 }
 
 func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) error {
@@ -54,8 +116,35 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if current.Finished {
 		return errors.New("game is already finished")
 	}
-	if action.Type != "demo.advance" && action.Type != "demo.finish" {
+	if len(current.Players) == 0 {
+		return errors.New("game has no players")
+	}
+	if action.Type == ActionFinish || action.Type == ActionPass {
+		return nil
+	}
+	if action.Type != ActionGuess {
 		return errors.New("unsupported action")
+	}
+	if current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
+		return errors.New("not your turn")
+	}
+
+	payload, err := guessPayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	targetIndex := findPlayerIndex(current, payload.TargetPlayerID)
+	if targetIndex < 0 {
+		return errors.New("target player not found")
+	}
+	if targetIndex == current.CurrentPlayerIndex {
+		return errors.New("cannot guess own tile")
+	}
+	if payload.TileIndex < 0 || payload.TileIndex >= len(current.Players[targetIndex].Tiles) {
+		return errors.New("tile index out of range")
+	}
+	if current.Players[targetIndex].Tiles[payload.TileIndex].Revealed {
+		return errors.New("tile is already revealed")
 	}
 	return nil
 }
@@ -64,15 +153,24 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	current := asState(state)
 
 	switch action.Type {
-	case "demo.advance":
-		current.Log = append(current.Log, string(action.PlayerID)+" 님이 턴을 진행했습니다.")
-		if len(gameCtx.Players) > 0 {
-			current.TurnIndex = (current.TurnIndex + 1) % len(gameCtx.Players)
+	case ActionGuess:
+		payload, err := guessPayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
 		}
-		current.Round++
-	case "demo.finish":
+		current = applyGuess(current, string(action.PlayerID), payload)
+	case ActionPass:
+		current.Log = append(current.Log, string(action.PlayerID)+" 님이 턴을 넘겼습니다.")
+		current = advanceTurn(current)
+	case ActionFinish:
 		current.Log = append(current.Log, string(action.PlayerID)+" 님이 게임 종료를 요청했습니다.")
 		current.Finished = true
+	}
+
+	current = refreshActivePlayers(current)
+	if remainingActivePlayers(current) <= 1 {
+		current.Finished = true
+		current.Log = append(current.Log, "게임이 종료되었습니다.")
 	}
 
 	return gamecore.ActionResult{
@@ -80,7 +178,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		Events: []gamecore.Event{{
 			Type:       "game.state_updated",
 			Visibility: gamecore.VisibilityPublic,
-			Payload:    current,
+			Payload:    m.PublicState(current, ""),
 		}},
 	}, nil
 }
@@ -89,21 +187,165 @@ func (m Module) IsFinished(state any, _ gamecore.Context) bool {
 	return asState(state).Finished
 }
 
-func (m Module) CalculateResult(_ any, gameCtx gamecore.Context) []gamecore.Result {
-	results := make([]gamecore.Result, 0, len(gameCtx.Players))
-	for index, player := range gameCtx.Players {
+func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result {
+	current := asState(state)
+	results := make([]gamecore.Result, 0, len(current.Players))
+
+	sort.SliceStable(current.Players, func(i, j int) bool {
+		return hiddenCount(current.Players[i]) > hiddenCount(current.Players[j])
+	})
+
+	for index, player := range current.Players {
 		outcome := gamecore.OutcomeLose
 		if index == 0 {
 			outcome = gamecore.OutcomeWin
 		}
+		if len(current.Players) > 1 && hiddenCount(player) == hiddenCount(current.Players[0]) {
+			outcome = gamecore.OutcomeDraw
+		}
 		results = append(results, gamecore.Result{
-			PlayerID: player.ID,
+			PlayerID: gamecore.PlayerID(player.PlayerID),
 			Rank:     index + 1,
-			Score:    len(gameCtx.Players) - index,
+			Score:    hiddenCount(player),
 			Outcome:  outcome,
 		})
 	}
 	return results
+}
+
+func applyGuess(state State, playerID string, payload GuessPayload) State {
+	targetIndex := findPlayerIndex(state, payload.TargetPlayerID)
+	targetTile := &state.Players[targetIndex].Tiles[payload.TileIndex]
+	correct := targetTile.Color == payload.Color && targetTile.Value == payload.Value
+
+	if correct {
+		targetTile.Revealed = true
+		state.Log = append(state.Log, fmt.Sprintf("%s 님의 추측이 성공했습니다.", playerID))
+	} else {
+		revealFirstHiddenOwnTile(&state, playerID)
+		state.Log = append(state.Log, fmt.Sprintf("%s 님의 추측이 실패했습니다.", playerID))
+	}
+
+	return advanceTurn(state)
+}
+
+func revealFirstHiddenOwnTile(state *State, playerID string) {
+	playerIndex := findPlayerIndex(*state, playerID)
+	if playerIndex < 0 {
+		return
+	}
+	for tileIndex := range state.Players[playerIndex].Tiles {
+		if !state.Players[playerIndex].Tiles[tileIndex].Revealed {
+			state.Players[playerIndex].Tiles[tileIndex].Revealed = true
+			return
+		}
+	}
+}
+
+func advanceTurn(state State) State {
+	if len(state.Players) == 0 {
+		return state
+	}
+	for step := 1; step <= len(state.Players); step++ {
+		next := (state.CurrentPlayerIndex + step) % len(state.Players)
+		if state.Players[next].Active {
+			state.CurrentPlayerIndex = next
+			state.Round++
+			return state
+		}
+	}
+	return state
+}
+
+func refreshActivePlayers(state State) State {
+	for index := range state.Players {
+		state.Players[index].Active = hiddenCount(state.Players[index]) > 0
+	}
+	return state
+}
+
+func remainingActivePlayers(state State) int {
+	count := 0
+	for _, player := range state.Players {
+		if player.Active {
+			count++
+		}
+	}
+	return count
+}
+
+func hiddenCount(player PlayerState) int {
+	count := 0
+	for _, tile := range player.Tiles {
+		if !tile.Revealed {
+			count++
+		}
+	}
+	return count
+}
+
+func findPlayerIndex(state State, playerID string) int {
+	for index, player := range state.Players {
+		if player.PlayerID == playerID {
+			return index
+		}
+	}
+	return -1
+}
+
+func shuffledDeck(seed string) []Tile {
+	deck := make([]Tile, 0, 24)
+	for _, color := range []string{"black", "white"} {
+		for value := 0; value <= 11; value++ {
+			deck = append(deck, Tile{Color: color, Value: value})
+		}
+	}
+
+	random := rand.New(rand.NewSource(seedToInt(seed)))
+	random.Shuffle(len(deck), func(i, j int) {
+		deck[i], deck[j] = deck[j], deck[i]
+	})
+	return deck
+}
+
+func sortTiles(tiles []Tile) {
+	sort.SliceStable(tiles, func(i, j int) bool {
+		if tiles[i].Value != tiles[j].Value {
+			return tiles[i].Value < tiles[j].Value
+		}
+		return tiles[i].Color < tiles[j].Color
+	})
+}
+
+func seedToInt(seed string) int64 {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(seed))
+	return int64(hash.Sum64())
+}
+
+func guessPayload(payload any) (GuessPayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return GuessPayload{}, errors.New("invalid guess payload")
+	}
+
+	result := GuessPayload{}
+	if value, ok := raw["targetPlayerId"].(string); ok {
+		result.TargetPlayerID = value
+	}
+	if value, ok := raw["tileIndex"].(float64); ok {
+		result.TileIndex = int(value)
+	}
+	if value, ok := raw["color"].(string); ok {
+		result.Color = value
+	}
+	if value, ok := raw["value"].(float64); ok {
+		result.Value = int(value)
+	}
+	if result.TargetPlayerID == "" || result.Color == "" {
+		return GuessPayload{}, errors.New("guess target, color and value are required")
+	}
+	return result, nil
 }
 
 func asState(state any) State {
@@ -111,28 +353,5 @@ func asState(state any) State {
 	if ok {
 		return typed
 	}
-
-	fromMap, ok := state.(map[string]any)
-	if !ok {
-		return State{}
-	}
-
-	result := State{}
-	if value, ok := fromMap["turnIndex"].(float64); ok {
-		result.TurnIndex = int(value)
-	}
-	if value, ok := fromMap["round"].(float64); ok {
-		result.Round = int(value)
-	}
-	if value, ok := fromMap["finished"].(bool); ok {
-		result.Finished = value
-	}
-	if values, ok := fromMap["log"].([]any); ok {
-		for _, value := range values {
-			if text, ok := value.(string); ok {
-				result.Log = append(result.Log, text)
-			}
-		}
-	}
-	return result
+	return State{}
 }
