@@ -135,6 +135,18 @@ func (s *Service) SetStatus(roomID string, status Status) (Room, error) {
 	return room, s.store.Save(room)
 }
 
+func (s *Service) SetPlaying(roomID string, sessionID string) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+
+	room.Status = StatusPlaying
+	room.ActiveSessionID = sessionID
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
+}
+
 func (s *Service) uniqueCode() (string, error) {
 	for range 20 {
 		code, err := randomCode(6)

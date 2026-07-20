@@ -66,6 +66,17 @@ func (s *Service) FindByID(id string) (Session, error) {
 	return s.store.FindByID(id)
 }
 
+func (s *Service) PublicView(room room.Room, session Session, viewerID gamecore.PlayerID) (Session, error) {
+	module, ok := s.registry.Find(gamecore.GameID(session.GameID))
+	if !ok {
+		return Session{}, ErrGameNotRegistered
+	}
+
+	view := session
+	view.State = module.PublicState(session.State, viewerID)
+	return view, nil
+}
+
 func (s *Service) ApplyAction(ctx context.Context, room room.Room, sessionID string, action gamecore.Action) (Session, []gamecore.Event, error) {
 	current, err := s.store.FindByID(sessionID)
 	if err != nil {

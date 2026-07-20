@@ -485,6 +485,86 @@ h1 {
   line-height: 1.35;
 }
 
+.tile-board {
+  display: grid;
+  gap: 8px;
+}
+
+.tile-board > span,
+.opponent-row strong {
+  color: #68727e;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.opponent-row {
+  display: grid;
+  gap: 6px;
+}
+
+.tile-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.davinci-tile {
+  display: grid;
+  width: 38px;
+  height: 48px;
+  place-items: center;
+  border: 2px solid rgba(23, 33, 43, 0.14);
+  border-radius: 8px;
+  font-weight: 950;
+}
+
+button.davinci-tile {
+  cursor: pointer;
+}
+
+.davinci-tile.black {
+  color: #fff8e8;
+  background: #17212b;
+}
+
+.davinci-tile.white {
+  color: #17212b;
+  background: #fff;
+}
+
+.davinci-tile.hidden {
+  color: #f4c95d;
+  background: #46505c;
+}
+
+.davinci-tile.selected {
+  border-color: #f4c95d;
+  box-shadow: 0 0 0 3px rgba(244, 201, 93, 0.35);
+}
+
+.guess-controls {
+  display: grid;
+  grid-template-columns: 1fr 88px;
+  gap: 8px;
+}
+
+.guess-controls select,
+.guess-controls input {
+  min-height: 42px;
+  min-width: 0;
+  border: 1px solid rgba(23, 33, 43, 0.12);
+  border-radius: 12px;
+  padding: 0 10px;
+  background: #fff;
+  color: #17212b;
+  font-weight: 850;
+}
+
+.wide-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
 .status-strip {
   display: grid;
   gap: 8px;
