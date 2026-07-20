@@ -17,6 +17,11 @@
   docker-compose.dev.yml
 ```
 
+## 문서
+
+- [기능 명세](docs/feature-spec.md)
+- [우선순위 로드맵](docs/priority-roadmap.md)
+
 ## 실행
 
 ### 프론트엔드
