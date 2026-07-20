@@ -534,6 +534,35 @@ h1 {
   padding-top: 18px;
 }
 
+.auth-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-panel input {
+  min-height: 40px;
+  min-width: 0;
+  border: 1px solid rgba(23, 33, 43, 0.12);
+  border-radius: 12px;
+  padding: 0 10px;
+  outline: 0;
+}
+
+.auth-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.auth-actions button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 12px;
+  color: #fff8e8;
+  background: #17212b;
+  font-weight: 850;
+}
+
 .game-session-panel p {
   margin-bottom: 0;
   color: #17212b;

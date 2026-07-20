@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"board-game-platform/apps/api/internal/auth"
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/config"
@@ -258,6 +259,7 @@ func testRouter() http.Handler {
 		config.Config{HTTPAddr: ":0", AllowedOrigins: map[string]struct{}{"http://localhost:5173": {}}},
 		logger,
 		catalog.NewInMemoryCatalog(catalog.DefaultGames()),
+		auth.NewService(nil),
 		guest.NewService(guest.NewMemoryStore(), nil),
 		room.NewService(room.NewMemoryStore(), nil),
 		session.NewService(session.NewMemoryStore(), registry, nil),
@@ -267,6 +269,24 @@ func testRouter() http.Handler {
 		match.NewService(),
 		realtime.NewHub(logger),
 	)
+}
+
+func TestRegisterAndLogin(t *testing.T) {
+	handler := testRouter()
+
+	registerRequest := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewBufferString(`{"username":"alice","password":"secret","nickname":"Alice"}`))
+	registerResponse := httptest.NewRecorder()
+	handler.ServeHTTP(registerResponse, registerRequest)
+	if registerResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", registerResponse.Code)
+	}
+
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"username":"alice","password":"secret"}`))
+	loginResponse := httptest.NewRecorder()
+	handler.ServeHTTP(loginResponse, loginRequest)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", loginResponse.Code)
+	}
 }
 
 func createGuestToken(t *testing.T, handler http.Handler) string {

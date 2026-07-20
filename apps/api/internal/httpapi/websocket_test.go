@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"board-game-platform/apps/api/internal/auth"
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/config"
@@ -35,6 +36,7 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		config.Config{HTTPAddr: ":0", AllowedOrigins: map[string]struct{}{}},
 		logger,
 		catalog.NewInMemoryCatalog(catalog.DefaultGames()),
+		auth.NewService(nil),
 		guest.NewService(guest.NewMemoryStore(), nil),
 		room.NewService(room.NewMemoryStore(), nil),
 		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(davinci.NewModule()), nil),

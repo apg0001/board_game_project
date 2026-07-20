@@ -138,6 +138,15 @@ interface GuestSession {
   };
 }
 
+interface AuthSession {
+  sessionToken: string;
+  user: {
+    id: string;
+    username: string;
+    nickname: string;
+  };
+}
+
 interface RoomParticipant {
   user: {
     id: string;
@@ -233,11 +242,16 @@ interface LeaderboardRow {
 }
 
 const guestStorageKey = "board-table.guest-session";
+const authStorageKey = "board-table.auth-session";
 
 export function App() {
   const [apiGames, setApiGames] = useState<ApiGame[]>([]);
   const [serverStatus, setServerStatus] = useState<"연결됨" | "오프라인 모드">("오프라인 모드");
   const [guestSession, setGuestSession] = useState<GuestSession | null>(() => readGuestSession());
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => readAuthSession());
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authNickname, setAuthNickname] = useState("");
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const [currentSession, setCurrentSession] = useState<GameSession | null>(null);
   const [guessTarget, setGuessTarget] = useState("");
@@ -810,6 +824,70 @@ export function App() {
             </div>
           ) : null}
 
+          <div className="room-card">
+            <div className="section-title">
+              <div>
+                <span>계정</span>
+                <h2>{authSession ? authSession.user.nickname : "게스트 플레이 중"}</h2>
+              </div>
+              <Crown size={22} />
+            </div>
+            {authSession ? (
+              <button
+                className="wide-button dark"
+                onClick={() => {
+                  localStorage.removeItem(authStorageKey);
+                  setAuthSession(null);
+                }}
+              >
+                로그아웃
+                <ChevronRight size={18} />
+              </button>
+            ) : (
+              <div className="auth-panel">
+                <input
+                  value={authUsername}
+                  onChange={(event) => setAuthUsername(event.target.value)}
+                  placeholder="ID"
+                  aria-label="회원 ID"
+                />
+                <input
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  placeholder="Password"
+                  type="password"
+                  aria-label="비밀번호"
+                />
+                <input
+                  value={authNickname}
+                  onChange={(event) => setAuthNickname(event.target.value)}
+                  placeholder="닉네임"
+                  aria-label="닉네임"
+                />
+                <div className="auth-actions">
+                  <button
+                    onClick={() =>
+                      register(authUsername, authPassword, authNickname)
+                        .then(setAuthSession)
+                        .catch(() => setRoomMessage("회원가입에 실패했습니다."))
+                    }
+                  >
+                    가입
+                  </button>
+                  <button
+                    onClick={() =>
+                      login(authUsername, authPassword)
+                        .then(setAuthSession)
+                        .catch(() => setRoomMessage("로그인에 실패했습니다."))
+                    }
+                  >
+                    로그인
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="status-strip">
             <span>
               <ShieldCheck size={17} />
@@ -955,12 +1033,51 @@ function saveGuestSession(session: GuestSession) {
   localStorage.setItem(guestStorageKey, JSON.stringify(session));
 }
 
+function readAuthSession(): AuthSession | null {
+  try {
+    const raw = localStorage.getItem(authStorageKey);
+    return raw ? (JSON.parse(raw) as AuthSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveAuthSession(session: AuthSession) {
+  localStorage.setItem(authStorageKey, JSON.stringify(session));
+}
+
 async function createGuest(apiURL: string): Promise<GuestSession> {
   const response = await fetch(`${apiURL}/api/guests`, { method: "POST" });
   if (!response.ok) throw new Error("failed to create guest");
 
   const session = (await response.json()) as GuestSession;
   saveGuestSession(session);
+  return session;
+}
+
+async function register(username: string, password: string, nickname: string): Promise<AuthSession> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const response = await fetch(`${apiURL}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, nickname })
+  });
+  if (!response.ok) throw new Error("register failed");
+  const session = (await response.json()) as AuthSession;
+  saveAuthSession(session);
+  return session;
+}
+
+async function login(username: string, password: string): Promise<AuthSession> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const response = await fetch(`${apiURL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
+  if (!response.ok) throw new Error("login failed");
+  const session = (await response.json()) as AuthSession;
+  saveAuthSession(session);
   return session;
 }
 

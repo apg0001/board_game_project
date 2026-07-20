@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"board-game-platform/apps/api/internal/auth"
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/connection"
@@ -22,6 +23,7 @@ import (
 
 type Handler struct {
 	games    catalog.Catalog
+	auths    *auth.Service
 	guests   *guest.Service
 	rooms    *room.Service
 	sessions *session.Service
@@ -47,6 +49,54 @@ func (h Handler) createGuest(w http.ResponseWriter, _ *http.Request) {
 		"user":         user.Public(),
 		"sessionToken": user.SessionToken,
 	})
+}
+
+func (h Handler) register(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Nickname string `json:"nickname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid register payload"})
+		return
+	}
+	user, token, err := h.auths.Register(body.Username, body.Password, body.Nickname)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, auth.ErrDuplicateUsername) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"user": user, "sessionToken": token})
+}
+
+func (h Handler) login(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid login payload"})
+		return
+	}
+	user, token, err := h.auths.Login(body.Username, body.Password)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "sessionToken": token})
+}
+
+func (h Handler) authMe(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.auths.Me(bearerToken(r))
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid auth session"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
 func (h Handler) me(w http.ResponseWriter, r *http.Request) {

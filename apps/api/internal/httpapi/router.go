@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"board-game-platform/apps/api/internal/auth"
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/chat"
 	"board-game-platform/apps/api/internal/config"
@@ -16,12 +17,15 @@ import (
 	"board-game-platform/apps/api/internal/session"
 )
 
-func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, guests *guest.Service, rooms *room.Service, sessions *session.Service, chats *chat.Service, presence *connection.Service, records *record.Service, matches *match.Service, hub *realtime.Hub) http.Handler {
+func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, auths *auth.Service, guests *guest.Service, rooms *room.Service, sessions *session.Service, chats *chat.Service, presence *connection.Service, records *record.Service, matches *match.Service, hub *realtime.Hub) http.Handler {
 	mux := http.NewServeMux()
-	api := Handler{games: games, guests: guests, rooms: rooms, sessions: sessions, chats: chats, presence: presence, records: records, matches: matches, hub: hub}
+	api := Handler{games: games, auths: auths, guests: guests, rooms: rooms, sessions: sessions, chats: chats, presence: presence, records: records, matches: matches, hub: hub}
 
 	mux.HandleFunc("GET /health", api.health)
 	mux.HandleFunc("POST /api/guests", api.createGuest)
+	mux.HandleFunc("POST /api/auth/register", api.register)
+	mux.HandleFunc("POST /api/auth/login", api.login)
+	mux.HandleFunc("GET /api/auth/me", api.authMe)
 	mux.HandleFunc("GET /api/me", api.me)
 	mux.HandleFunc("POST /api/rooms", api.createRoom)
 	mux.HandleFunc("POST /api/rooms/join", api.joinRoom)
