@@ -13,6 +13,7 @@ import (
 	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/guest"
+	"board-game-platform/apps/api/internal/match"
 	"board-game-platform/apps/api/internal/realtime"
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
@@ -27,6 +28,7 @@ type Handler struct {
 	chats    *chat.Service
 	presence *connection.Service
 	records  *record.Service
+	matches  *match.Service
 	hub      *realtime.Hub
 }
 
@@ -293,6 +295,51 @@ func (h Handler) resumeConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	h.hub.Broadcast(realtime.Message{Room: "room:" + presence.RoomID, Type: "presence.updated", Payload: map[string]any{"presence": presence}})
 	writeJSON(w, http.StatusOK, map[string]any{"presence": presence})
+}
+
+func (h Handler) quickMatch(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		GameID string `json:"gameId"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.GameID == "" {
+		body.GameID = "davinci"
+	}
+
+	for {
+		roomID, found := h.matches.NextWaiting(body.GameID)
+		if !found {
+			created, err := h.rooms.Create(user.Public(), body.GameID, 4)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create match room"})
+				return
+			}
+			h.matches.AddWaiting(body.GameID, created.ID)
+			h.publishRoomUpdated(created)
+			writeJSON(w, http.StatusCreated, map[string]any{"room": created, "matched": false})
+			return
+		}
+
+		waiting, err := h.rooms.FindByID(roomID)
+		if err != nil || waiting.Status != room.StatusLobby || waiting.IsFull() {
+			continue
+		}
+		joined, err := h.rooms.JoinByCode(waiting.Code, user.Public())
+		if err != nil {
+			continue
+		}
+		if !joined.IsFull() {
+			h.matches.AddWaiting(body.GameID, joined.ID)
+		}
+		h.publishRoomUpdated(joined)
+		writeJSON(w, http.StatusOK, map[string]any{"room": joined, "matched": true})
+		return
+	}
 }
 
 func (h Handler) getSession(w http.ResponseWriter, r *http.Request) {

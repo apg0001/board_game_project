@@ -17,6 +17,7 @@ import (
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/guest"
+	"board-game-platform/apps/api/internal/match"
 	"board-game-platform/apps/api/internal/realtime"
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
@@ -40,6 +41,7 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		chat.NewService(nil, 50),
 		connection.NewService(nil, 0),
 		record.NewService(nil),
+		match.NewService(),
 		hub,
 	))
 	defer server.Close()

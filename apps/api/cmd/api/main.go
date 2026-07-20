@@ -17,6 +17,7 @@ import (
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/httpapi"
+	"board-game-platform/apps/api/internal/match"
 	"board-game-platform/apps/api/internal/realtime"
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
@@ -35,12 +36,13 @@ func main() {
 	chatService := chat.NewService(time.Now, 50)
 	presenceService := connection.NewService(time.Now, 60*time.Second)
 	recordService := record.NewService(time.Now)
+	matchService := match.NewService()
 	hub := realtime.NewHub(logger)
 	go hub.Run()
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, roomService, sessionService, chatService, presenceService, recordService, hub),
+		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, hub),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
