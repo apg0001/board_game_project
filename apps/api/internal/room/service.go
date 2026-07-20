@@ -124,6 +124,17 @@ func (s *Service) ToggleReady(roomID string, userID string, ready bool) (Room, e
 	return Room{}, ErrRoomNotFound
 }
 
+func (s *Service) SetStatus(roomID string, status Status) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+
+	room.Status = status
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
+}
+
 func (s *Service) uniqueCode() (string, error) {
 	for range 20 {
 		code, err := randomCode(6)

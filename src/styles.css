@@ -423,6 +423,11 @@ h1 {
   background: #9fd8c7;
 }
 
+.wide-button.play-now {
+  color: #fff8e8;
+  background: #2f8e74;
+}
+
 .room-actions {
   display: grid;
   gap: 8px;
@@ -452,6 +457,32 @@ h1 {
   color: #68727e;
   font-size: 0.84rem;
   line-height: 1.45;
+}
+
+.game-session-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.game-session-panel p {
+  margin-bottom: 0;
+  color: #17212b;
+  font-weight: 850;
+}
+
+.session-log {
+  display: grid;
+  gap: 6px;
+}
+
+.session-log span {
+  min-width: 0;
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: #46505c;
+  background: rgba(23, 33, 43, 0.06);
+  font-size: 0.84rem;
+  line-height: 1.35;
 }
 
 .status-strip {

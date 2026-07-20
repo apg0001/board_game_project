@@ -9,11 +9,12 @@ import (
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/realtime"
 	"board-game-platform/apps/api/internal/room"
+	"board-game-platform/apps/api/internal/session"
 )
 
-func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, guests *guest.Service, rooms *room.Service, hub *realtime.Hub) http.Handler {
+func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, guests *guest.Service, rooms *room.Service, sessions *session.Service, hub *realtime.Hub) http.Handler {
 	mux := http.NewServeMux()
-	api := Handler{games: games, guests: guests, rooms: rooms, hub: hub}
+	api := Handler{games: games, guests: guests, rooms: rooms, sessions: sessions, hub: hub}
 
 	mux.HandleFunc("GET /health", api.health)
 	mux.HandleFunc("POST /api/guests", api.createGuest)
@@ -22,6 +23,9 @@ func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, gu
 	mux.HandleFunc("POST /api/rooms/join", api.joinRoom)
 	mux.HandleFunc("GET /api/rooms/{roomID}", api.getRoom)
 	mux.HandleFunc("POST /api/rooms/{roomID}/ready", api.setReady)
+	mux.HandleFunc("POST /api/rooms/{roomID}/start", api.startGame)
+	mux.HandleFunc("GET /api/sessions/{sessionID}", api.getSession)
+	mux.HandleFunc("POST /api/sessions/{sessionID}/actions", api.applyGameAction)
 	mux.HandleFunc("GET /api/games", api.listGames)
 	mux.HandleFunc("GET /api/games/recommend", api.recommendGames)
 	mux.HandleFunc("GET /ws", api.websocket)

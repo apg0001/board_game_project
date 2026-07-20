@@ -11,10 +11,13 @@ import (
 
 	"board-game-platform/apps/api/internal/catalog"
 	"board-game-platform/apps/api/internal/config"
+	"board-game-platform/apps/api/internal/gamecore"
+	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/httpapi"
 	"board-game-platform/apps/api/internal/realtime"
 	"board-game-platform/apps/api/internal/room"
+	"board-game-platform/apps/api/internal/session"
 )
 
 func main() {
@@ -22,14 +25,16 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	gameCatalog := catalog.NewInMemoryCatalog(catalog.DefaultGames())
+	gameRegistry := gamecore.NewRegistry(davinci.NewModule())
 	guestService := guest.NewService(guest.NewMemoryStore(), time.Now)
 	roomService := room.NewService(room.NewMemoryStore(), time.Now)
+	sessionService := session.NewService(session.NewMemoryStore(), gameRegistry, time.Now)
 	hub := realtime.NewHub(logger)
 	go hub.Run()
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, roomService, hub),
+		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, guestService, roomService, sessionService, hub),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

@@ -64,20 +64,37 @@ const (
 	OutcomeDraw Outcome = "DRAW"
 )
 
-type ActionResult[TState any] struct {
-	State  TState
+type ActionResult struct {
+	State  any
 	Events []Event
 }
 
-type Module[TState any] interface {
+type Module interface {
 	ID() GameID
 	Name() string
 	MinPlayers() int
 	MaxPlayers() int
-	CreateInitialState(ctx Context) TState
-	PublicState(state TState, viewerID PlayerID) any
-	ValidateAction(ctx context.Context, state TState, action Action, gameCtx Context) error
-	ApplyAction(ctx context.Context, state TState, action Action, gameCtx Context) (ActionResult[TState], error)
-	IsFinished(state TState, gameCtx Context) bool
-	CalculateResult(state TState, gameCtx Context) []Result
+	CreateInitialState(ctx Context) any
+	PublicState(state any, viewerID PlayerID) any
+	ValidateAction(ctx context.Context, state any, action Action, gameCtx Context) error
+	ApplyAction(ctx context.Context, state any, action Action, gameCtx Context) (ActionResult, error)
+	IsFinished(state any, gameCtx Context) bool
+	CalculateResult(state any, gameCtx Context) []Result
+}
+
+type Registry struct {
+	modules map[GameID]Module
+}
+
+func NewRegistry(modules ...Module) *Registry {
+	registry := &Registry{modules: make(map[GameID]Module)}
+	for _, module := range modules {
+		registry.modules[module.ID()] = module
+	}
+	return registry
+}
+
+func (r *Registry) Find(id GameID) (Module, bool) {
+	module, ok := r.modules[id]
+	return module, ok
 }
