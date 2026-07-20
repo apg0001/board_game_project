@@ -29,6 +29,17 @@
 - 게임 코어 인터페이스
 - 기본 테스트
 
+### P0-3 CI/CD 및 Docker Compose 하네스
+
+상태: 완료
+
+- GitHub Actions CI
+- 프론트 린트/빌드
+- Go 테스트
+- Docker Compose 설정 검증
+- Docker Compose 서비스 빌드 검증
+- `.env.example` 기반 로컬/LAN 실행 가이드
+
 ## P1 바로 플레이 가능한 로비
 
 목표: PC 한 대와 모바일 여러 대가 같은 방에 들어와 Ready까지 할 수 있다.
