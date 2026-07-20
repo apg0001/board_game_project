@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -32,7 +33,9 @@ import (
 func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
 	hub := realtime.NewHub(logger)
-	go hub.Run()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.Run(ctx)
 
 	server := httptest.NewServer(NewRouter(
 		config.Config{HTTPAddr: ":0", AllowedOrigins: map[string]struct{}{}},

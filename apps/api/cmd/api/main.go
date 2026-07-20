@@ -72,8 +72,25 @@ func main() {
 	recordService := record.NewServiceWithStore(recordStore, time.Now)
 	matchService := match.NewService()
 	tutorialService := tutorial.NewService()
-	hub := realtime.NewHub(logger)
-	go hub.Run()
+	hubOptions := []realtime.Option{}
+	if cfg.RedisURL != "" {
+		redisBus, err := realtime.NewRedisBus(cfg.RedisURL)
+		if err != nil {
+			logger.Error("redis realtime configuration failed", "error", err)
+			os.Exit(1)
+		}
+		redisCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := redisBus.Ping(redisCtx); err != nil {
+			cancel()
+			logger.Error("redis realtime connection failed", "error", err)
+			os.Exit(1)
+		}
+		cancel()
+		hubOptions = append(hubOptions, realtime.WithBus(redisBus, nodeID()))
+		logger.Info("redis realtime bus enabled")
+	}
+	hub := realtime.NewHub(logger, hubOptions...)
+	go hub.Run(appCtx)
 	sweepExpiredPresence := httpapi.NewPresenceSweeper(gameCatalog, authService, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, tutorialService, hub)
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
@@ -114,4 +131,12 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("graceful shutdown failed", "error", err)
 	}
+}
+
+func nodeID() string {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		return "api"
+	}
+	return hostname
 }

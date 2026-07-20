@@ -8,7 +8,7 @@
 - [x] Docker Compose 원클릭 실행
 - [x] PostgreSQL/Redis 개발 컨테이너
 - [x] 실제 PostgreSQL 영속화
-- [ ] Redis 기반 WebSocket/Presence 확장
+- [x] Redis 기반 WebSocket/Presence 확장
 
 ## P1 플레이 가능한 로비
 
@@ -128,3 +128,16 @@
 - [x] 8. 자체 회원/로그인 세션 Postgres 저장소
 - [x] 9. 전적/리더보드 Postgres 저장소
 - [x] 10. DB 헬스체크 및 Docker Go 1.25 런타임 정렬
+
+## Redis 실시간 확장 Top 10
+
+- [x] 1. REDIS_URL 설정 로딩 활용
+- [x] 2. Redis Pub/Sub 버스 구현
+- [x] 3. WebSocket 메시지 origin 필드
+- [x] 4. 허브 Bus 인터페이스
+- [x] 5. 로컬 브로드캐스트 Redis publish
+- [x] 6. Redis subscribe 메시지 로컬 전달
+- [x] 7. 같은 노드 origin echo 방지
+- [x] 8. 서버 종료 context 기반 허브 정리
+- [x] 9. Redis 연결 ping 및 fail-fast
+- [x] 10. 허브 Pub/Sub 단위 테스트
