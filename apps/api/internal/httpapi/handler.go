@@ -24,25 +24,38 @@ import (
 )
 
 type Handler struct {
-	games     catalog.Catalog
-	auths     *auth.Service
-	guests    *guest.Service
-	rooms     *room.Service
-	sessions  *session.Service
-	chats     *chat.Service
-	presence  *connection.Service
-	records   *record.Service
-	matches   *match.Service
-	tutorials *tutorial.Service
-	hub       *realtime.Hub
+	games         catalog.Catalog
+	auths         *auth.Service
+	guests        *guest.Service
+	rooms         *room.Service
+	sessions      *session.Service
+	chats         *chat.Service
+	presence      *connection.Service
+	records       *record.Service
+	matches       *match.Service
+	tutorials     *tutorial.Service
+	hub           *realtime.Hub
+	healthChecker HealthChecker
+}
+
+type HealthChecker interface {
+	Ping(ctx context.Context) error
 }
 
 func (h Handler) health(w http.ResponseWriter, _ *http.Request) {
+	database := "disabled"
+	if h.healthChecker != nil {
+		database = "ok"
+		if err := h.healthChecker.Ping(context.Background()); err != nil {
+			database = "unhealthy"
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
 		"runtime": map[string]any{
 			"presenceGraceSeconds": int(h.presence.GracePeriod().Seconds()),
 			"games":                len(h.games.All()),
+			"database":             database,
 		},
 	})
 }

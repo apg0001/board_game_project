@@ -49,7 +49,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache-dependency-path: apps/api/go.sum
 
       - name: Download dependencies
@@ -71,4 +71,3 @@ jobs:
 
       - name: Build compose services
         run: docker compose -f docker-compose.dev.yml build
-

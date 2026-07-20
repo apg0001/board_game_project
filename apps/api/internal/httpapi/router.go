@@ -19,9 +19,9 @@ import (
 	"board-game-platform/apps/api/internal/tutorial"
 )
 
-func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, auths *auth.Service, guests *guest.Service, rooms *room.Service, sessions *session.Service, chats *chat.Service, presence *connection.Service, records *record.Service, matches *match.Service, tutorials *tutorial.Service, hub *realtime.Hub) http.Handler {
+func NewRouter(cfg config.Config, logger *slog.Logger, games catalog.Catalog, auths *auth.Service, guests *guest.Service, rooms *room.Service, sessions *session.Service, chats *chat.Service, presence *connection.Service, records *record.Service, matches *match.Service, tutorials *tutorial.Service, hub *realtime.Hub, health HealthChecker) http.Handler {
 	mux := http.NewServeMux()
-	api := Handler{games: games, auths: auths, guests: guests, rooms: rooms, sessions: sessions, chats: chats, presence: presence, records: records, matches: matches, tutorials: tutorials, hub: hub}
+	api := Handler{games: games, auths: auths, guests: guests, rooms: rooms, sessions: sessions, chats: chats, presence: presence, records: records, matches: matches, tutorials: tutorials, hub: hub, healthChecker: health}
 
 	mux.HandleFunc("GET /health", api.health)
 	mux.HandleFunc("POST /api/guests", api.createGuest)

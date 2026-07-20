@@ -22,17 +22,25 @@ type UserGameStats struct {
 
 type Clock func() time.Time
 
+type Store interface {
+	ApplyResult(gameID string, result gamecore.Result, updatedAt time.Time) error
+	Leaderboard(gameID string, limit int) []UserGameStats
+}
+
 type Service struct {
-	mu    sync.RWMutex
 	clock Clock
-	stats map[string]UserGameStats
+	store Store
 }
 
 func NewService(clock Clock) *Service {
+	return NewServiceWithStore(NewMemoryStore(), clock)
+}
+
+func NewServiceWithStore(store Store, clock Clock) *Service {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Service{clock: clock, stats: make(map[string]UserGameStats)}
+	return &Service{clock: clock, store: store}
 }
 
 func (s *Service) RecordSession(finished session.Session) {
@@ -40,33 +48,9 @@ func (s *Service) RecordSession(finished session.Session) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	updatedAt := s.clock().UTC()
 	for _, result := range finished.Results {
-		key := string(result.PlayerID) + ":" + finished.GameID
-		stats := s.stats[key]
-		if stats.UserID == "" {
-			stats.UserID = string(result.PlayerID)
-			stats.GameID = finished.GameID
-			stats.MMR = 1000
-		}
-		stats.PlayCount++
-		switch result.Outcome {
-		case gamecore.OutcomeWin:
-			stats.Wins++
-			stats.MMR += 24
-		case gamecore.OutcomeDraw:
-			stats.Draws++
-			stats.MMR += 4
-		default:
-			stats.Losses++
-			stats.MMR -= 16
-		}
-		if stats.MMR < 0 {
-			stats.MMR = 0
-		}
-		stats.UpdatedAt = s.clock().UTC()
-		s.stats[key] = stats
+		_ = s.store.ApplyResult(finished.GameID, result, updatedAt)
 	}
 }
 
@@ -74,6 +58,50 @@ func (s *Service) Leaderboard(gameID string, limit int) []UserGameStats {
 	if limit <= 0 {
 		limit = 20
 	}
+	return s.store.Leaderboard(gameID, limit)
+}
+
+type MemoryStore struct {
+	mu    sync.RWMutex
+	stats map[string]UserGameStats
+}
+
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{stats: make(map[string]UserGameStats)}
+}
+
+func (s *MemoryStore) ApplyResult(gameID string, result gamecore.Result, updatedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := string(result.PlayerID) + ":" + gameID
+	stats := s.stats[key]
+	if stats.UserID == "" {
+		stats.UserID = string(result.PlayerID)
+		stats.GameID = gameID
+		stats.MMR = 1000
+	}
+	stats.PlayCount++
+	switch result.Outcome {
+	case gamecore.OutcomeWin:
+		stats.Wins++
+		stats.MMR += 24
+	case gamecore.OutcomeDraw:
+		stats.Draws++
+		stats.MMR += 4
+	default:
+		stats.Losses++
+		stats.MMR -= 16
+	}
+	if stats.MMR < 0 {
+		stats.MMR = 0
+	}
+	stats.UpdatedAt = updatedAt
+	s.stats[key] = stats
+	return nil
+}
+
+func (s *MemoryStore) Leaderboard(gameID string, limit int) []UserGameStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

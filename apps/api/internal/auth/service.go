@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,7 +21,7 @@ type User struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-type account struct {
+type Account struct {
 	User
 	Salt         string
 	PasswordHash string
@@ -30,22 +29,27 @@ type account struct {
 
 type Clock func() time.Time
 
+type Store interface {
+	FindAccountByUsername(username string) (Account, bool)
+	SaveAccount(account Account) error
+	SaveSession(token string, user User) error
+	FindSession(token string) (User, bool)
+}
+
 type Service struct {
-	mu      sync.RWMutex
-	clock   Clock
-	byName  map[string]account
-	byToken map[string]User
+	clock Clock
+	store Store
 }
 
 func NewService(clock Clock) *Service {
+	return NewServiceWithStore(NewMemoryStore(), clock)
+}
+
+func NewServiceWithStore(store Store, clock Clock) *Service {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Service{
-		clock:   clock,
-		byName:  make(map[string]account),
-		byToken: make(map[string]User),
-	}
+	return &Service{clock: clock, store: store}
 }
 
 func (s *Service) Register(username string, password string, nickname string) (User, string, error) {
@@ -58,9 +62,7 @@ func (s *Service) Register(username string, password string, nickname string) (U
 		return User{}, "", ErrInvalidCredential
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.byName[username]; ok {
+	if _, ok := s.store.FindAccountByUsername(username); ok {
 		return User{}, "", ErrDuplicateUsername
 	}
 
@@ -71,36 +73,38 @@ func (s *Service) Register(username string, password string, nickname string) (U
 		Nickname:  nickname,
 		CreatedAt: s.clock().UTC(),
 	}
-	s.byName[username] = account{
+	account := Account{
 		User:         user,
 		Salt:         salt,
 		PasswordHash: passwordHash(salt, password),
 	}
+	if err := s.store.SaveAccount(account); err != nil {
+		return User{}, "", err
+	}
 	token := randomHex(24)
-	s.byToken[token] = user
+	if err := s.store.SaveSession(token, user); err != nil {
+		return User{}, "", err
+	}
 	return user, token, nil
 }
 
 func (s *Service) Login(username string, password string) (User, string, error) {
 	username = normalize(username)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	account, ok := s.byName[username]
+	account, ok := s.store.FindAccountByUsername(username)
 	if !ok || account.PasswordHash != passwordHash(account.Salt, password) {
 		return User{}, "", ErrInvalidCredential
 	}
 
 	token := randomHex(24)
-	s.byToken[token] = account.User
+	if err := s.store.SaveSession(token, account.User); err != nil {
+		return User{}, "", err
+	}
 	return account.User, token, nil
 }
 
 func (s *Service) Me(token string) (User, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	user, ok := s.byToken[token]
-	return user, ok
+	return s.store.FindSession(token)
 }
 
 func normalize(value string) string {

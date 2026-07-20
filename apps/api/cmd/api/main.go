@@ -24,6 +24,7 @@ import (
 	"board-game-platform/apps/api/internal/record"
 	"board-game-platform/apps/api/internal/room"
 	"board-game-platform/apps/api/internal/session"
+	"board-game-platform/apps/api/internal/storage"
 	"board-game-platform/apps/api/internal/tutorial"
 )
 
@@ -35,14 +36,40 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	gameCatalog := catalog.NewInMemoryCatalog(catalog.DefaultGames())
-	authService := auth.NewService(time.Now)
 	gameRegistry := gamecore.NewRegistry(davinci.NewModule(), halligalli.NewModule())
-	guestService := guest.NewService(guest.NewMemoryStore(), time.Now)
+	var health httpapi.HealthChecker
+	authStore := auth.Store(auth.NewMemoryStore())
+	guestStore := guest.Store(guest.NewMemoryStore())
+	recordStore := record.Store(record.NewMemoryStore())
+	if cfg.DatabaseURL != "" {
+		dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		db, err := storage.OpenPostgres(dbCtx, cfg.DatabaseURL)
+		if err != nil {
+			cancel()
+			logger.Error("postgres connection failed", "error", err)
+			os.Exit(1)
+		}
+		if err := db.Migrate(dbCtx); err != nil {
+			cancel()
+			logger.Error("postgres migration failed", "error", err)
+			os.Exit(1)
+		}
+		cancel()
+		defer db.Close()
+		health = db
+		authStore = auth.NewPostgresStore(db.Pool())
+		guestStore = guest.NewPostgresStore(db.Pool())
+		recordStore = record.NewPostgresStore(db.Pool())
+		logger.Info("postgres persistence enabled")
+	}
+
+	authService := auth.NewServiceWithStore(authStore, time.Now)
+	guestService := guest.NewService(guestStore, time.Now)
 	roomService := room.NewService(room.NewMemoryStore(), time.Now)
 	sessionService := session.NewService(session.NewMemoryStore(), gameRegistry, time.Now)
 	chatService := chat.NewService(time.Now, 50)
 	presenceService := connection.NewService(time.Now, 60*time.Second)
-	recordService := record.NewService(time.Now)
+	recordService := record.NewServiceWithStore(recordStore, time.Now)
 	matchService := match.NewService()
 	tutorialService := tutorial.NewService()
 	hub := realtime.NewHub(logger)
@@ -63,7 +90,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         cfg.HTTPAddr,
-		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, authService, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, tutorialService, hub),
+		Handler:      httpapi.NewRouter(cfg, logger, gameCatalog, authService, guestService, roomService, sessionService, chatService, presenceService, recordService, matchService, tutorialService, hub, health),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
