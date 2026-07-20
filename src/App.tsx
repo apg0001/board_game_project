@@ -193,7 +193,17 @@ interface DavinciPlayer {
     count: number;
   }>;
   score?: number;
+  tokens?: Record<string, number>;
+  bonuses?: Record<string, number>;
+  cards?: SplendorCard[];
   active: boolean;
+}
+
+interface SplendorCard {
+  id: string;
+  color: string;
+  points: number;
+  cost: Record<string, number>;
 }
 
 interface GameSession {
@@ -208,6 +218,8 @@ interface GameSession {
     log?: string[];
     finished?: boolean;
     players?: DavinciPlayer[];
+    bank?: Record<string, number>;
+    market?: SplendorCard[];
   };
   results?: Array<{
     playerId: string;
@@ -547,6 +559,8 @@ export function App() {
   const amHost = Boolean(me?.host);
   const canStartGame = Boolean(currentRoom && amHost && everyoneReady && currentRoom.status === "LOBBY");
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
+  const splendorColors = ["white", "blue", "green", "red", "black"];
+  const splendorMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
 
   return (
     <main className="app-shell">
@@ -935,6 +949,74 @@ export function App() {
                           종 치기
                           <ChevronRight size={18} />
                         </button>
+                      </div>
+                    ) : currentSession.gameId === "splendor" ? (
+                      <div className="room-actions">
+                        <div className="splendor-bank" aria-label="보석 은행">
+                          {splendorColors.map((color) => (
+                            <button
+                              className={`gem-button ${color}`}
+                              key={color}
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "splendor.take_token",
+                                  setCurrentSession,
+                                  setRoomMessage,
+                                  { color }
+                                )
+                              }
+                              disabled={!isMyTurn || (currentSession.state.bank?.[color] ?? 0) <= 0}
+                            >
+                              <span>{gemLabel(color)}</span>
+                              <strong>{currentSession.state.bank?.[color] ?? 0}</strong>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="splendor-market" aria-label="시장 카드">
+                          {(currentSession.state.market ?? []).map((card, index) => (
+                            <button
+                              className={`splendor-card ${card.color}`}
+                              key={card.id}
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "splendor.buy_card",
+                                  setCurrentSession,
+                                  setRoomMessage,
+                                  { marketIndex: index }
+                                )
+                              }
+                              disabled={!isMyTurn}
+                            >
+                              <strong>{card.points}점</strong>
+                              <span>{gemLabel(card.color)} 보너스</span>
+                              <small>{formatCost(card.cost)}</small>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="splendor-players">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>
+                                {player.score ?? 0}점 · 카드 {player.cards?.length ?? 0}장
+                              </span>
+                              <div className="halli-cards">
+                                {splendorColors.map((color) => (
+                                  <span key={`${player.playerId}-${color}`}>
+                                    {gemLabel(color)} {player.tokens?.[color] ?? 0}/{player.bonuses?.[color] ?? 0}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="helper-copy">
+                          내 보석 {formatCost(splendorMe?.tokens ?? {})} · 보너스 {formatCost(splendorMe?.bonuses ?? {})}
+                        </p>
                       </div>
                     ) : (
                       <>
@@ -1704,9 +1786,16 @@ async function startGame(
 async function sendGameAction(
   sessionID: string,
   roomID: string | undefined,
-  type: "davinci.pass" | "davinci.finish" | "halli-galli.flip" | "halli-galli.ring",
+  type:
+    | "davinci.pass"
+    | "davinci.finish"
+    | "halli-galli.flip"
+    | "halli-galli.ring"
+    | "splendor.take_token"
+    | "splendor.buy_card",
   onSession: (session: GameSession) => void,
-  onMessage: (message: string) => void
+  onMessage: (message: string) => void,
+  payload?: Record<string, unknown>
 ) {
   const guest = readGuestSession();
   if (!guest || !roomID) return;
@@ -1720,6 +1809,7 @@ async function sendGameAction(
         body: JSON.stringify({
           roomId: roomID,
           type,
+          payload,
           clientRequestId: crypto.randomUUID()
         })
       }
@@ -1810,6 +1900,24 @@ function fruitLabel(fruit: string) {
     plum: "자두"
   };
   return labels[fruit] ?? fruit;
+}
+
+function gemLabel(color: string) {
+  const labels: Record<string, string> = {
+    white: "흰색",
+    blue: "파랑",
+    green: "초록",
+    red: "빨강",
+    black: "검정"
+  };
+  return labels[color] ?? color;
+}
+
+function formatCost(cost: Record<string, number>) {
+  const parts = Object.entries(cost)
+    .filter(([, value]) => value > 0)
+    .map(([color, value]) => `${gemLabel(color)} ${value}`);
+  return parts.length > 0 ? parts.join(" · ") : "없음";
 }
 
 async function authorizedJSON<T>(

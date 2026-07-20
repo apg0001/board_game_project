@@ -17,6 +17,7 @@ import (
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/games/halligalli"
+	"board-game-platform/apps/api/internal/games/splendor"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/httpapi"
 	"board-game-platform/apps/api/internal/match"
@@ -36,7 +37,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	gameCatalog := catalog.NewInMemoryCatalog(catalog.DefaultGames())
-	gameRegistry := gamecore.NewRegistry(davinci.NewModule(), halligalli.NewModule())
+	gameRegistry := gamecore.NewRegistry(davinci.NewModule(), halligalli.NewModule(), splendor.NewModule())
 	var health httpapi.HealthChecker
 	authStore := auth.Store(auth.NewMemoryStore())
 	guestStore := guest.Store(guest.NewMemoryStore())

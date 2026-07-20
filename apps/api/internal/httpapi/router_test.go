@@ -16,6 +16,7 @@ import (
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/games/halligalli"
+	"board-game-platform/apps/api/internal/games/splendor"
 	"board-game-platform/apps/api/internal/guest"
 	"board-game-platform/apps/api/internal/match"
 	"board-game-platform/apps/api/internal/realtime"
@@ -348,7 +349,7 @@ func TestQuickMatchCreatesThenJoinsWaitingRoom(t *testing.T) {
 
 func testRouter() http.Handler {
 	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
-	registry := gamecore.NewRegistry(davinci.NewModule(), halligalli.NewModule())
+	registry := gamecore.NewRegistry(davinci.NewModule(), halligalli.NewModule(), splendor.NewModule())
 	return NewRouter(
 		config.Config{HTTPAddr: ":0", AllowedOrigins: map[string]struct{}{"http://localhost:5173": {}}},
 		logger,
