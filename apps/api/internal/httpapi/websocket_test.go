@@ -17,6 +17,7 @@ import (
 	"board-game-platform/apps/api/internal/config"
 	"board-game-platform/apps/api/internal/connection"
 	"board-game-platform/apps/api/internal/gamecore"
+	"board-game-platform/apps/api/internal/games/bang"
 	"board-game-platform/apps/api/internal/games/dalmuti"
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/games/halligalli"
@@ -48,7 +49,7 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		auth.NewService(nil),
 		guest.NewService(guest.NewMemoryStore(), nil),
 		room.NewService(room.NewMemoryStore(), nil),
-		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(dalmuti.NewModule(), davinci.NewModule(), halligalli.NewModule(), rummikub.NewModule(), splendor.NewModule(), werewolf.NewModule()), nil),
+		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(bang.NewModule(), dalmuti.NewModule(), davinci.NewModule(), halligalli.NewModule(), rummikub.NewModule(), splendor.NewModule(), werewolf.NewModule()), nil),
 		chat.NewService(nil, 50),
 		connection.NewService(nil, 0),
 		record.NewService(nil),

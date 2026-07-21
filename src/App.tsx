@@ -196,11 +196,17 @@ interface DavinciPlayer {
   tokens?: Record<string, number>;
   bonuses?: Record<string, number>;
   cards?: SplendorCard[];
-  hand?: DalmutiCard[];
+  hand?: HandCard[];
   handSize?: number;
   rack?: RummikubTile[];
   rackSize?: number;
   initialMelded?: boolean;
+  role?: string;
+  hp?: number;
+  maxHp?: number;
+  alive?: boolean;
+  drawn?: boolean;
+  bangUsed?: boolean;
   passed?: boolean;
   out?: boolean;
   originalRole?: string;
@@ -210,9 +216,10 @@ interface DavinciPlayer {
   active: boolean;
 }
 
-interface DalmutiCard {
+interface HandCard {
   id: string;
-  rank: number;
+  rank?: number;
+  type?: string;
 }
 
 interface RummikubTile {
@@ -255,6 +262,7 @@ interface GameSession {
     winningTeam?: string;
     table?: RummikubTile[][];
     pool?: RummikubTile[];
+    winner?: string;
   };
   results?: Array<{
     playerId: string;
@@ -602,6 +610,8 @@ export function App() {
   const werewolfMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
   const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id);
   const rummikubMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const bangMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const bangTargets = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id && player.alive !== false);
 
   return (
     <main className="app-shell">
@@ -1201,6 +1211,79 @@ export function App() {
                           타일 뽑기
                           <ChevronRight size={18} />
                         </button>
+                      </div>
+                    ) : currentSession.gameId === "bang" ? (
+                      <div className="room-actions">
+                        <div className="bang-hand" aria-label="내 카드">
+                          {(bangMe?.hand ?? []).map((card) => (
+                            <button
+                              className={`bang-card ${card.type}`}
+                              key={card.id}
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "bang.play",
+                                  setCurrentSession,
+                                  setRoomMessage,
+                                  {
+                                    cardId: card.id,
+                                    targetPlayerId: bangTargets[0]?.playerId ?? ""
+                                  }
+                                )
+                              }
+                              disabled={!isMyTurn}
+                            >
+                              {bangCardLabel(card.type ?? "")}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="splendor-players">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>
+                                {player.role ? bangRoleLabel(player.role) : "비공개"} · HP {player.hp ?? 0}/
+                                {player.maxHp ?? 0} · 손패 {player.handSize ?? player.hand?.length ?? 0}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className="wide-button"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "bang.draw",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn || Boolean(bangMe?.drawn)}
+                        >
+                          카드 2장 뽑기
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button dark"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "bang.end_turn",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn}
+                        >
+                          턴 종료
+                          <ChevronRight size={18} />
+                        </button>
+                        {currentSession.state.finished ? (
+                          <p className="helper-copy">승리 진영 {bangWinnerLabel(currentSession.state.winner ?? "")}</p>
+                        ) : null}
                       </div>
                     ) : currentSession.gameId === "werewolf" ? (
                       <div className="room-actions">
@@ -2153,7 +2236,10 @@ async function sendGameAction(
     | "werewolf.finish_night"
     | "werewolf.vote"
     | "rummikub.meld"
-    | "rummikub.draw",
+    | "rummikub.draw"
+    | "bang.draw"
+    | "bang.play"
+    | "bang.end_turn",
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void,
   payload?: Record<string, unknown>
@@ -2281,9 +2367,11 @@ function formatCost(cost: Record<string, number>) {
   return parts.length > 0 ? parts.join(" · ") : "없음";
 }
 
-function groupDalmutiHand(hand: DalmutiCard[]) {
+function groupDalmutiHand(hand: HandCard[]) {
   const counts = new Map<number, number>();
-  hand.forEach((card) => counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1));
+  hand.forEach((card) => {
+    if (card.rank) counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1);
+  });
   return Array.from(counts.entries())
     .map(([rank, count]) => ({ rank, count }))
     .sort((left, right) => left.rank - right.rank);
@@ -2314,6 +2402,35 @@ function werewolfPhaseLabel(phase: GameSession["state"]["phase"]) {
   if (phase === "DISCUSSION") return "토론/투표";
   if (phase === "FINISHED") return "종료";
   return "대기";
+}
+
+function bangCardLabel(type: string) {
+  const labels: Record<string, string> = {
+    bang: "BANG!",
+    missed: "빗맞음",
+    beer: "맥주",
+    gatling: "개틀링"
+  };
+  return labels[type] ?? type;
+}
+
+function bangRoleLabel(role: string) {
+  const labels: Record<string, string> = {
+    sheriff: "보안관",
+    deputy: "부관",
+    outlaw: "무법자",
+    renegade: "배신자"
+  };
+  return labels[role] ?? role;
+}
+
+function bangWinnerLabel(winner: string) {
+  const labels: Record<string, string> = {
+    law: "보안관/부관",
+    outlaw: "무법자",
+    renegade: "배신자"
+  };
+  return labels[winner] ?? "미정";
 }
 
 function toggleSelected(values: string[], target: string) {
