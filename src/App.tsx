@@ -445,16 +445,9 @@ export function App() {
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const playerSession = useMemo(
-    () =>
-      authSession
-        ? {
-            sessionToken: authSession.sessionToken,
-            user: { id: authSession.user.id, nickname: authSession.user.nickname }
-          }
-        : guestSession,
-    [authSession, guestSession]
-  );
+  const playerToken = authSession?.sessionToken ?? guestSession?.sessionToken ?? "";
+  const playerID = authSession?.user.id ?? guestSession?.user.id ?? "";
+  const playerNickname = authSession?.user.nickname ?? guestSession?.user.nickname ?? "";
 
   useEffect(() => {
     const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -499,17 +492,41 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const current = readPlayerSession();
-    if (!current?.sessionToken) return;
-    authorizedJSON<{ presence: Presence }>("/api/reconnect", current.sessionToken, { method: "POST" })
+    if (!authSession?.sessionToken) return;
+    const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+    fetch(`${apiURL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${authSession.sessionToken}` }
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("auth session expired");
+        return response.json() as Promise<{ user: AuthSession["user"] }>;
+      })
+      .then((data) => {
+        setAuthSession((current) => {
+          if (!current || current.user.id === data.user.id) return current;
+          const refreshed = { ...current, user: data.user };
+          saveAuthSession(refreshed);
+          return refreshed;
+        });
+      })
+      .catch(() => {
+        localStorage.removeItem(authStorageKey);
+        setAuthSession(null);
+        setRoomMessage("로그인 세션이 만료되어 게스트로 전환했습니다.");
+      });
+  }, [authSession?.sessionToken]);
+
+  useEffect(() => {
+    if (!playerToken) return;
+    authorizedJSON<{ presence: Presence }>("/api/reconnect", playerToken, { method: "POST" })
       .then((data) => {
         setPresenceByUser((previous) => ({ ...previous, [data.presence.userId]: data.presence }));
       })
       .catch(() => undefined);
-  }, []);
+  }, [playerToken]);
 
   useEffect(() => {
-    if (!playerSession) return;
+    if (!playerToken) return;
 
     const roomID = localStorage.getItem(roomStorageKey);
     const sessionID = localStorage.getItem(sessionStorageKey);
@@ -525,14 +542,14 @@ export function App() {
     }
 
     if (sessionID) {
-      fetchSession(sessionID, playerSession.sessionToken)
+      fetchSession(sessionID, playerToken)
         .then((session) => {
           setCurrentSession(session);
           setSelectedGameId(session.gameId);
         })
         .catch(() => localStorage.removeItem(sessionStorageKey));
     }
-  }, [playerSession]);
+  }, [playerToken]);
 
   useEffect(() => {
     if (currentRoom) {
@@ -552,12 +569,12 @@ export function App() {
   }, [currentSession]);
 
   useEffect(() => {
-    if (!currentRoom || !playerSession) return;
+    if (!currentRoom || !playerID) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
     const socket = new WebSocket(
       `${wsURL}?room=${encodeURIComponent(`room:${currentRoom.id}`)}&user=${encodeURIComponent(
-        playerSession.user.id
+        playerID
       )}`
     );
 
@@ -591,10 +608,10 @@ export function App() {
     return () => {
       socket.close();
     };
-  }, [currentRoom?.id, playerSession]);
+  }, [currentRoom?.id, playerID]);
 
   useEffect(() => {
-    if (!currentRoom || !playerSession) return;
+    if (!currentRoom || !playerToken) return;
 
     fetchRoomChat(currentRoom.id)
       .then(setChatMessages)
@@ -622,7 +639,7 @@ export function App() {
     };
     window.addEventListener("beforeunload", markDisconnected);
     return () => window.removeEventListener("beforeunload", markDisconnected);
-  }, [currentRoom?.id, currentSession?.id, playerSession]);
+  }, [currentRoom?.id, currentSession?.id, playerToken]);
 
   useEffect(() => {
     fetchLeaderboard(selectedGameId).then(setLeaderboard).catch(() => undefined);
@@ -647,21 +664,21 @@ export function App() {
   }, [currentRoom?.id, currentRoom?.gameId, currentRoom?.participants]);
 
   useEffect(() => {
-    if (!currentRoom?.activeSessionId || !playerSession) return;
+    if (!currentRoom?.activeSessionId || !playerToken) return;
     if (currentSession?.id === currentRoom.activeSessionId) return;
 
-    fetchSession(currentRoom.activeSessionId, playerSession.sessionToken)
+    fetchSession(currentRoom.activeSessionId, playerToken)
       .then(setCurrentSession)
       .catch(() => undefined);
-  }, [currentRoom?.activeSessionId, currentSession?.id, playerSession]);
+  }, [currentRoom?.activeSessionId, currentSession?.id, playerToken]);
 
   useEffect(() => {
-    if (!currentSession || !playerSession) return;
+    if (!currentSession || !playerID) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
     const socket = new WebSocket(
       `${wsURL}?room=${encodeURIComponent(`game:${currentSession.id}`)}&user=${encodeURIComponent(
-        playerSession.user.id
+        playerID
       )}`
     );
 
@@ -676,7 +693,7 @@ export function App() {
     return () => {
       socket.close();
     };
-  }, [currentSession?.id, playerSession]);
+  }, [currentSession?.id, playerID]);
 
   const recommendedGames = useMemo(() => {
     const source = apiGames.length === 0 ? fallbackRecommendedGames : apiGames.map((apiGame) => {
@@ -704,14 +721,14 @@ export function App() {
   const activePlayerCount = currentRoom?.participants.length ?? playerCount;
   const partyMembers = currentRoom?.participants ?? [];
   const me = currentRoom?.participants.find(
-    (participant) => participant.user.id === playerSession?.user.id
+    (participant) => participant.user.id === playerID
   );
   const davinciPlayers = currentSession?.state.players ?? [];
-  const myDavinciPlayer = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
-  const opponentPlayers = davinciPlayers.filter((player) => player.playerId !== playerSession?.user.id);
+  const myDavinciPlayer = davinciPlayers.find((player) => player.playerId === playerID);
+  const opponentPlayers = davinciPlayers.filter((player) => player.playerId !== playerID);
   const targetPlayer = opponentPlayers.find((player) => player.playerId === guessTarget) ?? opponentPlayers[0];
   const currentTurnPlayer = davinciPlayers[currentSession?.state.currentPlayerIndex ?? 0];
-  const isMyTurn = currentTurnPlayer?.playerId === playerSession?.user.id;
+  const isMyTurn = currentTurnPlayer?.playerId === playerID;
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
   const selectedRoomGame = games.find((game) => game.id === currentRoom?.gameId) ?? selectedGame;
   const selectedPlayerSet = new Set(selectedPlayerIds);
@@ -724,21 +741,21 @@ export function App() {
   const canStartGame = Boolean(currentRoom && amHost && selectedReady && selectedCountValid && currentRoom.status === "LOBBY");
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
   const splendorColors = ["white", "blue", "green", "red", "black"];
-  const splendorMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
-  const dalmutiMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const splendorMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const dalmutiMe = davinciPlayers.find((player) => player.playerId === playerID);
   const dalmutiGroups = groupDalmutiHand(dalmutiMe?.hand ?? []);
-  const werewolfMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
-  const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== playerSession?.user.id);
-  const rummikubMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
-  const bangMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
-  const bangTargets = davinciPlayers.filter((player) => player.playerId !== playerSession?.user.id && player.alive !== false);
-  const sutdaMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
-  const gostopMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
-  const onecardMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const werewolfMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== playerID);
+  const rummikubMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const bangMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const bangTargets = davinciPlayers.filter((player) => player.playerId !== playerID && player.alive !== false);
+  const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const gostopMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardTopCard = currentSession?.state.discardPile?.[(currentSession.state.discardPile?.length ?? 0) - 1];
-  const jokerdrawMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const jokerdrawMe = davinciPlayers.find((player) => player.playerId === playerID);
   const jokerdrawTargets = davinciPlayers.filter(
-    (player) => player.playerId !== playerSession?.user.id && player.active && !player.out
+    (player) => player.playerId !== playerID && player.active && !player.out
   );
 
   return (
@@ -759,7 +776,7 @@ export function App() {
               <Bell size={19} />
             </button>
             <button className="profile-button" aria-label="내 프로필">
-              {playerSession?.user.nickname.slice(-2) ?? "G"}
+              {playerNickname ? playerNickname.slice(-2) : "G"}
             </button>
           </div>
         </nav>
@@ -819,7 +836,7 @@ export function App() {
           <div className="room-card">
             <div className="section-title">
               <div>
-                <span>{playerSession?.user.nickname ?? "게스트 준비 중"}</span>
+                <span>{playerNickname || "게스트 준비 중"}</span>
               <h2>{activePlayerCount}명 입장 중 · Ready {readyCount}/{partyMembers.length || activePlayerCount}</h2>
               </div>
               <UsersRound size={22} />
@@ -838,7 +855,7 @@ export function App() {
                         ? " · 이번 판 관전"
                         : ""}
                     </small>
-                    {currentRoom && amHost && participant.user.id !== playerSession?.user.id ? (
+                    {currentRoom && amHost && participant.user.id !== playerID ? (
                       <div className="member-actions">
                         <button
                           onClick={() =>
@@ -2984,6 +3001,11 @@ async function authorizedJSON<T>(
     }
   });
 
-  if (!response.ok) throw new Error("request failed");
+  if (!response.ok) {
+    if (response.status === 401 && readAuthSession()?.sessionToken === token) {
+      localStorage.removeItem(authStorageKey);
+    }
+    throw new Error(`request failed: ${response.status}`);
+  }
   return (await response.json()) as T;
 }
