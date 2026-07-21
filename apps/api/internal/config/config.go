@@ -10,6 +10,9 @@ type Config struct {
 	AllowedOrigins map[string]struct{}
 	DatabaseURL    string
 	RedisURL       string
+	AdminUsername  string
+	AdminPassword  string
+	AdminNickname  string
 }
 
 func Load() Config {
@@ -18,6 +21,9 @@ func Load() Config {
 		AllowedOrigins: parseOrigins(env("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 		DatabaseURL:    env("DATABASE_URL", ""),
 		RedisURL:       env("REDIS_URL", ""),
+		AdminUsername:  env("ADMIN_USERNAME", "ccl7103"),
+		AdminPassword:  env("ADMIN_PASSWORD", "ccl7103!"),
+		AdminNickname:  env("ADMIN_NICKNAME", "관리자"),
 	}
 }
 

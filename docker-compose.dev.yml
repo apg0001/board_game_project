@@ -36,6 +36,9 @@ services:
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
       DATABASE_URL: "${DATABASE_URL:-postgres://boardgame:boardgame@postgres:5432/boardgame_dev?sslmode=disable}"
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-ccl7103}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-ccl7103!}"
+      ADMIN_NICKNAME: "${ADMIN_NICKNAME:-관리자}"
     ports:
       - "${API_PORT:-4000}:4000"
     volumes:

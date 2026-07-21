@@ -1,5 +1,6 @@
 import type { ErrorInfo, ReactNode } from "react";
 import { Component } from "react";
+import { clearStoredSessionState } from "./storageKeys";
 
 interface Props {
   children: ReactNode;
@@ -32,10 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
           {this.state.message ? <code>{this.state.message}</code> : null}
           <button
             onClick={() => {
-              localStorage.removeItem("board-table.auth-session");
-              localStorage.removeItem("board-table.guest-session");
-              localStorage.removeItem("board-table.current-room-id");
-              localStorage.removeItem("board-table.current-session-id");
+              clearStoredSessionState();
               window.location.reload();
             }}
           >
