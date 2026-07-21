@@ -30,6 +30,7 @@ func (s *MemoryStore) Save(user User) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	user.Nickname = DisplayNickname(user.Nickname, user.ID)
 	s.byToken[user.SessionToken] = user
 	s.byName[user.Nickname] = struct{}{}
 	return nil
@@ -43,6 +44,7 @@ func (s *MemoryStore) FindByToken(token string) (User, error) {
 	if !ok {
 		return User{}, ErrSessionNotFound
 	}
+	user.Nickname = DisplayNickname(user.Nickname, user.ID)
 	return user, nil
 }
 

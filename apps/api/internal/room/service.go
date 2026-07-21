@@ -55,6 +55,7 @@ func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (
 }
 
 func (s *Service) CreateWithOptions(host guest.PublicUser, options CreateOptions) (Room, error) {
+	host = normalizePublicUser(host, "host")
 	gameID := options.GameID
 	if gameID == "" {
 		gameID = "davinci"
@@ -132,6 +133,7 @@ func (s *Service) List(filter ListFilter) []Room {
 }
 
 func (s *Service) JoinSpectator(roomID string, user guest.PublicUser) (Room, error) {
+	user = normalizePublicUser(user, "spectator")
 	room, err := s.store.FindByID(roomID)
 	if err != nil {
 		return Room{}, err
@@ -201,6 +203,7 @@ func (s *Service) JoinPublicRoom(roomID string, user guest.PublicUser) (Room, er
 }
 
 func (s *Service) joinRoomAsPlayerOrSpectator(room Room, user guest.PublicUser) (Room, error) {
+	user = normalizePublicUser(user, "player")
 	if room.Status == StatusPlaying {
 		return s.JoinSpectator(room.ID, user)
 	}
@@ -228,6 +231,15 @@ func (s *Service) joinRoomAsPlayerOrSpectator(room Room, user guest.PublicUser) 
 		return Room{}, err
 	}
 	return room, nil
+}
+
+func normalizePublicUser(user guest.PublicUser, fallback string) guest.PublicUser {
+	user.Nickname = guest.DisplayNickname(user.Nickname, user.ID)
+	if user.ID == "" {
+		user.ID = fallback
+		user.Nickname = guest.DisplayNickname(user.Nickname, fallback)
+	}
+	return user
 }
 
 func (s *Service) FindByID(id string) (Room, error) {

@@ -25,6 +25,14 @@ func TestCreateGuest(t *testing.T) {
 	}
 }
 
+func TestPublicUserAlwaysHasNickname(t *testing.T) {
+	user := User{ID: "guest_1"}
+	public := user.Public()
+	if public.Nickname == "" {
+		t.Fatal("expected fallback nickname")
+	}
+}
+
 func TestMeRefreshesLastSeenAt(t *testing.T) {
 	first := time.Date(2026, 7, 20, 1, 0, 0, 0, time.UTC)
 	second := first.Add(10 * time.Second)

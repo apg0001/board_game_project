@@ -72,6 +72,25 @@ func TestJoinByCode(t *testing.T) {
 	}
 }
 
+func TestRoomUsersAlwaysHaveNickname(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", ""), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Participants[0].User.Nickname == "" {
+		t.Fatal("expected host fallback nickname")
+	}
+
+	joined, err := service.JoinByCode(created.Code, testUser("u2", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if joined.Participants[1].User.Nickname == "" {
+		t.Fatal("expected participant fallback nickname")
+	}
+}
+
 func TestJoinPublicRoomByCode(t *testing.T) {
 	service := NewService(NewMemoryStore(), fixedClock())
 	created, err := service.CreateWithOptions(testUser("u1", "Guest_1001"), CreateOptions{
