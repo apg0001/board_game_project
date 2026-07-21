@@ -618,7 +618,7 @@ export function App() {
         setRoomMessage(`${nextRoom.code} 방 상태가 갱신되었습니다.`);
       }
       if (message.type === "chat.message" && message.payload.message) {
-        setChatMessages((previous) => [...previous.slice(-49), message.payload.message!]);
+        setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message.payload.message!)]);
       }
       if (message.type === "presence.updated" && message.payload.presence) {
         setPresenceByUser((previous) => ({
@@ -720,9 +720,9 @@ export function App() {
     const game = games.find((item) => item.id === currentRoom.gameId) ?? games[4];
     const participantIDs = currentRoom.participants.map((participant) => participant.user.id);
     setSelectedPlayerIds((current) => {
-      const valid = current.filter((id) => participantIDs.includes(id));
-      if (valid.length > 0) return valid.slice(0, game.maxPlayers);
-      return participantIDs.slice(0, game.maxPlayers);
+      const valid = listOf(current).filter((id) => participantIDs.includes(id));
+      if (valid.length > 0) return head(valid, game.maxPlayers);
+      return head(participantIDs, game.maxPlayers);
     });
   }, [currentRoom?.id, currentRoom?.gameId, currentRoom?.participants]);
 
@@ -773,7 +773,7 @@ export function App() {
         categories: apiGame.categories,
         accent: fallback?.accent ?? "#2f8e74",
         cover: fallback?.cover ?? apiGame.title,
-        mark: fallback?.mark ?? apiGame.title.slice(0, 1)
+        mark: fallback?.mark ?? safeNickname(apiGame.title, "?").slice(0, 1)
       };
     });
 
@@ -1333,7 +1333,7 @@ export function App() {
               <div className="game-session-panel">
                 <p>라운드 {currentSession.state.round ?? 1} · 현재 턴 {currentTurnName}</p>
                 <div className="session-log">
-                  {(currentSession.state.log ?? []).slice(-3).map((item) => (
+                  {tail(currentSession.state.log, 3).map((item) => (
                     <span key={item}>{item}</span>
                   ))}
                 </div>
@@ -1416,7 +1416,7 @@ export function App() {
                               <strong>{participantName(currentRoom, player.playerId)}</strong>
                               <span>{player.score ?? 0}점 · 덱 {player.deck?.length ?? 0}장</span>
                               <div className="halli-cards">
-                                {(player.faceUp ?? []).slice(-3).map((card, index) => (
+                                {tail(player.faceUp, 3).map((card, index) => (
                                   <span key={`${player.playerId}-${card.fruit}-${card.count}-${index}`}>
                                     {fruitLabel(card.fruit)} {card.count}
                                   </span>
@@ -2241,7 +2241,7 @@ export function App() {
                 <MessageCircle size={22} />
               </div>
               <div className="chat-list">
-                {chatMessages.slice(-5).map((message) => (
+                {tail(chatMessages, 5).map((message) => (
                   <span key={message.id}>
                     <strong>{message.user.nickname}</strong> {message.text}
                   </span>
@@ -2255,7 +2255,7 @@ export function App() {
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" || !chatInput.trim()) return;
                     sendChat(currentRoom.id, chatInput, "chat").then((message) => {
-                      setChatMessages((previous) => [...previous.slice(-49), message]);
+                      setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message)]);
                       setChatInput("");
                     });
                   }}
@@ -2267,7 +2267,7 @@ export function App() {
                   onClick={() => {
                     if (!chatInput.trim()) return;
                     sendChat(currentRoom.id, chatInput, "chat").then((message) => {
-                      setChatMessages((previous) => [...previous.slice(-49), message]);
+                      setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message)]);
                       setChatInput("");
                     });
                   }}
@@ -2281,7 +2281,7 @@ export function App() {
                     key={emoji}
                     onClick={() =>
                       sendChat(currentRoom.id, emoji, "emoji").then((message) =>
-                        setChatMessages((previous) => [...previous.slice(-49), message])
+                        setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message)])
                       )
                     }
                   >
@@ -2504,7 +2504,7 @@ export function App() {
               {leaderboard.length === 0 ? (
                 <span>아직 기록이 없습니다.</span>
               ) : (
-                leaderboard.slice(0, 5).map((row, index) => (
+                head(leaderboard, 5).map((row, index) => (
                   <span key={row.userId}>
                     {index + 1}. {row.userId} · {row.mmr} MMR · {row.wins}승
                   </span>
@@ -2765,6 +2765,17 @@ function normalizeRoom(room: Room): Room {
   };
 }
 
+function normalizeChatMessage(message: ChatMessage | null | undefined): ChatMessage {
+  const source = message ?? ({} as ChatMessage);
+  return {
+    ...source,
+    id: typeof source.id === "string" && source.id.length > 0 ? source.id : crypto.randomUUID(),
+    text: typeof source.text === "string" ? source.text : "",
+    kind: source.kind === "emoji" ? "emoji" : "chat",
+    user: normalizeUserRef(source.user, "Player")
+  };
+}
+
 function normalizeUserRef(user: { id: string; nickname: string } | null | undefined, fallback: string) {
   return {
     id: typeof user?.id === "string" && user.id.length > 0 ? user.id : fallback,
@@ -2778,6 +2789,18 @@ function safeNickname(value: unknown, fallback: string) {
 
 function nicknameInitial(value: unknown, fallback: string) {
   return safeNickname(value, fallback).slice(0, 2);
+}
+
+function listOf<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function tail<T>(value: T[] | null | undefined, count: number): T[] {
+  return listOf(value).slice(-count);
+}
+
+function head<T>(value: T[] | null | undefined, count: number): T[] {
+  return listOf(value).slice(0, count);
 }
 
 async function createGuest(apiURL: string): Promise<GuestSession> {
@@ -3031,7 +3054,7 @@ async function fetchRoomChat(roomID: string): Promise<ChatMessage[]> {
   const response = await fetch(`${apiURL}/api/rooms/${roomID}/chat`);
   if (!response.ok) throw new Error("failed to fetch chat");
   const data = (await response.json()) as { messages: ChatMessage[] };
-  return data.messages;
+  return listOf(data.messages).map(normalizeChatMessage);
 }
 
 async function fetchRoom(roomID: string): Promise<Room> {
@@ -3060,7 +3083,7 @@ async function fetchLeaderboard(gameId: string): Promise<LeaderboardRow[]> {
   const response = await fetch(`${apiURL}/api/leaderboard?gameId=${gameId}&limit=5`);
   if (!response.ok) throw new Error("failed to fetch leaderboard");
   const data = (await response.json()) as { rows: LeaderboardRow[] };
-  return data.rows;
+  return listOf(data.rows);
 }
 
 async function fetchTutorial(gameId: string): Promise<TutorialGuide> {

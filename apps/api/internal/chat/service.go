@@ -39,6 +39,7 @@ func NewService(clock Clock, limit int) *Service {
 }
 
 func (s *Service) Add(roomID string, user guest.PublicUser, text string, kind string) (Message, bool) {
+	user.Nickname = guest.DisplayNickname(user.Nickname, user.ID)
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Message{}, false
@@ -71,7 +72,11 @@ func (s *Service) Add(roomID string, user guest.PublicUser, text string, kind st
 func (s *Service) Recent(roomID string) []Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]Message(nil), s.byRoom[roomID]...)
+	messages := s.byRoom[roomID]
+	if len(messages) == 0 {
+		return []Message{}
+	}
+	return append([]Message{}, messages...)
 }
 
 func randomHex(byteLength int) string {
