@@ -52,6 +52,7 @@ go run ./cmd/api
 ```
 
 이 명령 하나로 PostgreSQL, Redis, Go API, PWA 웹 클라이언트가 함께 실행됩니다. 종료는 다음 명령을 사용합니다.
+실행이 끝나면 터미널에 PC 웹, 모바일/LAN, API, WebSocket 접속 링크가 표시됩니다.
 
 ```bash
 ./stop.sh
@@ -75,6 +76,7 @@ Docker 없이 Go API와 Vite 웹 서버만 백그라운드로 실행하려면 �
 ```
 
 직접 실행 모드는 기본적으로 인메모리 저장소를 사용합니다. 종료는 다음 명령을 사용합니다.
+실행이 끝나면 터미널에 PC 웹, 모바일/LAN, API, WebSocket 접속 링크가 표시됩니다.
 
 ```bash
 ./stop-local.sh

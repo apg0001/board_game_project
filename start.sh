@@ -37,6 +37,17 @@ detect_lan_ip() {
   fi
 }
 
+print_access_links() {
+  echo
+  echo "접속 링크"
+  echo "  PC 웹: http://localhost:${WEB_PORT}"
+  if [[ -n "$LAN_IP" ]]; then
+    echo "  모바일/같은 Wi-Fi: http://${LAN_IP}:${WEB_PORT}"
+  fi
+  echo "  API: ${VITE_API_URL}"
+  echo "  WebSocket: ${VITE_WS_URL}"
+}
+
 API_PORT="${API_PORT:-4000}"
 WEB_PORT="${WEB_PORT:-5173}"
 LAN_IP="$(detect_lan_ip || true)"
@@ -55,15 +66,12 @@ export API_PORT
 export WEB_PORT
 
 echo "Board Table 개발 서버를 시작합니다."
-echo "API: ${VITE_API_URL}"
-echo "Web: http://localhost:${WEB_PORT}"
-if [[ -n "$LAN_IP" ]]; then
-  echo "Mobile/LAN: http://${LAN_IP}:${WEB_PORT}"
-fi
 
 compose -f "$COMPOSE_FILE" up --build -d
 
 echo
 echo "실행 완료"
+print_access_links
+echo
 echo "로그 보기: docker compose -f ${COMPOSE_FILE} logs -f"
 echo "종료: ./stop.sh"

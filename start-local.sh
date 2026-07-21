@@ -32,6 +32,17 @@ is_running() {
   [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" >/dev/null 2>&1
 }
 
+print_access_links() {
+  echo
+  echo "접속 링크"
+  echo "  PC 웹: http://localhost:${WEB_PORT}"
+  if [[ -n "$LAN_IP" ]]; then
+    echo "  모바일/같은 Wi-Fi: http://${LAN_IP}:${WEB_PORT}"
+  fi
+  echo "  API: ${VITE_API_URL}"
+  echo "  WebSocket: ${VITE_WS_URL}"
+}
+
 ensure_port_free() {
   local port="$1"
   local label="$2"
@@ -98,11 +109,8 @@ fi
 
 echo
 echo "직접 실행 개발 서버가 시작되었습니다."
-echo "API: ${VITE_API_URL}"
-echo "Web: http://localhost:${WEB_PORT}"
-if [[ -n "$LAN_IP" ]]; then
-  echo "Mobile/LAN: http://${LAN_IP}:${WEB_PORT}"
-fi
+print_access_links
+echo
 echo "API 로그: tail -f ${API_LOG_FILE}"
 echo "Web 로그: tail -f ${WEB_LOG_FILE}"
 echo "종료: ./stop-local.sh"
