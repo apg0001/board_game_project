@@ -20,439 +20,65 @@ import {
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { storageKeys } from "./storageKeys";
-
-type GameCategory = "블러핑" | "전략" | "순발력" | "숫자/조합" | "파티" | "카드";
-
-interface GameCard {
-  id: string;
-  title: string;
-  players: string;
-  minPlayers: number;
-  maxPlayers: number;
-  time: string;
-  difficulty: "쉬움" | "보통" | "어려움";
-  categories: GameCategory[];
-  accent: string;
-  cover: string;
-  mark: string;
-}
-
-const games: GameCard[] = [
-  {
-    id: "dalmuti",
-    title: "위대한 달무티",
-    players: "4-8명",
-    minPlayers: 4,
-    maxPlayers: 8,
-    time: "20분",
-    difficulty: "쉬움",
-    categories: ["카드", "파티"],
-    accent: "#c95f42",
-    cover: "DALMUTI",
-    mark: "1"
-  },
-  {
-    id: "werewolf",
-    title: "한 밤의 늑대인간",
-    players: "3-10명",
-    minPlayers: 3,
-    maxPlayers: 10,
-    time: "10분",
-    difficulty: "보통",
-    categories: ["블러핑", "파티"],
-    accent: "#6f5fbf",
-    cover: "WEREWOLF",
-    mark: "夜"
-  },
-  {
-    id: "rummikub",
-    title: "루미큐브",
-    players: "2-4명",
-    minPlayers: 2,
-    maxPlayers: 4,
-    time: "35분",
-    difficulty: "보통",
-    categories: ["숫자/조합", "전략"],
-    accent: "#2f78b7",
-    cover: "RUMMIKUB",
-    mark: "30"
-  },
-  {
-    id: "bang",
-    title: "뱅!",
-    players: "4-7명",
-    minPlayers: 4,
-    maxPlayers: 7,
-    time: "40분",
-    difficulty: "어려움",
-    categories: ["블러핑", "카드"],
-    accent: "#a3682a",
-    cover: "BANG!",
-    mark: "!"
-  },
-  {
-    id: "davinci",
-    title: "다빈치 코드",
-    players: "2-4명",
-    minPlayers: 2,
-    maxPlayers: 4,
-    time: "15분",
-    difficulty: "쉬움",
-    categories: ["숫자/조합", "전략"],
-    accent: "#1c8c8c",
-    cover: "DAVINCI",
-    mark: "?"
-  },
-  {
-    id: "halli-galli",
-    title: "할리갈리",
-    players: "2-6명",
-    minPlayers: 2,
-    maxPlayers: 6,
-    time: "10분",
-    difficulty: "쉬움",
-    categories: ["순발력", "파티"],
-    accent: "#d24f6a",
-    cover: "HALLI",
-    mark: "5"
-  },
-  {
-    id: "splendor",
-    title: "스플랜더",
-    players: "2-4명",
-    minPlayers: 2,
-    maxPlayers: 4,
-    time: "30분",
-    difficulty: "보통",
-    categories: ["전략", "카드"],
-    accent: "#2f8e74",
-    cover: "SPLENDOR",
-    mark: "15"
-  },
-  {
-    id: "sutda",
-    title: "섯다",
-    players: "2-10명",
-    minPlayers: 2,
-    maxPlayers: 10,
-    time: "8분",
-    difficulty: "보통",
-    categories: ["블러핑", "카드"],
-    accent: "#8f3f71",
-    cover: "SUTDA",
-    mark: "38"
-  },
-  {
-    id: "gostop",
-    title: "고스톱",
-    players: "2-3명",
-    minPlayers: 2,
-    maxPlayers: 3,
-    time: "20분",
-    difficulty: "보통",
-    categories: ["전략", "카드"],
-    accent: "#b28a22",
-    cover: "GO-STOP",
-    mark: "光"
-  },
-  {
-    id: "onecard",
-    title: "원카드",
-    players: "2-6명",
-    minPlayers: 2,
-    maxPlayers: 6,
-    time: "10분",
-    difficulty: "쉬움",
-    categories: ["카드", "파티"],
-    accent: "#2c7a9b",
-    cover: "ONE CARD",
-    mark: "A"
-  },
-  {
-    id: "jokerdraw",
-    title: "조커뽑기",
-    players: "2-8명",
-    minPlayers: 2,
-    maxPlayers: 8,
-    time: "8분",
-    difficulty: "쉬움",
-    categories: ["카드", "파티"],
-    accent: "#7a4fb0",
-    cover: "JOKER",
-    mark: "J"
-  }
-];
-
-const playerCount = 4;
-const fallbackRecommendedGames = games.filter(
-  (game) => game.minPlayers <= playerCount && game.maxPlayers >= playerCount
-);
-
-interface ApiGame {
-  id: string;
-  title: string;
-  minPlayers: number;
-  maxPlayers: number;
-  estimatedMinutes: number;
-  difficulty: "쉬움" | "보통" | "어려움";
-  categories: GameCategory[];
-}
-
-interface GuestSession {
-  sessionToken: string;
-  user: {
-    id: string;
-    nickname: string;
-  };
-}
-
-interface AuthSession {
-  sessionToken: string;
-  user: {
-    id: string;
-    username: string;
-    nickname: string;
-    role: "USER" | "ADMIN";
-  };
-}
-
-interface RoomParticipant {
-  user: {
-    id: string;
-    nickname: string;
-  };
-  ready: boolean;
-  host: boolean;
-  seatIndex: number;
-}
-
-interface RoomSpectator {
-  user: {
-    id: string;
-    nickname: string;
-  };
-}
-
-interface RuleVote {
-  userId: string;
-  choices: Record<string, string>;
-}
-
-interface Room {
-  id: string;
-  code: string;
-  gameId: string;
-  visibility: "PRIVATE" | "PUBLIC";
-  status: "LOBBY" | "PLAYING" | "FINISHED" | "CLOSED";
-  activeSessionId?: string;
-  playingPlayerIds?: string[];
-  maxPlayers: number;
-  spectators: RoomSpectator[];
-  options: {
-    turnSeconds: number;
-    maxWaitSeconds: number;
-    autoStart: boolean;
-    allowSpectators: boolean;
-  };
-  participants: RoomParticipant[];
-  ruleVotes?: RuleVote[];
-  gameRules?: Record<string, unknown>;
-  ruleMessages?: string[];
-}
-
-type RoomOptions = Room["options"];
-type RoomSettings = RoomOptions & {
-  maxPlayers: number;
-};
-
-interface DavinciTile {
-  color: "black" | "white" | "hidden";
-  value: number;
-  joker?: boolean;
-  revealed: boolean;
-}
-
-interface DavinciPlayer {
-  playerId: string;
-  tiles?: DavinciTile[];
-  deck?: unknown[];
-  faceUp?: Array<{
-    fruit: string;
-    count: number;
-  }>;
-  score?: number;
-  tokens?: Record<string, number>;
-  bonuses?: Record<string, number>;
-  cards?: SplendorCard[];
-  hand?: HandCard[];
-  handSize?: number;
-  rack?: RummikubTile[];
-  rackSize?: number;
-  initialMelded?: boolean;
-  role?: string;
-  hp?: number;
-  maxHp?: number;
-  alive?: boolean;
-  drawn?: boolean;
-  bangUsed?: boolean;
-  rankName?: string;
-  folded?: boolean;
-  ready?: boolean;
-  captured?: HandCard[];
-  goCount?: number;
-  passed?: boolean;
-  out?: boolean;
-  originalRole?: string;
-  currentRole?: string;
-  seenRoles?: Record<string, string>;
-  votedFor?: string;
-  active: boolean;
-}
-
-interface HandCard {
-  id: string;
-  rank?: number | string;
-  suit?: string;
-  value?: number;
-  type?: string;
-  month?: number;
-  gwang?: boolean;
-  kind?: string;
-  joker?: boolean;
-}
-
-interface RummikubTile {
-  id: string;
-  color: string;
-  number: number;
-  joker: boolean;
-}
-
-interface SplendorCard {
-  id: string;
-  color: string;
-  points: number;
-  cost: Record<string, number>;
-}
-
-interface GameSession {
-  id: string;
-  roomId: string;
-  gameId: string;
-  status: "ACTIVE" | "FINISHED" | "ABORTED";
-  state: {
-    currentPlayerIndex?: number;
-    turnIndex?: number;
-    round?: number;
-    phase?: "NIGHT" | "DISCUSSION" | "FINISHED";
-    log?: string[];
-    finished?: boolean;
-    players?: DavinciPlayer[];
-    bank?: Record<string, number>;
-    market?: SplendorCard[];
-    currentTrick?: {
-      rank?: number;
-      count?: number;
-      playerId?: string;
-    };
-    finishOrder?: string[];
-    center?: string[];
-    executed?: string[];
-    winningTeam?: string;
-    table?: RummikubTile[][];
-    pool?: RummikubTile[];
-    winner?: string;
-    pot?: number;
-    winnerId?: string;
-    loserId?: string;
-    field?: HandCard[];
-    discardPile?: HandCard[];
-    drawPile?: HandCard[];
-    deck?: DavinciTile[];
-    pendingTile?: DavinciTile;
-    pendingOwnerId?: string;
-    canEndTurn?: boolean;
-    rules?: OneCardRules;
-    ruleMessages?: string[];
-    pendingDraw?: number;
-    pendingAttackRank?: string;
-  };
-  results?: Array<{
-    playerId: string;
-    rank: number;
-    score: number;
-    outcome: "WIN" | "LOSE" | "DRAW";
-  }>;
-}
-
-interface OneCardRules {
-  attackCards?: string[];
-  defenseMode?: string;
-  jokerDrawCount?: number;
-  twoDrawCount?: number;
-  stacking?: boolean;
-}
-
-interface RealtimeMessage {
-  room: string;
-  type: string;
-  payload: {
-    room?: Room;
-    session?: GameSession;
-    message?: ChatMessage;
-    presence?: Presence;
-  };
-}
-
-interface ChatMessage {
-  id: string;
-  roomId: string;
-  user: {
-    id: string;
-    nickname: string;
-  };
-  text: string;
-  kind: "chat" | "emoji";
-  createdAt: string;
-}
-
-interface Presence {
-  userId: string;
-  roomId: string;
-  sessionId?: string;
-  status: "ONLINE" | "DISCONNECTED";
-  expiresAt?: string;
-}
-
-interface LeaderboardRow {
-  userId: string;
-  gameId: string;
-  wins: number;
-  losses: number;
-  draws: number;
-  playCount: number;
-  mmr: number;
-}
-
-interface TutorialGuide {
-  gameId: string;
-  title: string;
-  summary: string;
-  tips: string[];
-  steps: Array<{
-    title: string;
-    description: string;
-    actionHint: string;
-  }>;
-}
-
-type LobbyFlow = "home" | "private-room" | "public-room" | "quick-match" | "game-rooms" | "room";
-
-const guestStorageKey = storageKeys.guestSession;
-const authStorageKey = storageKeys.authSession;
-const roomStorageKey = storageKeys.currentRoomId;
-const sessionStorageKey = storageKeys.currentSessionId;
+import { FlowOptionCard } from "./components/FlowOptionCard";
+import { fallbackRecommendedGames, games, playerCount } from "./domain/gameCatalog";
+import type {
+  ApiGame,
+  AuthSession,
+  ChatMessage,
+  DavinciTile,
+  GameCategory,
+  GameSession,
+  GuestSession,
+  HandCard,
+  LeaderboardRow,
+  LobbyFlow,
+  OneCardRules,
+  Presence,
+  Room,
+  TutorialGuide
+} from "./domain/types";
+import {
+  authorizedJSON,
+  createGuest,
+  createRoom,
+  fetchLeaderboard,
+  fetchPublicRooms,
+  fetchRoom,
+  fetchRoomChat,
+  fetchSession,
+  fetchTutorial,
+  joinPublicRoom,
+  joinRoom,
+  kickPlayer,
+  markPresence,
+  quickMatch,
+  roomPostAction,
+  sendChat,
+  sendGameAction,
+  sendGuessAction,
+  setReady,
+  spectateRoom,
+  startGame,
+  submitAuth,
+  transferHost,
+  updateRoomOptions,
+  voteRoomRules
+} from "./lib/api";
+import { head, listOf, tail } from "./lib/collections";
+import { appendChatMessage, normalizeRoom } from "./lib/normalizers";
+import { nicknameInitial, safeNickname } from "./lib/playerIdentity";
+import { parseRealtimeMessage } from "./lib/realtime";
+import {
+  authStorageKey,
+  readAuthSession,
+  readGuestSession,
+  readPlayerSession,
+  roomStorageKey,
+  saveAuthSession,
+  saveGuestSession,
+  sessionStorageKey
+} from "./lib/sessionStorage";
 
 export function App() {
   const [apiGames, setApiGames] = useState<ApiGame[]>([]);
@@ -969,38 +595,31 @@ export function App() {
 
       {showHomeFlow ? (
         <section className="flow-home" aria-label="플레이 방식 선택">
-          <button className="flow-card primary-flow" onClick={() => setLobbyFlow("private-room")}>
-            <span>
-              <Plus size={22} />
-            </span>
-            <strong>프라이빗 방 만들기</strong>
-            <small>친구들과 코드로 들어오는 비공개 방을 만듭니다.</small>
-            <ChevronRight size={20} />
-          </button>
-          <button className="flow-card" onClick={() => setLobbyFlow("public-room")}>
-            <span>
-              <UsersRound size={22} />
-            </span>
-            <strong>공개 방 만들기</strong>
-            <small>목록에 노출되는 방을 만들거나 공개 방에 직접 들어갑니다.</small>
-            <ChevronRight size={20} />
-          </button>
-          <button className="flow-card" onClick={() => setLobbyFlow("game-rooms")}>
-            <span>
-              <Search size={22} />
-            </span>
-            <strong>특정 게임 방만 들어가기</strong>
-            <small>게임 목록에서 하나를 고른 뒤 해당 게임 매칭으로 입장합니다.</small>
-            <ChevronRight size={20} />
-          </button>
-          <button className="flow-card" onClick={() => setLobbyFlow("quick-match")}>
-            <span>
-              <Play size={22} />
-            </span>
-            <strong>퀵매칭으로 랜덤 방</strong>
-            <small>방을 고르지 않고 선택한 게임의 대기열로 바로 들어갑니다.</small>
-            <ChevronRight size={20} />
-          </button>
+          <FlowOptionCard
+            primary
+            icon={<Plus size={22} />}
+            title="프라이빗 방 만들기"
+            description="친구들과 코드로 들어오는 비공개 방을 만듭니다."
+            onClick={() => setLobbyFlow("private-room")}
+          />
+          <FlowOptionCard
+            icon={<UsersRound size={22} />}
+            title="공개 방 만들기"
+            description="목록에 노출되는 방을 만들거나 공개 방에 직접 들어갑니다."
+            onClick={() => setLobbyFlow("public-room")}
+          />
+          <FlowOptionCard
+            icon={<Search size={22} />}
+            title="특정 게임 방만 들어가기"
+            description="게임 목록에서 하나를 고른 뒤 해당 게임 매칭으로 입장합니다."
+            onClick={() => setLobbyFlow("game-rooms")}
+          />
+          <FlowOptionCard
+            icon={<Play size={22} />}
+            title="퀵매칭으로 랜덤 방"
+            description="방을 고르지 않고 선택한 게임의 대기열로 바로 들어갑니다."
+            onClick={() => setLobbyFlow("quick-match")}
+          />
         </section>
       ) : null}
 
@@ -1423,14 +1042,32 @@ export function App() {
             </div>
             <p className="room-message">{roomMessage}</p>
             {currentRoom ? (
-              <p className="room-message">
-                {currentRoom.gameId} · 로비 {currentRoom.participants.length}/{currentRoom.maxPlayers}명 · 이번 판{" "}
-                {selectedPlayers.length}/{selectedRoomGame.maxPlayers}명 · 관전{" "}
-                {currentRoom.spectators?.length ?? 0}명 · 턴 {currentRoom.options?.turnSeconds ?? 60}초 · 대기{" "}
-                {currentRoom.options?.maxWaitSeconds ?? 180}초 ·{" "}
-                {currentRoom.options?.autoStart ? "자동 시작" : "수동 시작"} ·{" "}
-                {currentRoom.options?.allowSpectators ? "관전 허용" : "관전 닫힘"}
-              </p>
+              <div className="room-status-grid" aria-label="방 상태 요약">
+                <span>
+                  <strong>로비</strong>
+                  {currentRoom.participants.length}/{currentRoom.maxPlayers}
+                </span>
+                <span>
+                  <strong>이번 판</strong>
+                  {selectedPlayers.length}/{selectedRoomGame.maxPlayers}
+                </span>
+                <span>
+                  <strong>관전</strong>
+                  {currentRoom.spectators?.length ?? 0}
+                </span>
+                <span>
+                  <strong>턴</strong>
+                  {currentRoom.options?.turnSeconds ?? 60}초
+                </span>
+                <span>
+                  <strong>대기</strong>
+                  {currentRoom.options?.maxWaitSeconds ?? 180}초
+                </span>
+                <span>
+                  <strong>시작</strong>
+                  {currentRoom.options?.autoStart ? "자동" : "수동"}
+                </span>
+              </div>
             ) : null}
             {currentRoom ? (
               <p className="room-message">
@@ -2825,655 +2462,6 @@ export function App() {
   );
 }
 
-function readGuestSession(): GuestSession | null {
-  try {
-    const raw = localStorage.getItem(guestStorageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<GuestSession>;
-    if (!isStoredPlayerSession(parsed)) {
-      localStorage.removeItem(guestStorageKey);
-      return null;
-    }
-    return parsed;
-  } catch {
-    localStorage.removeItem(guestStorageKey);
-    return null;
-  }
-}
-
-function saveGuestSession(session: GuestSession) {
-  localStorage.setItem(guestStorageKey, JSON.stringify(session));
-}
-
-function readAuthSession(): AuthSession | null {
-  try {
-    const raw = localStorage.getItem(authStorageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<AuthSession>;
-    if (!isStoredPlayerSession(parsed) || typeof parsed.user?.username !== "string") {
-      localStorage.removeItem(authStorageKey);
-      return null;
-    }
-    return {
-      sessionToken: parsed.sessionToken,
-      user: {
-        id: parsed.user.id,
-        username: parsed.user.username,
-        nickname: safeNickname(parsed.user.nickname, parsed.user.username),
-        role: parsed.user.role === "ADMIN" ? "ADMIN" : "USER"
-      }
-    };
-  } catch {
-    localStorage.removeItem(authStorageKey);
-    return null;
-  }
-}
-
-function saveAuthSession(session: AuthSession) {
-  localStorage.setItem(authStorageKey, JSON.stringify(normalizeAuthSession(session)));
-}
-
-function isStoredPlayerSession(value: Partial<GuestSession> | Partial<AuthSession>): value is GuestSession {
-  return (
-    typeof value.sessionToken === "string" &&
-    value.sessionToken.length > 0 &&
-    typeof value.user?.id === "string" &&
-    value.user.id.length > 0 &&
-    typeof value.user?.nickname === "string" &&
-    value.user.nickname.length > 0
-  );
-}
-
-function readPlayerSession(): GuestSession | null {
-  const auth = readAuthSession();
-  if (auth) {
-    return {
-      sessionToken: auth.sessionToken,
-      user: { id: auth.user.id, nickname: auth.user.nickname }
-    };
-  }
-  return readGuestSession();
-}
-
-function normalizeAuthSession(session: AuthSession): AuthSession {
-  return {
-    sessionToken: session.sessionToken,
-    user: {
-      id: session.user.id,
-      username: session.user.username,
-      nickname: safeNickname(session.user.nickname, session.user.username),
-      role: session.user.role === "ADMIN" ? "ADMIN" : "USER"
-    }
-  };
-}
-
-function normalizeRoom(room: Room): Room {
-  return {
-    ...room,
-    visibility: room.visibility ?? "PRIVATE",
-    participants: (room.participants ?? []).map((participant, index) => ({
-      ...participant,
-      user: normalizeUserRef(participant.user, `Player_${index + 1}`)
-    })),
-    spectators: (room.spectators ?? []).map((spectator, index) => ({
-      ...spectator,
-      user: normalizeUserRef(spectator.user, `Spectator_${index + 1}`)
-    })),
-    playingPlayerIds: room.playingPlayerIds ?? [],
-    ruleVotes: room.ruleVotes ?? [],
-    gameRules: room.gameRules ?? {},
-    ruleMessages: room.ruleMessages ?? [],
-    options: {
-      turnSeconds: room.options?.turnSeconds ?? 60,
-      maxWaitSeconds: room.options?.maxWaitSeconds ?? 180,
-      autoStart: room.options?.autoStart ?? false,
-      allowSpectators: room.options?.allowSpectators ?? true
-    }
-  };
-}
-
-function normalizeChatMessage(message: ChatMessage | null | undefined): ChatMessage {
-  const source = message ?? ({} as ChatMessage);
-  return {
-    ...source,
-    id: typeof source.id === "string" && source.id.length > 0 ? source.id : crypto.randomUUID(),
-    text: typeof source.text === "string" ? source.text : "",
-    kind: source.kind === "emoji" ? "emoji" : "chat",
-    user: normalizeUserRef(source.user, "Player")
-  };
-}
-
-function appendChatMessage(current: ChatMessage[] | null | undefined, message: ChatMessage | null | undefined) {
-  const normalized = normalizeChatMessage(message);
-  return [...tail(current, 49).filter((item) => item.id !== normalized.id), normalized];
-}
-
-function normalizeUserRef(user: { id: string; nickname: string } | null | undefined, fallback: string) {
-  return {
-    id: typeof user?.id === "string" && user.id.length > 0 ? user.id : fallback,
-    nickname: safeNickname(user?.nickname, fallback)
-  };
-}
-
-function safeNickname(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
-}
-
-function nicknameInitial(value: unknown, fallback: string) {
-  return safeNickname(value, fallback).slice(0, 2);
-}
-
-function listOf<T>(value: T[] | null | undefined): T[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function tail<T>(value: T[] | null | undefined, count: number): T[] {
-  return listOf(value).slice(-count);
-}
-
-function head<T>(value: T[] | null | undefined, count: number): T[] {
-  return listOf(value).slice(0, count);
-}
-
-async function createGuest(apiURL: string): Promise<GuestSession> {
-  const response = await fetch(`${apiURL}/api/guests`, { method: "POST" });
-  if (!response.ok) throw new Error("failed to create guest");
-
-  const session = (await response.json()) as GuestSession;
-  saveGuestSession(session);
-  return session;
-}
-
-async function register(username: string, password: string, nickname: string): Promise<AuthSession> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}/api/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, nickname })
-  });
-  if (!response.ok) throw new Error("register failed");
-  const session = normalizeAuthSession((await response.json()) as AuthSession);
-  saveAuthSession(session);
-  return session;
-}
-
-async function login(username: string, password: string): Promise<AuthSession> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password })
-  });
-  if (!response.ok) throw new Error("login failed");
-  const session = normalizeAuthSession((await response.json()) as AuthSession);
-  saveAuthSession(session);
-  return session;
-}
-
-function submitAuth(mode: "login" | "register", username: string, password: string, nickname: string) {
-  if (mode === "register") return register(username, password, nickname);
-  return login(username, password);
-}
-
-async function createRoom(
-  gameId: string,
-  visibility: "PRIVATE" | "PUBLIC",
-  maxPlayers: number,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room }>("/api/rooms", session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ gameId, maxPlayers, visibility })
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage(`${data.room.code} 코드를 공유하세요.`);
-    markPresence(data.room.id, undefined, "ONLINE").catch(() => undefined);
-  } catch {
-    onMessage("방 생성에 실패했습니다.");
-  }
-}
-
-async function fetchPublicRooms(gameId = ""): Promise<Room[]> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const params = new URLSearchParams({ visibility: "PUBLIC" });
-  if (gameId) params.set("gameId", gameId);
-  const response = await fetch(`${apiURL}/api/rooms?${params.toString()}`);
-  if (!response.ok) throw new Error("failed to fetch public rooms");
-  const data = (await response.json()) as { rooms: Room[] };
-  return (data.rooms ?? []).map(normalizeRoom);
-}
-
-async function quickMatch(
-  gameId: string,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const game = games.find((item) => item.id === gameId);
-    const data = await authorizedJSON<{ room: Room; matched: boolean }>("/api/match/quick", session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ gameId, maxPlayers: game?.maxPlayers ?? 4 })
-    });
-    onRoom(normalizeRoom(data.room));
-    markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
-    onMessage(data.matched ? "대기 중인 방에 매칭되었습니다." : "퀵매치 방을 만들고 친구를 기다립니다.");
-  } catch {
-    onMessage("퀵매치에 실패했습니다.");
-  }
-}
-
-async function joinRoom(
-  code: string,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room }>("/api/rooms/join", session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ code })
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage(data.room.status === "PLAYING" ? `${data.room.code} 방에 관전자로 입장했습니다.` : `${data.room.code} 방에 입장했습니다.`);
-    markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
-  } catch {
-    onMessage("방 코드를 확인해주세요.");
-  }
-}
-
-async function joinPublicRoom(
-  roomID: string,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/join`, session.sessionToken, {
-      method: "POST"
-    });
-    onRoom(normalizeRoom(data.room));
-    markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
-    onMessage(data.room.status === "PLAYING" ? "진행 중인 방에 관전자로 입장했습니다." : "공개 방에 입장했습니다.");
-  } catch {
-    onMessage("공개 방 입장에 실패했습니다.");
-  }
-}
-
-async function spectateRoom(
-  roomID: string,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/spectate`, session.sessionToken, {
-      method: "POST"
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage("관전자로 입장했습니다.");
-  } catch {
-    onMessage("관전 입장에 실패했습니다.");
-  }
-}
-
-async function updateRoomOptions(
-  roomID: string,
-  options: RoomSettings,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/options`, session.sessionToken, {
-      method: "PATCH",
-      body: JSON.stringify(options)
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage(
-      `방 옵션을 적용했습니다. 턴 ${data.room.options.turnSeconds}초, 대기 ${data.room.options.maxWaitSeconds}초`
-    );
-  } catch {
-    onMessage("방장만 옵션을 바꿀 수 있습니다.");
-  }
-}
-
-async function voteRoomRules(
-  roomID: string,
-  choices: Record<string, string>,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/rules/vote`, session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ choices })
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage("원카드 룰 투표를 반영했습니다. Ready가 해제됩니다.");
-  } catch {
-    onMessage("로비 참가자만 원카드 룰에 투표할 수 있습니다.");
-  }
-}
-
-async function kickPlayer(
-  roomID: string,
-  userID: string,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) return;
-  try {
-    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/kick`, session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ userId: userID })
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage("선택한 사용자를 방에서 내보냈습니다.");
-  } catch {
-    onMessage("방장만 강퇴할 수 있습니다.");
-  }
-}
-
-async function transferHost(
-  roomID: string,
-  userID: string,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) return;
-  try {
-    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/transfer-host`, session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ userId: userID })
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage("방장을 위임했습니다.");
-  } catch {
-    onMessage("방장만 권한을 위임할 수 있습니다.");
-  }
-}
-
-async function sendChat(roomID: string, text: string, kind: "chat" | "emoji"): Promise<ChatMessage> {
-  const guest = readPlayerSession();
-  if (!guest) throw new Error("missing guest");
-  const data = await authorizedJSON<{ message: ChatMessage }>(`/api/rooms/${roomID}/chat`, guest.sessionToken, {
-    method: "POST",
-    body: JSON.stringify({ text, kind })
-  });
-  return data.message;
-}
-
-async function fetchRoomChat(roomID: string): Promise<ChatMessage[]> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}/api/rooms/${roomID}/chat`);
-  if (!response.ok) throw new Error("failed to fetch chat");
-  const data = (await response.json()) as { messages: ChatMessage[] };
-  return listOf(data.messages).map(normalizeChatMessage);
-}
-
-async function fetchRoom(roomID: string): Promise<Room> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}/api/rooms/${roomID}`);
-  if (!response.ok) throw new Error("failed to fetch room");
-  const data = (await response.json()) as { room: Room };
-  return normalizeRoom(data.room);
-}
-
-async function markPresence(
-  roomID: string,
-  sessionID: string | undefined,
-  status: "ONLINE" | "DISCONNECTED"
-) {
-  const guest = readPlayerSession();
-  if (!guest) return;
-  await authorizedJSON<{ presence: Presence }>(`/api/rooms/${roomID}/presence`, guest.sessionToken, {
-    method: "POST",
-    body: JSON.stringify({ sessionId: sessionID, status })
-  });
-}
-
-async function fetchLeaderboard(gameId: string): Promise<LeaderboardRow[]> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}/api/leaderboard?gameId=${gameId}&limit=5`);
-  if (!response.ok) throw new Error("failed to fetch leaderboard");
-  const data = (await response.json()) as { rows: LeaderboardRow[] };
-  return listOf(data.rows);
-}
-
-async function fetchTutorial(gameId: string): Promise<TutorialGuide> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}/api/tutorials/${gameId}`);
-  if (!response.ok) throw new Error("failed to fetch tutorial");
-  const data = (await response.json()) as { guide: TutorialGuide };
-  return data.guide;
-}
-
-async function setReady(
-  roomID: string,
-  ready: boolean,
-  onRoom: (room: Room) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/ready`, session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ ready })
-    });
-    onRoom(normalizeRoom(data.room));
-    onMessage(ready ? "준비 완료했습니다." : "준비를 취소했습니다.");
-  } catch {
-    onMessage("Ready 변경에 실패했습니다.");
-  }
-}
-
-async function startGame(
-  roomID: string,
-  playerIds: string[],
-  onRoom: (room: Room) => void,
-  onSession: (session: GameSession) => void,
-  onMessage: (message: string) => void
-) {
-  const session = readPlayerSession();
-  if (!session) {
-    onMessage("게스트 세션을 준비하는 중입니다.");
-    return;
-  }
-
-  try {
-    const data = await authorizedJSON<{ room: Room; session: GameSession }>(
-      `/api/rooms/${roomID}/start`,
-      session.sessionToken,
-      {
-        method: "POST",
-        body: JSON.stringify({ playerIds })
-      }
-    );
-    onRoom(normalizeRoom(data.room));
-    onSession(data.session);
-    onMessage("선택된 플레이어로 게임을 시작했습니다.");
-  } catch {
-    onMessage("선택 인원과 Ready 상태를 확인해주세요.");
-  }
-}
-
-async function sendGameAction(
-  sessionID: string,
-  roomID: string | undefined,
-  type:
-    | "davinci.pass"
-    | "davinci.finish"
-    | "halli-galli.flip"
-    | "halli-galli.ring"
-    | "splendor.take_token"
-    | "splendor.buy_card"
-    | "dalmuti.play"
-    | "dalmuti.pass"
-    | "werewolf.see_player"
-    | "werewolf.see_center"
-    | "werewolf.rob"
-    | "werewolf.troublemake"
-    | "werewolf.drunk_swap"
-    | "werewolf.finish_night"
-    | "werewolf.vote"
-    | "rummikub.meld"
-    | "rummikub.draw"
-    | "bang.draw"
-    | "bang.play"
-    | "bang.end_turn"
-    | "sutda.call"
-    | "sutda.fold"
-    | "sutda.showdown"
-    | "gostop.play"
-    | "gostop.go"
-    | "gostop.stop"
-    | "onecard.play"
-    | "onecard.draw"
-    | "jokerdraw.draw",
-  onSession: (session: GameSession) => void,
-  onMessage: (message: string) => void,
-  payload?: Record<string, unknown>
-) {
-  const guest = readPlayerSession();
-  if (!guest || !roomID) return;
-
-  try {
-    const data = await authorizedJSON<{ session: GameSession }>(
-      `/api/sessions/${sessionID}/actions`,
-      guest.sessionToken,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          roomId: roomID,
-          type,
-          payload,
-          clientRequestId: crypto.randomUUID()
-        })
-      }
-    );
-    onSession(data.session);
-    onMessage("액션이 반영되었습니다.");
-  } catch {
-    onMessage("지금은 해당 액션을 할 수 없습니다.");
-  }
-}
-
-async function sendGuessAction(
-  sessionID: string,
-  roomID: string | undefined,
-  payload: {
-    targetPlayerId: string;
-    tileIndex: number;
-    color: "black" | "white";
-    value: number;
-    joker: boolean;
-    insertIndex: number;
-  },
-  onSession: (session: GameSession) => void,
-  onMessage: (message: string) => void
-) {
-  const guest = readPlayerSession();
-  if (!guest || !roomID || !payload.targetPlayerId) return;
-
-  try {
-    const data = await authorizedJSON<{ session: GameSession }>(
-      `/api/sessions/${sessionID}/actions`,
-      guest.sessionToken,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          roomId: roomID,
-          type: "davinci.guess",
-          payload,
-          clientRequestId: crypto.randomUUID()
-        })
-      }
-    );
-    onSession(data.session);
-    onMessage("추측 결과가 반영되었습니다.");
-  } catch {
-    onMessage("추측할 수 없는 대상이거나 내 차례가 아닙니다.");
-  }
-}
-
-async function roomPostAction(
-  roomID: string | undefined,
-  action: "rematch" | "return-lobby" | "leave",
-  onRoom: (room: Room | null) => void,
-  afterAction: () => void,
-  onMessage: (message: string) => void
-) {
-  const guest = readPlayerSession();
-  if (!guest || !roomID) return;
-
-  const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/${action}`, guest.sessionToken, {
-    method: "POST"
-  });
-
-  if (action === "leave" || data.room.status === "CLOSED") {
-    onRoom(null);
-    onMessage("방에서 나왔습니다.");
-  } else {
-    onRoom(normalizeRoom(data.room));
-    onMessage(action === "rematch" ? "다시 하기 준비 로비로 돌아왔습니다." : "로비로 돌아왔습니다.");
-  }
-  afterAction();
-}
-
-async function fetchSession(sessionID: string, token: string): Promise<GameSession> {
-  const data = await authorizedJSON<{ session: GameSession }>(`/api/sessions/${sessionID}`, token, {
-    method: "GET"
-  });
-  return data.session;
-}
-
 function participantName(room: Room | null, playerID: string) {
   return room?.participants.find((participant) => participant.user.id === playerID)?.user.nickname ?? "상대";
 }
@@ -3638,41 +2626,4 @@ function toggleSelected(values: string[], target: string) {
     return values.filter((value) => value !== target);
   }
   return [...values, target];
-}
-
-function parseRealtimeMessage(value: unknown): RealtimeMessage | null {
-  if (typeof value !== "string") return null;
-  try {
-    const parsed = JSON.parse(value) as Partial<RealtimeMessage>;
-    if (typeof parsed.type !== "string" || typeof parsed.payload !== "object" || parsed.payload === null) {
-      return null;
-    }
-    return parsed as RealtimeMessage;
-  } catch {
-    return null;
-  }
-}
-
-async function authorizedJSON<T>(
-  path: string,
-  token: string,
-  init: RequestInit
-): Promise<T> {
-  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiURL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...init.headers
-    }
-  });
-
-  if (!response.ok) {
-    if (response.status === 401 && readAuthSession()?.sessionToken === token) {
-      localStorage.removeItem(authStorageKey);
-    }
-    throw new Error(`request failed: ${response.status}`);
-  }
-  return (await response.json()) as T;
 }
