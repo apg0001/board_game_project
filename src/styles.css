@@ -372,6 +372,10 @@ h1 {
   padding-top: 18px;
 }
 
+.playing-content-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .flow-home {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -476,6 +480,20 @@ h1 {
 
 .room-card {
   padding: 18px;
+}
+
+.playing-content-grid .games-panel,
+.playing-content-grid .control-panel > .room-card:not(.game-session-card) {
+  display: none;
+}
+
+.game-session-card {
+  min-height: calc(100vh - 190px);
+}
+
+.game-session-card .section-title {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(23, 33, 43, 0.08);
 }
 
 .section-title {
@@ -868,6 +886,22 @@ h1 {
 .game-session-panel {
   display: grid;
   gap: 12px;
+}
+
+.game-session-card .game-session-panel {
+  gap: 18px;
+}
+
+.game-session-card .room-actions {
+  width: 100%;
+}
+
+.game-session-card .tile-board,
+.game-session-card .halli-board,
+.game-session-card .splendor-market,
+.game-session-card .splendor-players,
+.game-session-card .rummikub-table {
+  width: 100%;
 }
 
 .post-game-panel {
