@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Board Table Reset</title>
+    <style>
+      body {
+        display: grid;
+        min-height: 100vh;
+        margin: 0;
+        place-items: center;
+        background: #f5f0e8;
+        color: #17212b;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      section {
+        display: grid;
+        width: min(420px, calc(100% - 32px));
+        gap: 12px;
+        border-radius: 18px;
+        padding: 18px;
+        background: #fff8e8;
+        box-shadow: 0 20px 60px rgba(23, 33, 43, 0.16);
+      }
+      button,
+      a {
+        display: grid;
+        min-height: 42px;
+        place-items: center;
+        border: 0;
+        border-radius: 12px;
+        color: #fff8e8;
+        background: #17212b;
+        font: inherit;
+        font-weight: 850;
+        text-decoration: none;
+      }
+      p {
+        margin: 0;
+        color: #68727e;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <strong>로컬 상태 초기화</strong>
+      <p>브라우저에 남아 있는 Board Table 로그인, 게스트, 방, 게임 세션 정보를 모두 삭제합니다.</p>
+      <button id="reset">초기화</button>
+      <a href="/">홈으로</a>
+    </section>
+    <script>
+      document.getElementById("reset").addEventListener("click", () => {
+        [
+          "board-table.auth-session",
+          "board-table.guest-session",
+          "board-table.current-room-id",
+          "board-table.current-session-id"
+        ].forEach((key) => localStorage.removeItem(key));
+        location.href = "/";
+      });
+    </script>
+  </body>
+</html>
