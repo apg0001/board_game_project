@@ -198,6 +198,9 @@ interface DavinciPlayer {
   cards?: SplendorCard[];
   hand?: DalmutiCard[];
   handSize?: number;
+  rack?: RummikubTile[];
+  rackSize?: number;
+  initialMelded?: boolean;
   passed?: boolean;
   out?: boolean;
   originalRole?: string;
@@ -210,6 +213,13 @@ interface DavinciPlayer {
 interface DalmutiCard {
   id: string;
   rank: number;
+}
+
+interface RummikubTile {
+  id: string;
+  color: string;
+  number: number;
+  joker: boolean;
 }
 
 interface SplendorCard {
@@ -243,6 +253,8 @@ interface GameSession {
     center?: string[];
     executed?: string[];
     winningTeam?: string;
+    table?: RummikubTile[][];
+    pool?: RummikubTile[];
   };
   results?: Array<{
     playerId: string;
@@ -335,6 +347,7 @@ export function App() {
   const [turnSeconds, setTurnSeconds] = useState(60);
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
+  const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
 
   useEffect(() => {
     const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -588,6 +601,7 @@ export function App() {
   const dalmutiGroups = groupDalmutiHand(dalmutiMe?.hand ?? []);
   const werewolfMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
   const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id);
+  const rummikubMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
 
   return (
     <main className="app-shell">
@@ -1111,6 +1125,80 @@ export function App() {
                           disabled={!isMyTurn || !currentSession.state.currentTrick?.count}
                         >
                           패스
+                          <ChevronRight size={18} />
+                        </button>
+                      </div>
+                    ) : currentSession.gameId === "rummikub" ? (
+                      <div className="room-actions">
+                        <div className="rummikub-rack" aria-label="내 랙">
+                          {(rummikubMe?.rack ?? []).map((tile) => (
+                            <button
+                              className={`rummikub-tile ${tile.color} ${
+                                selectedTileIds.includes(tile.id) ? "selected" : ""
+                              }`}
+                              key={tile.id}
+                              onClick={() => setSelectedTileIds((previous) => toggleSelected(previous, tile.id))}
+                            >
+                              {tile.joker ? "J" : tile.number}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="rummikub-table">
+                          {(currentSession.state.table ?? []).map((group, groupIndex) => (
+                            <div className="tile-row" key={`group-${groupIndex}`}>
+                              {group.map((tile) => (
+                                <span className={`rummikub-tile ${tile.color}`} key={tile.id}>
+                                  {tile.joker ? "J" : tile.number}
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="splendor-players">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>
+                                랙 {player.rackSize ?? player.rack?.length ?? 0}개 ·{" "}
+                                {player.initialMelded ? "첫 등록 완료" : "첫 등록 전"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className="wide-button"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "rummikub.meld",
+                              (session) => {
+                                setCurrentSession(session);
+                                setSelectedTileIds([]);
+                              },
+                              setRoomMessage,
+                              { tileIds: selectedTileIds }
+                            )
+                          }
+                          disabled={!isMyTurn || selectedTileIds.length < 3}
+                        >
+                          선택 조합 등록
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button dark"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "rummikub.draw",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn}
+                        >
+                          타일 뽑기
                           <ChevronRight size={18} />
                         </button>
                       </div>
@@ -2063,7 +2151,9 @@ async function sendGameAction(
     | "werewolf.troublemake"
     | "werewolf.drunk_swap"
     | "werewolf.finish_night"
-    | "werewolf.vote",
+    | "werewolf.vote"
+    | "rummikub.meld"
+    | "rummikub.draw",
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void,
   payload?: Record<string, unknown>
@@ -2224,6 +2314,13 @@ function werewolfPhaseLabel(phase: GameSession["state"]["phase"]) {
   if (phase === "DISCUSSION") return "토론/투표";
   if (phase === "FINISHED") return "종료";
   return "대기";
+}
+
+function toggleSelected(values: string[], target: string) {
+  if (values.includes(target)) {
+    return values.filter((value) => value !== target);
+  }
+  return [...values, target];
 }
 
 async function authorizedJSON<T>(
