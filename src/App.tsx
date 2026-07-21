@@ -134,6 +134,28 @@ const games: GameCard[] = [
     difficulty: "보통",
     categories: ["전략", "카드"],
     accent: "#b28a22"
+  },
+  {
+    id: "onecard",
+    title: "원카드",
+    players: "2-6명",
+    minPlayers: 2,
+    maxPlayers: 6,
+    time: "10분",
+    difficulty: "쉬움",
+    categories: ["카드", "파티"],
+    accent: "#2c7a9b"
+  },
+  {
+    id: "jokerdraw",
+    title: "조커뽑기",
+    players: "2-8명",
+    minPlayers: 2,
+    maxPlayers: 8,
+    time: "8분",
+    difficulty: "쉬움",
+    categories: ["카드", "파티"],
+    accent: "#7a4fb0"
   }
 ];
 
@@ -245,11 +267,14 @@ interface DavinciPlayer {
 
 interface HandCard {
   id: string;
-  rank?: number;
+  rank?: number | string;
+  suit?: string;
+  value?: number;
   type?: string;
   month?: number;
   gwang?: boolean;
   kind?: string;
+  joker?: boolean;
 }
 
 interface RummikubTile {
@@ -295,7 +320,10 @@ interface GameSession {
     winner?: string;
     pot?: number;
     winnerId?: string;
+    loserId?: string;
     field?: HandCard[];
+    discardPile?: HandCard[];
+    drawPile?: HandCard[];
   };
   results?: Array<{
     playerId: string;
@@ -647,6 +675,12 @@ export function App() {
   const bangTargets = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id && player.alive !== false);
   const sutdaMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
   const gostopMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const onecardMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const onecardTopCard = currentSession?.state.discardPile?.[(currentSession.state.discardPile?.length ?? 0) - 1];
+  const jokerdrawMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const jokerdrawTargets = davinciPlayers.filter(
+    (player) => player.playerId !== guestSession?.user.id && player.active && !player.out
+  );
 
   return (
     <main className="app-shell">
@@ -1446,6 +1480,106 @@ export function App() {
                           스톱
                           <ChevronRight size={18} />
                         </button>
+                      </div>
+                    ) : currentSession.gameId === "onecard" ? (
+                      <div className="room-actions">
+                        <div className="werewolf-panel">
+                          <strong>{onecardTopCard ? standardCardLabel(onecardTopCard) : "버린 카드 대기"}</strong>
+                          <span>
+                            더미 {currentSession.state.drawPile?.length ?? 0}장 · 내 손패 {onecardMe?.hand?.length ?? 0}장
+                          </span>
+                        </div>
+                        <div className="standard-hand" aria-label="내 원카드 손패">
+                          {(onecardMe?.hand ?? []).map((card) => (
+                            <button
+                              className={`standard-card ${card.suit ?? ""}`}
+                              key={card.id}
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "onecard.play",
+                                  setCurrentSession,
+                                  setRoomMessage,
+                                  { cardId: card.id }
+                                )
+                              }
+                              disabled={!isMyTurn}
+                            >
+                              {standardCardLabel(card)}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="splendor-players">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>{player.active ? "플레이 중" : "아웃"} · 손패 {player.handSize ?? player.hand?.length ?? 0}장</span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className="wide-button"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "onecard.draw",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn}
+                        >
+                          카드 뽑기
+                          <ChevronRight size={18} />
+                        </button>
+                        {currentSession.state.finished ? (
+                          <p className="helper-copy">승자 {participantName(currentRoom, currentSession.state.winnerId ?? "")}</p>
+                        ) : null}
+                      </div>
+                    ) : currentSession.gameId === "jokerdraw" ? (
+                      <div className="room-actions">
+                        <div className="standard-hand" aria-label="내 조커뽑기 손패">
+                          {(jokerdrawMe?.hand ?? []).map((card) => (
+                            <span className={`standard-card readonly ${card.suit ?? ""}`} key={card.id}>
+                              {standardCardLabel(card)}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="joker-targets">
+                          {jokerdrawTargets.map((player) => (
+                            <div className="halli-player joker-target" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>남은 카드 {player.handSize ?? player.hand?.length ?? 0}장</span>
+                              <div className="joker-card-buttons">
+                                {Array.from({ length: player.handSize ?? player.hand?.length ?? 0 }, (_, index) => (
+                                  <button
+                                    className="mini-card-button"
+                                    key={`${player.playerId}-${index}`}
+                                    onClick={() =>
+                                      sendGameAction(
+                                        currentSession.id,
+                                        currentRoom?.id,
+                                        "jokerdraw.draw",
+                                        setCurrentSession,
+                                        setRoomMessage,
+                                        { targetPlayerId: player.playerId, cardIndex: index }
+                                      )
+                                    }
+                                    disabled={!isMyTurn}
+                                    aria-label={`${participantName(currentRoom, player.playerId)} ${index + 1}번째 카드 뽑기`}
+                                  >
+                                    ?
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {currentSession.state.finished ? (
+                          <p className="helper-copy">조커 보유 패자 {participantName(currentRoom, currentSession.state.loserId ?? "")}</p>
+                        ) : null}
                       </div>
                     ) : currentSession.gameId === "werewolf" ? (
                       <div className="room-actions">
@@ -2407,7 +2541,10 @@ async function sendGameAction(
     | "sutda.showdown"
     | "gostop.play"
     | "gostop.go"
-    | "gostop.stop",
+    | "gostop.stop"
+    | "onecard.play"
+    | "onecard.draw"
+    | "jokerdraw.draw",
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void,
   payload?: Record<string, unknown>
@@ -2538,7 +2675,7 @@ function formatCost(cost: Record<string, number>) {
 function groupDalmutiHand(hand: HandCard[]) {
   const counts = new Map<number, number>();
   hand.forEach((card) => {
-    if (card.rank) counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1);
+    if (typeof card.rank === "number") counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1);
   });
   return Array.from(counts.entries())
     .map(([rank, count]) => ({ rank, count }))
@@ -2609,6 +2746,28 @@ function goStopKindLabel(kind: string) {
     junk: "피"
   };
   return labels[kind] ?? kind;
+}
+
+function standardCardLabel(card: HandCard) {
+  if (card.joker || card.id === "joker") return "Joker";
+  const rankLabels: Record<string, string> = {
+    1: "A",
+    11: "J",
+    12: "Q",
+    13: "K"
+  };
+  const rank = card.rank ? rankLabels[card.rank] ?? String(card.rank) : "?";
+  return `${standardSuitLabel(card.suit)} ${rank}`.trim();
+}
+
+function standardSuitLabel(suit?: string) {
+  const labels: Record<string, string> = {
+    spade: "♠",
+    heart: "♥",
+    diamond: "♦",
+    club: "♣"
+  };
+  return suit ? labels[suit] ?? suit : "";
 }
 
 function toggleSelected(values: string[], target: string) {

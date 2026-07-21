@@ -22,6 +22,8 @@ import (
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/games/gostop"
 	"board-game-platform/apps/api/internal/games/halligalli"
+	"board-game-platform/apps/api/internal/games/jokerdraw"
+	"board-game-platform/apps/api/internal/games/onecard"
 	"board-game-platform/apps/api/internal/games/rummikub"
 	"board-game-platform/apps/api/internal/games/splendor"
 	"board-game-platform/apps/api/internal/games/sutda"
@@ -51,7 +53,7 @@ func TestRoomUpdatedBroadcastOnJoin(t *testing.T) {
 		auth.NewService(nil),
 		guest.NewService(guest.NewMemoryStore(), nil),
 		room.NewService(room.NewMemoryStore(), nil),
-		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(bang.NewModule(), dalmuti.NewModule(), davinci.NewModule(), gostop.NewModule(), halligalli.NewModule(), rummikub.NewModule(), splendor.NewModule(), sutda.NewModule(), werewolf.NewModule()), nil),
+		session.NewService(session.NewMemoryStore(), gamecore.NewRegistry(bang.NewModule(), dalmuti.NewModule(), davinci.NewModule(), gostop.NewModule(), halligalli.NewModule(), jokerdraw.NewModule(), onecard.NewModule(), rummikub.NewModule(), splendor.NewModule(), sutda.NewModule(), werewolf.NewModule()), nil),
 		chat.NewService(nil, 50),
 		connection.NewService(nil, 0),
 		record.NewService(nil),

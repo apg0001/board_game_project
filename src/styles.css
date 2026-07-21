@@ -1069,6 +1069,67 @@ button.rummikub-tile {
   background: #17212b;
 }
 
+.standard-hand {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+  gap: 8px;
+}
+
+.standard-card {
+  display: grid;
+  min-height: 82px;
+  place-items: center;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  border-radius: 10px;
+  color: #17212b;
+  background: #fffdf7;
+  box-shadow: 0 6px 18px rgba(23, 33, 43, 0.08);
+  font-size: 0.95rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.standard-card.readonly {
+  cursor: default;
+}
+
+.standard-card.heart,
+.standard-card.diamond {
+  color: #c95f42;
+}
+
+.standard-card.spade,
+.standard-card.club {
+  color: #17212b;
+}
+
+.joker-targets {
+  display: grid;
+  gap: 8px;
+}
+
+.joker-target {
+  align-items: stretch;
+}
+
+.joker-card-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mini-card-button {
+  width: 34px;
+  height: 46px;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  border-radius: 8px;
+  color: #fffdf7;
+  background: #4d5360;
+  font-weight: 950;
+  cursor: pointer;
+}
+
 .hwatu-hand,
 .hwatu-field {
   display: flex;
