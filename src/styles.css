@@ -36,6 +36,41 @@ button {
   padding: 16px 16px calc(96px + var(--safe-bottom));
 }
 
+.fallback-shell {
+  display: grid;
+  place-items: center;
+}
+
+.fallback-panel {
+  display: grid;
+  width: min(420px, 100%);
+  gap: 10px;
+  border: 1px solid rgba(23, 33, 43, 0.1);
+  border-radius: 18px;
+  padding: 18px;
+  background: #fff8e8;
+  box-shadow: 0 20px 60px rgba(23, 33, 43, 0.16);
+}
+
+.fallback-panel strong {
+  color: #17212b;
+  font-size: 1.1rem;
+}
+
+.fallback-panel span {
+  color: #68727e;
+  line-height: 1.45;
+}
+
+.fallback-panel button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  color: #fff8e8;
+  background: #17212b;
+  font-weight: 850;
+}
+
 .hero-panel {
   overflow: hidden;
   min-height: 520px;
