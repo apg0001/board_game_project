@@ -21,6 +21,8 @@
 
 - [기능 명세](docs/feature-spec.md)
 - [우선순위 로드맵](docs/priority-roadmap.md)
+- [우선순위 체크리스트](docs/checklist.md)
+- [게임 규칙 준수 감사표](docs/rules-compliance.md)
 
 ## 실행
 

@@ -1094,6 +1094,13 @@ h1 {
   gap: 8px;
 }
 
+.pending-davinci-tile {
+  border: 1px dashed rgba(28, 140, 140, 0.42);
+  border-radius: 16px;
+  padding: 10px;
+  background: rgba(28, 140, 140, 0.1);
+}
+
 .tile-board > span,
 .opponent-row strong {
   color: #68727e;

@@ -34,6 +34,9 @@ type State struct {
 	Round              int           `json:"round"`
 	Players            []PlayerState `json:"players"`
 	Deck               []Tile        `json:"deck"`
+	PendingTile        *Tile         `json:"pendingTile,omitempty"`
+	PendingOwnerID     string        `json:"pendingOwnerId,omitempty"`
+	CanEndTurn         bool          `json:"canEndTurn"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
 }
@@ -69,9 +72,9 @@ func (m Module) MaxPlayers() int {
 
 func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	deck := shuffledDeck(ctx.RandomSeed)
-	handSize := 3
-	if len(ctx.Players) == 2 {
-		handSize = 4
+	handSize := 4
+	if len(ctx.Players) == 4 {
+		handSize = 3
 	}
 
 	players := make([]PlayerState, 0, len(ctx.Players))
@@ -86,7 +89,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 		})
 	}
 
-	return State{
+	state := State{
 		CurrentPlayerIndex: 0,
 		Round:              1,
 		Players:            players,
@@ -94,10 +97,11 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 		Log:                []string{"다빈치 코드가 시작되었습니다."},
 		Finished:           false,
 	}
+	return beginTurn(state)
 }
 
 func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
-	current := asState(state)
+	current := cloneState(asState(state))
 	for playerIndex := range current.Players {
 		for tileIndex := range current.Players[playerIndex].Tiles {
 			tile := &current.Players[playerIndex].Tiles[tileIndex]
@@ -107,6 +111,13 @@ func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
 			tile.Value = -1
 			tile.Color = "hidden"
 		}
+	}
+	if current.PendingTile != nil && current.PendingOwnerID != string(viewerID) {
+		hidden := *current.PendingTile
+		hidden.Value = -1
+		hidden.Color = "hidden"
+		hidden.Revealed = false
+		current.PendingTile = &hidden
 	}
 	return current
 }
@@ -119,14 +130,23 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if len(current.Players) == 0 {
 		return errors.New("game has no players")
 	}
-	if action.Type == ActionFinish || action.Type == ActionPass {
+	if action.Type == ActionFinish {
+		return nil
+	}
+	if current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
+		return errors.New("not your turn")
+	}
+	if action.Type == ActionPass {
+		if !current.CanEndTurn {
+			return errors.New("must make a correct guess before ending turn")
+		}
 		return nil
 	}
 	if action.Type != ActionGuess {
 		return errors.New("unsupported action")
 	}
-	if current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
-		return errors.New("not your turn")
+	if !current.Players[current.CurrentPlayerIndex].Active {
+		return errors.New("player is not active")
 	}
 
 	payload, err := guessPayload(action.Payload)
@@ -146,6 +166,12 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if current.Players[targetIndex].Tiles[payload.TileIndex].Revealed {
 		return errors.New("tile is already revealed")
 	}
+	if payload.Color != "black" && payload.Color != "white" {
+		return errors.New("tile color must be black or white")
+	}
+	if payload.Value < 0 || payload.Value > 11 {
+		return errors.New("tile value must be between 0 and 11")
+	}
 	return nil
 }
 
@@ -160,7 +186,8 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 		current = applyGuess(current, string(action.PlayerID), payload)
 	case ActionPass:
-		current.Log = append(current.Log, string(action.PlayerID)+" 님이 턴을 넘겼습니다.")
+		insertPendingTile(&current, false)
+		current.Log = append(current.Log, string(action.PlayerID)+" 님이 턴을 종료했습니다.")
 		current = advanceTurn(current)
 	case ActionFinish:
 		current.Log = append(current.Log, string(action.PlayerID)+" 님이 게임 종료를 요청했습니다.")
@@ -254,13 +281,62 @@ func applyGuess(state State, playerID string, payload GuessPayload) State {
 
 	if correct {
 		targetTile.Revealed = true
+		state.CanEndTurn = true
 		state.Log = append(state.Log, fmt.Sprintf("%s 님의 추측이 성공했습니다.", playerID))
+		state = refreshActivePlayers(state)
+		if remainingActivePlayers(state) <= 1 {
+			state.Finished = true
+			state.Log = append(state.Log, "게임이 종료되었습니다.")
+		}
+		return state
 	} else {
-		revealFirstHiddenOwnTile(&state, playerID)
+		if !insertPendingTile(&state, true) {
+			revealFirstHiddenOwnTile(&state, playerID)
+		}
 		state.Log = append(state.Log, fmt.Sprintf("%s 님의 추측이 실패했습니다.", playerID))
 	}
 
 	return advanceTurn(state)
+}
+
+func beginTurn(state State) State {
+	state.CanEndTurn = false
+	if len(state.Players) == 0 || state.Finished {
+		return state
+	}
+	if state.PendingTile != nil {
+		return state
+	}
+	currentPlayer := state.Players[state.CurrentPlayerIndex]
+	if !currentPlayer.Active || len(state.Deck) == 0 {
+		return state
+	}
+	pending := state.Deck[0]
+	state.Deck = state.Deck[1:]
+	state.PendingTile = &pending
+	state.PendingOwnerID = currentPlayer.PlayerID
+	return state
+}
+
+func insertPendingTile(state *State, revealed bool) bool {
+	if state.PendingTile == nil {
+		return false
+	}
+	playerIndex := findPlayerIndex(*state, state.PendingOwnerID)
+	if playerIndex < 0 {
+		state.PendingTile = nil
+		state.PendingOwnerID = ""
+		state.CanEndTurn = false
+		return false
+	}
+	tile := *state.PendingTile
+	tile.Revealed = revealed
+	state.Players[playerIndex].Tiles = append(state.Players[playerIndex].Tiles, tile)
+	sortTiles(state.Players[playerIndex].Tiles)
+	state.PendingTile = nil
+	state.PendingOwnerID = ""
+	state.CanEndTurn = false
+	return true
 }
 
 func revealFirstHiddenOwnTile(state *State, playerID string) {
@@ -280,12 +356,15 @@ func advanceTurn(state State) State {
 	if len(state.Players) == 0 {
 		return state
 	}
+	state.PendingTile = nil
+	state.PendingOwnerID = ""
+	state.CanEndTurn = false
 	for step := 1; step <= len(state.Players); step++ {
 		next := (state.CurrentPlayerIndex + step) % len(state.Players)
 		if state.Players[next].Active {
 			state.CurrentPlayerIndex = next
 			state.Round++
-			return state
+			return beginTurn(state)
 		}
 	}
 	return state
@@ -349,6 +428,22 @@ func sortTiles(tiles []Tile) {
 		}
 		return tiles[i].Color < tiles[j].Color
 	})
+}
+
+func cloneState(state State) State {
+	clone := state
+	clone.Players = make([]PlayerState, len(state.Players))
+	for index := range state.Players {
+		clone.Players[index] = state.Players[index]
+		clone.Players[index].Tiles = append([]Tile(nil), state.Players[index].Tiles...)
+	}
+	clone.Deck = append([]Tile(nil), state.Deck...)
+	clone.Log = append([]string(nil), state.Log...)
+	if state.PendingTile != nil {
+		pending := *state.PendingTile
+		clone.PendingTile = &pending
+	}
+	return clone
 }
 
 func seedToInt(seed string) int64 {
