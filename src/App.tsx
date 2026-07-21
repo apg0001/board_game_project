@@ -618,7 +618,7 @@ export function App() {
         setRoomMessage(`${nextRoom.code} 방 상태가 갱신되었습니다.`);
       }
       if (message.type === "chat.message" && message.payload.message) {
-        setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message.payload.message!)]);
+        setChatMessages((previous) => appendChatMessage(previous, message.payload.message));
       }
       if (message.type === "presence.updated" && message.payload.presence) {
         setPresenceByUser((previous) => ({
@@ -736,7 +736,7 @@ export function App() {
   }, [currentRoom?.activeSessionId, currentSession?.id, playerToken]);
 
   useEffect(() => {
-    if (!currentSession || !playerID) return;
+    if (!currentSession || !playerID || !playerToken) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
     const socket = new WebSocket(
@@ -749,15 +749,19 @@ export function App() {
       const message = parseRealtimeMessage(event.data);
       if (!message) return;
       if (message.type !== "game.updated") return;
-      if (!message.payload.session) return;
-
-      setCurrentSession(message.payload.session);
+      fetchSession(currentSession.id, playerToken)
+        .then(setCurrentSession)
+        .catch(() => {
+          if (message.payload.session) {
+            setCurrentSession(message.payload.session);
+          }
+        });
     };
 
     return () => {
       socket.close();
     };
-  }, [currentSession?.id, playerID]);
+  }, [currentSession?.id, playerID, playerToken]);
 
   const recommendedGames = useMemo(() => {
     const source = apiGames.length === 0 ? fallbackRecommendedGames : apiGames.map((apiGame) => {
@@ -796,6 +800,7 @@ export function App() {
   const isMyTurn = currentTurnPlayer?.playerId === playerID;
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
   const selectedRoomGame = games.find((game) => game.id === currentRoom?.gameId) ?? selectedGame;
+  const setupGame = currentRoom ? selectedRoomGame : selectedGame;
   const selectedPlayerSet = new Set(selectedPlayerIds);
   const selectedPlayers = partyMembers.filter((participant) => selectedPlayerSet.has(participant.user.id));
   const selectedReady = selectedPlayers.length > 0 && selectedPlayers.every((participant) => participant.ready);
@@ -959,7 +964,7 @@ export function App() {
       ) : null}
 
       {!showHomeFlow ? (
-      <section className="content-grid">
+      <section className={`content-grid ${currentSession ? "playing-content-grid" : ""}`}>
         <div className="flow-page-header">
           <div>
             <span className="eyebrow compact">
@@ -1061,9 +1066,9 @@ export function App() {
             <div className="room-actions">
               <div className="selected-game-strip">
                 <span>선택 게임</span>
-                <strong>{selectedGame.title}</strong>
+                <strong>{setupGame.title}</strong>
                 <small>
-                  게임 {selectedGame.players} · 방 최대 {currentRoom?.maxPlayers ?? roomMaxPlayers}명
+                  게임 {setupGame.players} · 방 최대 {currentRoom?.maxPlayers ?? roomMaxPlayers}명
                 </small>
               </div>
               <p className="room-helper">
@@ -1322,7 +1327,7 @@ export function App() {
           </div>
 
           {currentSession ? (
-            <div className="room-card">
+            <div className="room-card game-session-card">
               <div className="section-title">
                 <div>
                   <span>게임 세션</span>
@@ -2255,7 +2260,7 @@ export function App() {
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" || !chatInput.trim()) return;
                     sendChat(currentRoom.id, chatInput, "chat").then((message) => {
-                      setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message)]);
+                      setChatMessages((previous) => appendChatMessage(previous, message));
                       setChatInput("");
                     });
                   }}
@@ -2267,7 +2272,7 @@ export function App() {
                   onClick={() => {
                     if (!chatInput.trim()) return;
                     sendChat(currentRoom.id, chatInput, "chat").then((message) => {
-                      setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message)]);
+                      setChatMessages((previous) => appendChatMessage(previous, message));
                       setChatInput("");
                     });
                   }}
@@ -2281,7 +2286,7 @@ export function App() {
                     key={emoji}
                     onClick={() =>
                       sendChat(currentRoom.id, emoji, "emoji").then((message) =>
-                        setChatMessages((previous) => [...tail(previous, 49), normalizeChatMessage(message)])
+                        setChatMessages((previous) => appendChatMessage(previous, message))
                       )
                     }
                   >
@@ -2774,6 +2779,11 @@ function normalizeChatMessage(message: ChatMessage | null | undefined): ChatMess
     kind: source.kind === "emoji" ? "emoji" : "chat",
     user: normalizeUserRef(source.user, "Player")
   };
+}
+
+function appendChatMessage(current: ChatMessage[] | null | undefined, message: ChatMessage | null | undefined) {
+  const normalized = normalizeChatMessage(message);
+  return [...tail(current, 49).filter((item) => item.id !== normalized.id), normalized];
 }
 
 function normalizeUserRef(user: { id: string; nickname: string } | null | undefined, fallback: string) {
