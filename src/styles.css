@@ -684,13 +684,18 @@ h1 {
   gap: 8px;
 }
 
-.room-options-panel {
+.room-options-panel,
+.rule-vote-panel {
   display: grid;
   gap: 10px;
   padding: 12px;
   border: 1px solid rgba(23, 33, 43, 0.08);
   border-radius: 14px;
   background: rgba(255, 248, 232, 0.58);
+}
+
+.rule-vote-panel {
+  background: rgba(28, 140, 140, 0.08);
 }
 
 .option-grid {
@@ -712,12 +717,28 @@ h1 {
 
 .option-row input,
 .option-row button,
-.option-grid input {
+.option-grid input,
+.option-grid select {
   min-height: 38px;
   border: 1px solid rgba(23, 33, 43, 0.12);
   border-radius: 12px;
   padding: 0 10px;
   background: #fff;
+}
+
+.rule-message-list {
+  display: grid;
+  gap: 6px;
+}
+
+.rule-message-list span {
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: #1c5f5f;
+  background: rgba(28, 140, 140, 0.1);
+  font-size: 0.8rem;
+  font-weight: 850;
+  line-height: 1.35;
 }
 
 .option-row button {

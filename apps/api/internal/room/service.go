@@ -93,6 +93,9 @@ func (s *Service) CreateWithOptions(host guest.PublicUser, options CreateOptions
 			AutoStart:       false,
 			AllowSpectators: true,
 		},
+		RuleVotes:    []RuleVote{},
+		GameRules:    map[string]any{},
+		RuleMessages: []string{},
 		Participants: []Participant{{
 			User:      host,
 			Ready:     false,
@@ -295,9 +298,65 @@ func (s *Service) ReturnToLobby(roomID string) (Room, error) {
 	room.Status = StatusLobby
 	room.ActiveSessionID = ""
 	room.PlayingPlayerIDs = nil
+	room.RuleMessages = nil
 	for index := range room.Participants {
 		room.Participants[index].Ready = false
 	}
+	room.UpdatedAt = s.clock().UTC()
+	return room, s.store.Save(room)
+}
+
+func (s *Service) VoteRules(roomID string, userID string, choices map[string]string) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if room.Status != StatusLobby || !room.HasParticipant(userID) {
+		return Room{}, ErrRoomNotJoinable
+	}
+
+	cleanChoices := make(map[string]string, len(choices))
+	for key, value := range choices {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		cleanChoices[key] = value
+	}
+	if len(cleanChoices) == 0 {
+		return Room{}, ErrRoomNotJoinable
+	}
+
+	now := s.clock().UTC()
+	replaced := false
+	for index := range room.RuleVotes {
+		if room.RuleVotes[index].UserID == userID {
+			room.RuleVotes[index].Choices = cleanChoices
+			room.RuleVotes[index].CreatedAt = now
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		room.RuleVotes = append(room.RuleVotes, RuleVote{UserID: userID, Choices: cleanChoices, CreatedAt: now})
+	}
+	room.GameRules = nil
+	room.RuleMessages = nil
+	for index := range room.Participants {
+		room.Participants[index].Ready = false
+	}
+	room.UpdatedAt = now
+	return room, s.store.Save(room)
+}
+
+func (s *Service) SetRuleResolution(roomID string, rules map[string]any, messages []string) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	room.GameRules = cloneRuleMap(rules)
+	room.RuleMessages = append([]string(nil), messages...)
 	room.UpdatedAt = s.clock().UTC()
 	return room, s.store.Save(room)
 }
@@ -361,6 +420,17 @@ func (s *Service) TransferHost(roomID string, nextHostUserID string) (Room, erro
 	}
 	room.UpdatedAt = s.clock().UTC()
 	return room, s.store.Save(room)
+}
+
+func cloneRuleMap(source map[string]any) map[string]any {
+	if len(source) == 0 {
+		return map[string]any{}
+	}
+	clone := make(map[string]any, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
 }
 
 func clampInt(value int, minValue int, maxValue int) int {

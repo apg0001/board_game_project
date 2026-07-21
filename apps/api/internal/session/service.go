@@ -62,7 +62,7 @@ func (s *Service) StartWithPlayers(room room.Room, playerIDs []string) (Session,
 	if err != nil {
 		return Session{}, err
 	}
-	gameCtx := contextFromRoom(startRoom, now)
+	gameCtx := s.contextFromRoom(startRoom, now)
 	created := Session{
 		ID:        "session_" + id,
 		RoomID:    room.ID,
@@ -130,7 +130,7 @@ func (s *Service) ApplyAction(ctx context.Context, room room.Room, sessionID str
 		return Session{}, nil, ErrGameNotRegistered
 	}
 
-	gameCtx := contextFromRoom(room, s.clock().UTC())
+	gameCtx := s.contextFromRoom(room, s.clock().UTC())
 	if err := module.ValidateAction(ctx, current.State, action, gameCtx); err != nil {
 		return Session{}, nil, err
 	}
@@ -171,7 +171,7 @@ func (s *Service) ApplyTimeout(ctx context.Context, room room.Room, sessionID st
 		return Session{}, nil, ErrTimeoutUnsupported
 	}
 
-	gameCtx := contextFromRoom(room, s.clock().UTC())
+	gameCtx := s.contextFromRoom(room, s.clock().UTC())
 	result, err := timeoutHandler.ApplyTimeout(ctx, current.State, playerID, gameCtx)
 	if err != nil {
 		return Session{}, nil, err
@@ -202,7 +202,31 @@ func canStart(room room.Room, module gamecore.Module) bool {
 	return true
 }
 
-func contextFromRoom(room room.Room, now time.Time) gamecore.Context {
+func (s *Service) ResolveRuleOptions(room room.Room) gamecore.RuleResolution {
+	module, ok := s.registry.Find(gamecore.GameID(room.GameID))
+	if !ok {
+		return gamecore.RuleResolution{Options: cloneOptions(room.GameRules)}
+	}
+	resolver, ok := module.(gamecore.RuleResolver)
+	if !ok {
+		return gamecore.RuleResolution{Options: cloneOptions(room.GameRules)}
+	}
+
+	votes := make([]gamecore.RuleVote, 0, len(room.RuleVotes))
+	for _, vote := range room.RuleVotes {
+		votes = append(votes, gamecore.RuleVote{
+			UserID:  vote.UserID,
+			Choices: cloneStringMap(vote.Choices),
+		})
+	}
+	resolution := resolver.ResolveRules(votes, room.ID)
+	if resolution.Options == nil {
+		resolution.Options = map[string]any{}
+	}
+	return resolution
+}
+
+func (s *Service) contextFromRoom(room room.Room, now time.Time) gamecore.Context {
 	players := make([]gamecore.Player, 0, len(room.Participants))
 	for _, participant := range room.Participants {
 		players = append(players, gamecore.Player{
@@ -216,10 +240,32 @@ func contextFromRoom(room room.Room, now time.Time) gamecore.Context {
 		SessionID:  "",
 		GameID:     gamecore.GameID(room.GameID),
 		Players:    players,
-		Options:    map[string]any{},
+		Options:    cloneOptions(room.GameRules),
 		Now:        now,
 		RandomSeed: room.ID,
 	}
+}
+
+func cloneOptions(source map[string]any) map[string]any {
+	if len(source) == 0 {
+		return map[string]any{}
+	}
+	clone := make(map[string]any, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return map[string]string{}
+	}
+	clone := make(map[string]string, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
 }
 
 func randomID() (string, error) {

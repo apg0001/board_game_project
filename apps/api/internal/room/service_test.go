@@ -144,6 +144,55 @@ func TestToggleReady(t *testing.T) {
 	}
 }
 
+func TestVoteRulesStoresParticipantVoteAndClearsReady(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "onecard", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, err := service.ToggleReady(created.ID, "u1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.VoteRules(ready.ID, "u1", map[string]string{
+		"attackCards":    "two-ace-joker",
+		"defenseMode":    "attack-or-joker",
+		"jokerDrawCount": "7",
+		"stacking":       "on",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(updated.RuleVotes) != 1 || updated.RuleVotes[0].Choices["jokerDrawCount"] != "7" {
+		t.Fatalf("expected stored rule vote, got %+v", updated.RuleVotes)
+	}
+	if updated.Participants[0].Ready {
+		t.Fatal("expected ready to be cleared after rule vote")
+	}
+}
+
+func TestSetRuleResolutionStoresRulesAndMessages(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "onecard", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.SetRuleResolution(created.ID, map[string]any{"jokerDrawCount": 7}, []string{"동률이라 랜덤 결정"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if updated.GameRules["jokerDrawCount"] != 7 {
+		t.Fatalf("expected stored rule config, got %+v", updated.GameRules)
+	}
+	if len(updated.RuleMessages) != 1 {
+		t.Fatalf("expected rule message, got %+v", updated.RuleMessages)
+	}
+}
+
 func TestReturnToLobbyClearsReadyAndSession(t *testing.T) {
 	service := NewService(NewMemoryStore(), fixedClock())
 	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)

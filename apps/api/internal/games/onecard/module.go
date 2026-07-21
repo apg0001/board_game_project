@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"sort"
+	"strconv"
 
 	"board-game-platform/apps/api/internal/gamecore"
 )
@@ -20,6 +22,7 @@ type Card struct {
 	Suit  string `json:"suit"`
 	Rank  string `json:"rank"`
 	Value int    `json:"value"`
+	Joker bool   `json:"joker"`
 }
 
 type PlayerState struct {
@@ -36,6 +39,10 @@ type State struct {
 	Players            []PlayerState `json:"players"`
 	DrawPile           []Card        `json:"drawPile"`
 	DiscardPile        []Card        `json:"discardPile"`
+	Rules              RuleConfig    `json:"rules"`
+	RuleMessages       []string      `json:"ruleMessages,omitempty"`
+	PendingDraw        int           `json:"pendingDraw"`
+	PendingAttackRank  string        `json:"pendingAttackRank,omitempty"`
 	WinnerID           string        `json:"winnerId,omitempty"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
@@ -43,6 +50,14 @@ type State struct {
 
 type PlayPayload struct {
 	CardID string `json:"cardId"`
+}
+
+type RuleConfig struct {
+	AttackCards    []string `json:"attackCards"`
+	DefenseMode    string   `json:"defenseMode"`
+	JokerDrawCount int      `json:"jokerDrawCount"`
+	TwoDrawCount   int      `json:"twoDrawCount"`
+	Stacking       bool     `json:"stacking"`
 }
 
 type Module struct{}
@@ -67,7 +82,50 @@ func (m Module) MaxPlayers() int {
 	return 6
 }
 
+func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.RuleResolution {
+	attackCards, attackTied := resolveChoice(votes, "attackCards", "two-ace-joker", seed)
+	defenseMode, defenseTied := resolveChoice(votes, "defenseMode", "attack-or-joker", seed)
+	jokerDraw, jokerTied := resolveChoice(votes, "jokerDrawCount", "5", seed)
+	stacking, stackingTied := resolveChoice(votes, "stacking", "on", seed)
+
+	config := RuleConfig{
+		AttackCards:    attackCardsForChoice(attackCards),
+		DefenseMode:    defenseMode,
+		JokerDrawCount: intChoice(jokerDraw, 5),
+		TwoDrawCount:   2,
+		Stacking:       stacking != "off",
+	}
+	messages := []string{
+		fmt.Sprintf("원카드 룰 확정: 공격 %s, 방어 %s, 조커 %d장, 공격 누적 %s", attackChoiceLabel(attackCards), defenseChoiceLabel(defenseMode), config.JokerDrawCount, onOffLabel(config.Stacking)),
+	}
+	if attackTied {
+		messages = append(messages, "공격카드 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+	if defenseTied {
+		messages = append(messages, "방어카드 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+	if jokerTied {
+		messages = append(messages, "조커 공격 개수 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+	if stackingTied {
+		messages = append(messages, "공격 누적 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+
+	return gamecore.RuleResolution{
+		Options: map[string]any{
+			"attackCards":    config.AttackCards,
+			"defenseMode":    config.DefenseMode,
+			"jokerDrawCount": config.JokerDrawCount,
+			"twoDrawCount":   config.TwoDrawCount,
+			"stacking":       config.Stacking,
+			"ruleMessages":   messages,
+		},
+		Announcements: messages,
+	}
+}
+
 func (m Module) CreateInitialState(ctx gamecore.Context) any {
+	rules := ruleConfigFromOptions(ctx.Options)
 	deck := shuffledDeck(ctx.RandomSeed)
 	players := make([]PlayerState, 0, len(ctx.Players))
 	for _, player := range ctx.Players {
@@ -75,9 +133,11 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 		deck = deck[7:]
 		players = append(players, PlayerState{PlayerID: string(player.ID), Hand: hand, HandSize: len(hand), Active: true})
 	}
-	discard := []Card{deck[0]}
-	deck = deck[1:]
-	return State{Direction: 1, Players: players, DrawPile: deck, DiscardPile: discard, Log: []string{"원카드가 시작되었습니다."}}
+	firstCardIndex := firstDiscardIndex(deck)
+	discard := []Card{deck[firstCardIndex]}
+	deck = append(deck[:firstCardIndex], deck[firstCardIndex+1:]...)
+	log := append([]string{"원카드가 시작되었습니다."}, ruleMessagesFromOptions(ctx.Options)...)
+	return State{Direction: 1, Players: players, DrawPile: deck, DiscardPile: discard, Rules: rules, RuleMessages: ruleMessagesFromOptions(ctx.Options), Log: log}
 }
 
 func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
@@ -103,7 +163,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	}
 	switch action.Type {
 	case ActionDraw:
-		if len(current.DrawPile) == 0 {
+		if availableDrawCount(current) == 0 {
 			return errors.New("draw pile is empty")
 		}
 	case ActionPlay:
@@ -115,8 +175,8 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if !ok {
 			return errors.New("card not found")
 		}
-		if !canPlay(card, topCard(current)) {
-			return errors.New("card must match suit or rank")
+		if !canPlay(card, current) {
+			return errors.New("card cannot be played now")
 		}
 	default:
 		return errors.New("unsupported action")
@@ -129,10 +189,16 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionDraw:
-		player.Hand = append(player.Hand, current.DrawPile[0])
-		current.DrawPile = current.DrawPile[1:]
+		drawCount := current.PendingDraw
+		if drawCount <= 0 {
+			drawCount = 1
+		}
+		drawn := drawCards(&current, drawCount)
+		player.Hand = append(player.Hand, drawn...)
 		player.HandSize = len(player.Hand)
-		current.Log = append(current.Log, player.PlayerID+" 님이 카드 1장을 뽑았습니다.")
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", player.PlayerID, len(drawn)))
+		current.PendingDraw = 0
+		current.PendingAttackRank = ""
 	case ActionPlay:
 		payload, err := playPayload(action.Payload)
 		if err != nil {
@@ -144,13 +210,28 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		if card.Rank == "A" {
 			current.Direction *= -1
 		}
-		if card.Rank == "2" {
-			next := nextActiveIndex(current, current.CurrentPlayerIndex)
-			if len(current.DrawPile) >= 2 {
-				current.Players[next].Hand = append(current.Players[next].Hand, current.DrawPile[:2]...)
-				current.DrawPile = current.DrawPile[2:]
+		if card.Rank == "J" {
+			current.CurrentPlayerIndex = nextActiveIndex(current, current.CurrentPlayerIndex)
+			current.Round++
+			current.Log = append(current.Log, "다음 순서를 건너뜁니다.")
+		}
+		if amount := attackAmount(card, current.Rules); amount > 0 {
+			if current.Rules.Stacking {
+				current.PendingDraw += amount
+				current.PendingAttackRank = card.Rank
+				current.Log = append(current.Log, fmt.Sprintf("공격이 %d장으로 누적되었습니다.", current.PendingDraw))
+			} else {
+				next := nextActiveIndex(current, current.CurrentPlayerIndex)
+				drawn := drawCards(&current, amount)
+				current.Players[next].Hand = append(current.Players[next].Hand, drawn...)
 				current.Players[next].HandSize = len(current.Players[next].Hand)
+				current.CurrentPlayerIndex = next
+				current.Round++
+				current.Log = append(current.Log, fmt.Sprintf("%s 님이 공격으로 카드 %d장을 받았습니다.", current.Players[next].PlayerID, len(drawn)))
 			}
+		} else {
+			current.PendingDraw = 0
+			current.PendingAttackRank = ""
 		}
 		if len(player.Hand) == 0 {
 			current.WinnerID = player.PlayerID
@@ -203,8 +284,45 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 	return results
 }
 
-func canPlay(card Card, top Card) bool {
+func canPlay(card Card, state State) bool {
+	if state.PendingDraw > 0 {
+		return canDefend(card, topCard(state), state)
+	}
+	if card.Joker {
+		return true
+	}
+	top := topCard(state)
+	if top.Joker {
+		return true
+	}
 	return card.Suit == top.Suit || card.Rank == top.Rank
+}
+
+func canDefend(card Card, top Card, state State) bool {
+	if attackAmount(card, state.Rules) <= 0 {
+		return false
+	}
+	switch state.Rules.DefenseMode {
+	case "same-rank":
+		return card.Joker && top.Joker || card.Rank == top.Rank
+	case "any-attack":
+		return !card.Joker
+	default:
+		return true
+	}
+}
+
+func attackAmount(card Card, rules RuleConfig) int {
+	if card.Joker && containsRuleCard(rules.AttackCards, "JOKER") {
+		return rules.JokerDrawCount
+	}
+	if card.Rank == "2" && containsRuleCard(rules.AttackCards, "2") {
+		return rules.TwoDrawCount
+	}
+	if card.Rank == "A" && containsRuleCard(rules.AttackCards, "A") {
+		return 3
+	}
+	return 0
 }
 
 func topCard(state State) Card {
@@ -288,17 +406,202 @@ func rankForOutcome(outcome gamecore.Outcome) int {
 func shuffledDeck(seed string) []Card {
 	suits := []string{"spade", "heart", "diamond", "club"}
 	ranks := []string{"A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"}
-	deck := make([]Card, 0, 52)
+	deck := make([]Card, 0, 54)
 	for _, suit := range suits {
 		for value, rank := range ranks {
 			deck = append(deck, Card{ID: suit + "-" + rank, Suit: suit, Rank: rank, Value: value + 1})
 		}
 	}
+	deck = append(deck, Card{ID: "joker-black", Suit: "joker", Rank: "JOKER", Value: 15, Joker: true})
+	deck = append(deck, Card{ID: "joker-color", Suit: "joker", Rank: "JOKER", Value: 15, Joker: true})
 	random := rand.New(rand.NewSource(seedToInt(seed)))
 	random.Shuffle(len(deck), func(i, j int) {
 		deck[i], deck[j] = deck[j], deck[i]
 	})
 	return deck
+}
+
+func firstDiscardIndex(deck []Card) int {
+	for index, card := range deck {
+		if !card.Joker && card.Rank != "2" && card.Rank != "A" && card.Rank != "J" {
+			return index
+		}
+	}
+	return 0
+}
+
+func drawCards(state *State, count int) []Card {
+	drawn := make([]Card, 0, count)
+	for len(drawn) < count && availableDrawCount(*state) > 0 {
+		if len(state.DrawPile) == 0 {
+			recycleDiscardPile(state)
+		}
+		if len(state.DrawPile) == 0 {
+			break
+		}
+		drawn = append(drawn, state.DrawPile[0])
+		state.DrawPile = state.DrawPile[1:]
+	}
+	return drawn
+}
+
+func availableDrawCount(state State) int {
+	count := len(state.DrawPile)
+	if len(state.DiscardPile) > 1 {
+		count += len(state.DiscardPile) - 1
+	}
+	return count
+}
+
+func recycleDiscardPile(state *State) {
+	if len(state.DiscardPile) <= 1 {
+		return
+	}
+	top := state.DiscardPile[len(state.DiscardPile)-1]
+	recycled := append([]Card(nil), state.DiscardPile[:len(state.DiscardPile)-1]...)
+	random := rand.New(rand.NewSource(seedToInt(fmt.Sprintf("%s:%d", top.ID, len(recycled)))))
+	random.Shuffle(len(recycled), func(i, j int) {
+		recycled[i], recycled[j] = recycled[j], recycled[i]
+	})
+	state.DrawPile = recycled
+	state.DiscardPile = []Card{top}
+}
+
+func ruleConfigFromOptions(options map[string]any) RuleConfig {
+	config := RuleConfig{
+		AttackCards:    []string{"2", "A", "JOKER"},
+		DefenseMode:    "attack-or-joker",
+		JokerDrawCount: 5,
+		TwoDrawCount:   2,
+		Stacking:       true,
+	}
+	if raw, ok := options["attackCards"]; ok {
+		config.AttackCards = stringList(raw, config.AttackCards)
+	}
+	if raw, ok := options["defenseMode"].(string); ok && raw != "" {
+		config.DefenseMode = raw
+	}
+	config.JokerDrawCount = intOption(options["jokerDrawCount"], config.JokerDrawCount)
+	config.TwoDrawCount = intOption(options["twoDrawCount"], config.TwoDrawCount)
+	if raw, ok := options["stacking"].(bool); ok {
+		config.Stacking = raw
+	}
+	return config
+}
+
+func ruleMessagesFromOptions(options map[string]any) []string {
+	return stringList(options["ruleMessages"], nil)
+}
+
+func resolveChoice(votes []gamecore.RuleVote, key string, fallback string, seed string) (string, bool) {
+	counts := map[string]int{}
+	for _, vote := range votes {
+		if choice := vote.Choices[key]; choice != "" {
+			counts[choice]++
+		}
+	}
+	if len(counts) == 0 {
+		return fallback, false
+	}
+	choices := make([]string, 0, len(counts))
+	best := 0
+	for choice, count := range counts {
+		if count > best {
+			best = count
+			choices = choices[:0]
+		}
+		if count == best {
+			choices = append(choices, choice)
+		}
+	}
+	sort.Strings(choices)
+	if len(choices) == 1 {
+		return choices[0], false
+	}
+	random := rand.New(rand.NewSource(seedToInt(seed + ":" + key)))
+	return choices[random.Intn(len(choices))], true
+}
+
+func attackCardsForChoice(choice string) []string {
+	switch choice {
+	case "two":
+		return []string{"2"}
+	case "two-ace":
+		return []string{"2", "A"}
+	default:
+		return []string{"2", "A", "JOKER"}
+	}
+}
+
+func intChoice(choice string, fallback int) int {
+	value, err := strconv.Atoi(choice)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func intOption(value any, fallback int) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case float64:
+		return int(typed)
+	default:
+		return fallback
+	}
+}
+
+func stringList(value any, fallback []string) []string {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if value, ok := item.(string); ok {
+				result = append(result, value)
+			}
+		}
+		if len(result) > 0 {
+			return result
+		}
+	}
+	return append([]string(nil), fallback...)
+}
+
+func containsRuleCard(cards []string, target string) bool {
+	for _, card := range cards {
+		if card == target {
+			return true
+		}
+	}
+	return false
+}
+
+func attackChoiceLabel(choice string) string {
+	labels := map[string]string{
+		"two":           "2만",
+		"two-ace":       "2/A",
+		"two-ace-joker": "2/A/조커",
+	}
+	return labels[choice]
+}
+
+func defenseChoiceLabel(choice string) string {
+	labels := map[string]string{
+		"same-rank":       "같은 공격카드만",
+		"any-attack":      "공격카드",
+		"attack-or-joker": "공격카드/조커",
+	}
+	return labels[choice]
+}
+
+func onOffLabel(enabled bool) string {
+	if enabled {
+		return "허용"
+	}
+	return "없음"
 }
 
 func seedToInt(seed string) int64 {

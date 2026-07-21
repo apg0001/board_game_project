@@ -196,6 +196,76 @@ func TestStartGameAndApplyAction(t *testing.T) {
 	}
 }
 
+func TestOneCardRuleVoteResolvesOnStart(t *testing.T) {
+	handler := testRouter()
+	hostToken := createGuestToken(t, handler)
+	guestToken := createGuestToken(t, handler)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"gameId":"onecard","maxPlayers":4}`))
+	createRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createResponse.Code)
+	}
+	var createBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&createBody); err != nil {
+		t.Fatal(err)
+	}
+
+	joinRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/join", bytes.NewBufferString(`{"code":"`+createBody.Room.Code+`"}`))
+	joinRequest.Header.Set("Authorization", "Bearer "+guestToken)
+	joinResponse := httptest.NewRecorder()
+	handler.ServeHTTP(joinResponse, joinRequest)
+	if joinResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", joinResponse.Code)
+	}
+
+	voteRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createBody.Room.ID+"/rules/vote", bytes.NewBufferString(`{"choices":{"attackCards":"two-ace-joker","defenseMode":"attack-or-joker","jokerDrawCount":"7","stacking":"on"}}`))
+	voteRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	voteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(voteResponse, voteRequest)
+	if voteResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", voteResponse.Code)
+	}
+	var voteBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(voteResponse.Body).Decode(&voteBody); err != nil {
+		t.Fatal(err)
+	}
+	if len(voteBody.Room.RuleVotes) != 1 {
+		t.Fatalf("expected one rule vote, got %+v", voteBody.Room.RuleVotes)
+	}
+
+	setReadyForTest(t, handler, createBody.Room.ID, hostToken)
+	setReadyForTest(t, handler, createBody.Room.ID, guestToken)
+
+	startRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createBody.Room.ID+"/start", nil)
+	startRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	startResponse := httptest.NewRecorder()
+	handler.ServeHTTP(startResponse, startRequest)
+	if startResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", startResponse.Code)
+	}
+	var startBody struct {
+		Room    room.Room       `json:"room"`
+		Session session.Session `json:"session"`
+	}
+	if err := json.NewDecoder(startResponse.Body).Decode(&startBody); err != nil {
+		t.Fatal(err)
+	}
+	if startBody.Room.GameRules["jokerDrawCount"] == nil || len(startBody.Room.RuleMessages) == 0 {
+		t.Fatalf("expected resolved onecard rules, got rules=%+v messages=%+v", startBody.Room.GameRules, startBody.Room.RuleMessages)
+	}
+	state, ok := startBody.Session.State.(map[string]any)
+	if !ok || state["rules"] == nil {
+		t.Fatalf("expected onecard rules in session state, got %#v", startBody.Session.State)
+	}
+}
+
 func TestStartGameWithSelectedPlayersLeavesOverflowAsSpectators(t *testing.T) {
 	handler := testRouter()
 	tokens := []string{
