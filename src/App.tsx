@@ -2352,8 +2352,15 @@ function demoParticipants(): RoomParticipant[] {
 function readGuestSession(): GuestSession | null {
   try {
     const raw = localStorage.getItem(guestStorageKey);
-    return raw ? (JSON.parse(raw) as GuestSession) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<GuestSession>;
+    if (!isStoredPlayerSession(parsed)) {
+      localStorage.removeItem(guestStorageKey);
+      return null;
+    }
+    return parsed;
   } catch {
+    localStorage.removeItem(guestStorageKey);
     return null;
   }
 }
@@ -2365,14 +2372,32 @@ function saveGuestSession(session: GuestSession) {
 function readAuthSession(): AuthSession | null {
   try {
     const raw = localStorage.getItem(authStorageKey);
-    return raw ? (JSON.parse(raw) as AuthSession) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AuthSession>;
+    if (!isStoredPlayerSession(parsed) || typeof parsed.user?.username !== "string") {
+      localStorage.removeItem(authStorageKey);
+      return null;
+    }
+    return parsed as AuthSession;
   } catch {
+    localStorage.removeItem(authStorageKey);
     return null;
   }
 }
 
 function saveAuthSession(session: AuthSession) {
   localStorage.setItem(authStorageKey, JSON.stringify(session));
+}
+
+function isStoredPlayerSession(value: Partial<GuestSession> | Partial<AuthSession>): value is GuestSession {
+  return (
+    typeof value.sessionToken === "string" &&
+    value.sessionToken.length > 0 &&
+    typeof value.user?.id === "string" &&
+    value.user.id.length > 0 &&
+    typeof value.user?.nickname === "string" &&
+    value.user.nickname.length > 0
+  );
 }
 
 function readPlayerSession(): GuestSession | null {

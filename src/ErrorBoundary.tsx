@@ -7,13 +7,14 @@ interface Props {
 
 interface State {
   failed: boolean;
+  message: string;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { failed: false };
+  state: State = { failed: false, message: "" };
 
-  static getDerivedStateFromError() {
-    return { failed: true };
+  static getDerivedStateFromError(error: Error) {
+    return { failed: true, message: error.message };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -28,8 +29,11 @@ export class ErrorBoundary extends Component<Props, State> {
         <section className="fallback-panel">
           <strong>화면을 복구할 수 없습니다.</strong>
           <span>저장된 로컬 방/세션 정보를 비우고 다시 시작해 주세요.</span>
+          {this.state.message ? <code>{this.state.message}</code> : null}
           <button
             onClick={() => {
+              localStorage.removeItem("board-table.auth-session");
+              localStorage.removeItem("board-table.guest-session");
               localStorage.removeItem("board-table.current-room-id");
               localStorage.removeItem("board-table.current-session-id");
               window.location.reload();
