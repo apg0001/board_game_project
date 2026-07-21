@@ -1040,6 +1040,35 @@ button.rummikub-tile {
   box-shadow: 0 0 0 3px rgba(244, 201, 93, 0.35);
 }
 
+.bang-hand {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.bang-card {
+  min-height: 76px;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  border-radius: 12px;
+  color: #fff8e8;
+  background: #8c3f2a;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.bang-card.missed {
+  color: #17212b;
+  background: #f4c95d;
+}
+
+.bang-card.beer {
+  background: #2f8e74;
+}
+
+.bang-card.gatling {
+  background: #17212b;
+}
+
 .wide-button:disabled {
   cursor: not-allowed;
   opacity: 0.54;
