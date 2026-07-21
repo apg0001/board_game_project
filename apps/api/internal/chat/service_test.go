@@ -23,3 +23,15 @@ func TestAddAndRecentKeepsLimit(t *testing.T) {
 		t.Fatalf("unexpected messages: %+v", messages)
 	}
 }
+
+func TestRecentEmptyRoomReturnsEmptySlice(t *testing.T) {
+	service := NewService(nil, 2)
+
+	messages := service.Recent("empty")
+	if messages == nil {
+		t.Fatal("expected empty slice, got nil")
+	}
+	if len(messages) != 0 {
+		t.Fatalf("expected no messages, got %d", len(messages))
+	}
+}
