@@ -261,6 +261,7 @@ type RoomSettings = RoomOptions & {
 interface DavinciTile {
   color: "black" | "white" | "hidden";
   value: number;
+  joker?: boolean;
   revealed: boolean;
 }
 
@@ -447,6 +448,8 @@ export function App() {
   const [guessTileIndex, setGuessTileIndex] = useState(0);
   const [guessColor, setGuessColor] = useState<"black" | "white">("black");
   const [guessValue, setGuessValue] = useState(0);
+  const [guessJoker, setGuessJoker] = useState(false);
+  const [pendingInsertIndex, setPendingInsertIndex] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [presenceByUser, setPresenceByUser] = useState<Record<string, Presence>>({});
@@ -2149,7 +2152,7 @@ export function App() {
                       <div className="tile-row">
                         {(myDavinciPlayer?.tiles ?? []).map((tile, index) => (
                           <span className={`davinci-tile ${tile.color}`} key={`${tile.color}-${tile.value}-${index}`}>
-                            {tile.value >= 0 ? tile.value : "?"}
+                            {davinciTileLabel(tile)}
                           </span>
                         ))}
                       </div>
@@ -2163,9 +2166,21 @@ export function App() {
                         </span>
                         <div className="tile-row">
                           <span className={`davinci-tile ${currentSession.state.pendingTile.color}`}>
-                            {currentSession.state.pendingTile.value >= 0 ? currentSession.state.pendingTile.value : "?"}
+                            {davinciTileLabel(currentSession.state.pendingTile)}
                           </span>
                         </div>
+                        {currentSession.state.pendingOwnerId === playerID && currentSession.state.pendingTile.joker ? (
+                          <label className="joker-insert-control">
+                            삽입 위치
+                            <input
+                              type="number"
+                              min="0"
+                              max={myDavinciPlayer?.tiles?.length ?? 0}
+                              value={pendingInsertIndex}
+                              onChange={(event) => setPendingInsertIndex(Number(event.target.value))}
+                            />
+                          </label>
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="tile-board" aria-label="상대 타일">
@@ -2185,7 +2200,7 @@ export function App() {
                                   setGuessTileIndex(index);
                                 }}
                               >
-                                {tile.value >= 0 ? tile.value : "?"}
+                                {davinciTileLabel(tile)}
                               </button>
                             ))}
                           </div>
@@ -2207,8 +2222,17 @@ export function App() {
                         max="11"
                         value={guessValue}
                         onChange={(event) => setGuessValue(Number(event.target.value))}
+                        disabled={guessJoker}
                         aria-label="추측 숫자"
                       />
+                      <label className="checkbox-inline">
+                        <input
+                          type="checkbox"
+                          checked={guessJoker}
+                          onChange={(event) => setGuessJoker(event.target.checked)}
+                        />
+                        조커
+                      </label>
                     </div>
                     <button
                       className="wide-button"
@@ -2220,7 +2244,9 @@ export function App() {
                             targetPlayerId: targetPlayer?.playerId ?? "",
                             tileIndex: guessTileIndex,
                             color: guessColor,
-                            value: guessValue
+                            value: guessValue,
+                            joker: guessJoker,
+                            insertIndex: pendingInsertIndex
                           },
                           setCurrentSession,
                           setRoomMessage
@@ -2239,7 +2265,8 @@ export function App() {
                           currentRoom?.id,
                           "davinci.pass",
                           setCurrentSession,
-                          setRoomMessage
+                          setRoomMessage,
+                          { insertIndex: pendingInsertIndex }
                         )
                       }
                       disabled={!isMyTurn || !currentSession.state.canEndTurn}
@@ -3246,6 +3273,8 @@ async function sendGuessAction(
     tileIndex: number;
     color: "black" | "white";
     value: number;
+    joker: boolean;
+    insertIndex: number;
   },
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void
@@ -3307,6 +3336,12 @@ async function fetchSession(sessionID: string, token: string): Promise<GameSessi
 
 function participantName(room: Room | null, playerID: string) {
   return room?.participants.find((participant) => participant.user.id === playerID)?.user.nickname ?? "상대";
+}
+
+function davinciTileLabel(tile: DavinciTile) {
+  if (tile.color === "hidden") return "?";
+  if (tile.joker) return "-";
+  return tile.value >= 0 ? String(tile.value) : "?";
 }
 
 function fruitLabel(fruit: string) {

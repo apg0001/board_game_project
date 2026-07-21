@@ -40,10 +40,10 @@ func TestPublicStateHidesOpponentTiles(t *testing.T) {
 
 	public := module.PublicState(state, "p1").(State)
 
-	if public.Players[0].Tiles[0].Value == -1 {
+	if public.Players[0].Tiles[0].Color == "hidden" {
 		t.Fatal("own tile should be visible")
 	}
-	if public.Players[1].Tiles[0].Value != -1 {
+	if public.Players[1].Tiles[0].Value != -1 || public.Players[1].Tiles[0].Joker {
 		t.Fatal("opponent hidden tile should be masked")
 	}
 }
@@ -51,15 +51,49 @@ func TestPublicStateHidesOpponentTiles(t *testing.T) {
 func TestPublicStateDoesNotMutatePrivateState(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
-	originalOpponentValue := state.Players[1].Tiles[0].Value
+	originalOpponentTile := state.Players[1].Tiles[0]
 
 	public := module.PublicState(state, "p1").(State)
 
 	if public.Players[1].Tiles[0].Value != -1 {
 		t.Fatal("opponent tile should be masked in public state")
 	}
-	if state.Players[1].Tiles[0].Value != originalOpponentValue {
+	if state.Players[1].Tiles[0] != originalOpponentTile {
 		t.Fatal("public state must not mutate the private state")
+	}
+}
+
+func TestDeckIncludesDashJokers(t *testing.T) {
+	deck := shuffledDeck("seed")
+	jokers := map[string]int{}
+	for _, tile := range deck {
+		if tile.Joker {
+			jokers[tile.Color]++
+		}
+	}
+
+	if len(deck) != 26 {
+		t.Fatalf("expected 26 tiles with dash panels, got %d", len(deck))
+	}
+	if jokers["black"] != 1 || jokers["white"] != 1 {
+		t.Fatalf("expected one black and one white dash, got %#v", jokers)
+	}
+}
+
+func TestPublicStateHidesOpponentJokerFlag(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Tiles: []Tile{{Color: "black", Value: 1}}, Active: true},
+			{PlayerID: "p2", Tiles: []Tile{{Color: "white", Value: -1, Joker: true}}, Active: true},
+		},
+	}
+
+	public := module.PublicState(state, "p1").(State)
+
+	if public.Players[1].Tiles[0].Joker || public.Players[1].Tiles[0].Color != "hidden" {
+		t.Fatal("hidden opponent joker must not leak joker identity")
 	}
 }
 
@@ -94,6 +128,38 @@ func TestCorrectGuessKeepsTurnAndAllowsEndTurn(t *testing.T) {
 	}
 }
 
+func TestCorrectJokerGuessRevealsDash(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Tiles: []Tile{{Color: "black", Value: 1}}, Active: true},
+			{PlayerID: "p2", Tiles: []Tile{{Color: "white", Value: -1, Joker: true}}, Active: true},
+		},
+		PendingTile:    &Tile{Color: "black", Value: 7},
+		PendingOwnerID: "p1",
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionGuess,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"targetPlayerId": "p2",
+			"tileIndex":      float64(0),
+			"color":          "white",
+			"joker":          true,
+		},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if !next.Players[1].Tiles[0].Revealed || !next.CanEndTurn {
+		t.Fatal("correct joker guess should reveal the dash and keep the turn")
+	}
+}
+
 func TestEndTurnInsertsPendingTileHiddenAndAdvancesTurn(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
@@ -124,6 +190,11 @@ func TestWrongGuessRevealsPendingTile(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
 	pending := *state.PendingTile
+	targetTile := state.Players[1].Tiles[0]
+	wrongValue := 0
+	if !targetTile.Joker {
+		wrongValue = (targetTile.Value + 1) % 12
+	}
 
 	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
 		Type:     ActionGuess,
@@ -131,8 +202,8 @@ func TestWrongGuessRevealsPendingTile(t *testing.T) {
 		Payload: map[string]any{
 			"targetPlayerId": "p2",
 			"tileIndex":      float64(0),
-			"color":          "black",
-			"value":          float64(99),
+			"color":          targetTile.Color,
+			"value":          float64(wrongValue),
 		},
 	}, testContext())
 	if err != nil {
@@ -145,6 +216,39 @@ func TestWrongGuessRevealsPendingTile(t *testing.T) {
 	}
 	if next.CurrentPlayerIndex != 1 {
 		t.Fatalf("wrong guess should advance turn, got %d", next.CurrentPlayerIndex)
+	}
+}
+
+func TestWrongGuessInsertsPendingJokerAtChosenIndex(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Tiles: []Tile{{Color: "black", Value: 1}, {Color: "white", Value: 8}}, Active: true},
+			{PlayerID: "p2", Tiles: []Tile{{Color: "black", Value: 3}}, Active: true},
+		},
+		PendingTile:    &Tile{Color: "white", Value: -1, Joker: true},
+		PendingOwnerID: "p1",
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionGuess,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"targetPlayerId": "p2",
+			"tileIndex":      float64(0),
+			"color":          "white",
+			"value":          float64(4),
+			"insertIndex":    float64(1),
+		},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Tiles) != 3 || !next.Players[0].Tiles[1].Joker || !next.Players[0].Tiles[1].Revealed {
+		t.Fatalf("pending joker should be inserted revealed at chosen index, got %#v", next.Players[0].Tiles)
 	}
 }
 
@@ -186,7 +290,7 @@ func testContext() gamecore.Context {
 
 func hasTile(tiles []Tile, target Tile, revealed bool) bool {
 	for _, tile := range tiles {
-		if tile.Color == target.Color && tile.Value == target.Value && tile.Revealed == revealed {
+		if tile.Color == target.Color && tile.Value == target.Value && tile.Joker == target.Joker && tile.Revealed == revealed {
 			return true
 		}
 	}
