@@ -1,6 +1,9 @@
 :root {
   color: #17212b;
-  background: #f5f0e8;
+  background:
+    linear-gradient(135deg, rgba(47, 142, 116, 0.08), transparent 32%),
+    linear-gradient(225deg, rgba(244, 201, 93, 0.16), transparent 28%),
+    #eef3f0;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -8,6 +11,16 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ink: #17212b;
+  --muted: #68727e;
+  --surface: #fffdf7;
+  --surface-strong: #ffffff;
+  --line: rgba(23, 33, 43, 0.1);
+  --shadow-soft: 0 18px 48px rgba(23, 33, 43, 0.1);
+  --shadow-strong: 0 26px 76px rgba(23, 33, 43, 0.18);
+  --green: #2f8e74;
+  --yellow: #f4c95d;
+  --coral: #c95f42;
 }
 
 * {
@@ -21,7 +34,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -29,11 +43,18 @@ button {
   cursor: pointer;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(244, 201, 93, 0.64);
+  outline-offset: 2px;
+}
+
 .app-shell {
   width: min(100%, 1440px);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 16px 16px calc(96px + var(--safe-bottom));
+  padding: 12px 16px calc(96px + var(--safe-bottom));
 }
 
 .fallback-shell {
@@ -82,13 +103,13 @@ button {
 
 .hero-panel {
   overflow: hidden;
-  min-height: 520px;
-  border-radius: 24px;
+  min-height: clamp(312px, 38vw, 430px);
+  border-radius: 20px;
   color: #fff8e8;
   background:
-    linear-gradient(90deg, rgba(23, 33, 43, 0.88), rgba(23, 33, 43, 0.56)),
+    linear-gradient(90deg, rgba(23, 33, 43, 0.9), rgba(23, 33, 43, 0.62)),
     url("/assets/table-pattern.svg") center / cover;
-  box-shadow: 0 24px 80px rgba(23, 33, 43, 0.18);
+  box-shadow: var(--shadow-strong);
 }
 
 .top-bar,
@@ -185,10 +206,10 @@ button {
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 460px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
   align-items: center;
-  gap: 38px;
-  padding: 54px 20px 48px;
+  gap: 28px;
+  padding: 34px 20px 30px;
 }
 
 .hero-copy {
@@ -216,16 +237,16 @@ p {
 }
 
 h1 {
-  max-width: 12ch;
-  margin-bottom: 18px;
-  font-size: clamp(2.4rem, 5.6vw, 5.6rem);
-  line-height: 0.96;
+  max-width: 15ch;
+  margin-bottom: 14px;
+  font-size: clamp(2.1rem, 4.4vw, 4.4rem);
+  line-height: 1;
   letter-spacing: 0;
 }
 
 .summary {
   max-width: 56ch;
-  margin-bottom: 26px;
+  margin-bottom: 22px;
   color: rgba(255, 248, 232, 0.82);
   font-size: 1.04rem;
   line-height: 1.7;
@@ -367,8 +388,9 @@ h1 {
 
 .content-grid {
   display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
   padding-top: 18px;
 }
 
@@ -392,11 +414,21 @@ h1 {
   min-height: 132px;
   padding: 18px;
   border: 1px solid rgba(23, 33, 43, 0.08);
-  border-radius: 20px;
+  border-radius: 16px;
   color: #17212b;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 18px 50px rgba(23, 33, 43, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-soft);
   text-align: left;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.flow-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(47, 142, 116, 0.26);
+  box-shadow: 0 22px 54px rgba(23, 33, 43, 0.13);
 }
 
 .flow-card > span {
@@ -443,9 +475,9 @@ h1 {
   gap: 16px;
   padding: 16px 18px;
   border: 1px solid rgba(23, 33, 43, 0.08);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow: 0 18px 50px rgba(23, 33, 43, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-soft);
 }
 
 .flow-page-header h2,
@@ -472,10 +504,10 @@ h1 {
 
 .room-card,
 .games-panel {
-  border: 1px solid rgba(23, 33, 43, 0.08);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow: 0 18px 50px rgba(23, 33, 43, 0.08);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: var(--shadow-soft);
 }
 
 .room-card {
@@ -488,7 +520,11 @@ h1 {
 }
 
 .game-session-card {
-  min-height: calc(100vh - 190px);
+  min-height: max(620px, calc(100vh - 170px));
+  padding: clamp(16px, 2vw, 28px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 252, 250, 0.92)),
+    #fff;
 }
 
 .game-session-card .section-title {
@@ -663,6 +699,35 @@ h1 {
   color: #68727e;
   font-size: 0.84rem;
   line-height: 1.45;
+}
+
+.room-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.room-status-grid span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  border-radius: 12px;
+  padding: 9px 10px;
+  color: #17212b;
+  background: #fffdf7;
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.room-status-grid strong {
+  overflow: hidden;
+  color: #68727e;
+  font-size: 0.7rem;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-badge {
@@ -910,19 +975,30 @@ h1 {
 }
 
 .game-session-card .game-session-panel {
-  gap: 18px;
+  gap: 20px;
 }
 
 .game-session-card .room-actions {
   width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
 .game-session-card .tile-board,
 .game-session-card .halli-board,
 .game-session-card .splendor-market,
 .game-session-card .splendor-players,
-.game-session-card .rummikub-table {
+.game-session-card .rummikub-table,
+.game-session-card .standard-hand,
+.game-session-card .hwatu-field,
+.game-session-card .hwatu-hand,
+.game-session-card .bang-hand,
+.game-session-card .joker-targets,
+.game-session-card .werewolf-actions {
   width: 100%;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(23, 33, 43, 0.035);
 }
 
 .post-game-panel {
@@ -1091,17 +1167,22 @@ h1 {
 
 .game-session-panel p {
   margin-bottom: 0;
+  border-radius: 14px;
+  padding: 10px 12px;
   color: #17212b;
+  background: rgba(244, 201, 93, 0.2);
   font-weight: 850;
 }
 
 .session-log {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .session-log span {
   min-width: 0;
+  max-width: 100%;
   border-radius: 12px;
   padding: 8px 10px;
   color: #46505c;
@@ -1165,8 +1246,8 @@ h1 {
 
 .davinci-tile {
   display: grid;
-  width: 38px;
-  height: 48px;
+  width: clamp(38px, 5vw, 54px);
+  height: clamp(50px, 6.5vw, 70px);
   place-items: center;
   border: 2px solid rgba(23, 33, 43, 0.14);
   border-radius: 8px;
@@ -1223,9 +1304,10 @@ button.davinci-tile {
 .halli-player {
   display: grid;
   gap: 5px;
+  border: 1px solid rgba(23, 33, 43, 0.08);
   border-radius: 12px;
   padding: 10px;
-  background: rgba(23, 33, 43, 0.06);
+  background: #fffdf7;
 }
 
 .halli-player strong,
@@ -1505,6 +1587,10 @@ button.rummikub-tile {
   font-size: 0.95rem;
   font-weight: 950;
   cursor: pointer;
+}
+
+.game-session-card .standard-card {
+  min-height: clamp(86px, 12vw, 118px);
 }
 
 .standard-card.readonly {
@@ -1924,12 +2010,13 @@ button.hwatu-card {
 
   .hero-grid {
     grid-template-columns: 1fr;
-    gap: 22px;
-    padding: 34px 14px 18px;
+    gap: 18px;
+    padding: 28px 14px 16px;
   }
 
   h1 {
-    max-width: 11ch;
+    max-width: 16ch;
+    font-size: clamp(2rem, 10vw, 3.1rem);
   }
 
   .summary {
@@ -1987,7 +2074,15 @@ button.hwatu-card {
 
   .games-panel,
   .room-card {
-    border-radius: 18px;
+    border-radius: 16px;
+  }
+
+  .game-session-card {
+    min-height: calc(100vh - 146px);
+  }
+
+  .room-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1998,6 +2093,14 @@ button.hwatu-card {
 
   .hero-actions {
     display: none;
+  }
+
+  .table-preview {
+    display: none;
+  }
+
+  .hero-grid {
+    padding-bottom: 24px;
   }
 
   .game-grid {
@@ -2041,5 +2144,13 @@ button.hwatu-card {
   .mini-card {
     width: 56px;
     height: 78px;
+  }
+
+  .room-status-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .game-session-card .room-actions {
+    grid-template-columns: 1fr;
   }
 }
