@@ -24,6 +24,9 @@ func TestCreateRoom(t *testing.T) {
 	if !room.Participants[0].Host {
 		t.Fatal("expected first participant to be host")
 	}
+	if room.Spectators == nil {
+		t.Fatal("expected empty spectator list")
+	}
 }
 
 func TestJoinByCode(t *testing.T) {

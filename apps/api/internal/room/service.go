@@ -66,8 +66,9 @@ func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (
 			SeatIndex: 0,
 			JoinedAt:  now,
 		}},
-		CreatedAt: now,
-		UpdatedAt: now,
+		Spectators: []Spectator{},
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	if err := s.store.Save(room); err != nil {
