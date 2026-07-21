@@ -598,13 +598,12 @@ h1 {
 }
 
 .selected-game-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  min-height: 56px;
   border-radius: 14px;
-  padding: 0 12px;
+  padding: 8px 12px;
   color: #17212b;
   background: rgba(244, 201, 93, 0.2);
 }
@@ -619,6 +618,20 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.selected-game-strip small {
+  grid-column: 1 / -1;
+  color: #68727e;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.room-helper {
+  margin: -2px 0 2px;
+  color: #68727e;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .game-session-panel {
@@ -1329,37 +1342,110 @@ button.hwatu-card {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle at 70% 28%, rgba(255, 255, 255, 0.38), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 42%),
+    radial-gradient(circle at 76% 22%, rgba(255, 255, 255, 0.36), transparent 34%),
     var(--accent);
 }
 
-.token,
-.mini-card {
+.cover-title,
+.cover-mark,
+.cover-card {
   position: absolute;
 }
 
-.token {
-  width: 48px;
-  height: 48px;
-  border: 8px solid rgba(255, 255, 255, 0.72);
-  border-radius: 50%;
-  background: rgba(23, 33, 43, 0.16);
+.cover-title {
+  left: 16px;
+  top: 14px;
+  max-width: calc(100% - 32px);
+  color: rgba(255, 253, 247, 0.92);
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0;
 }
 
-.token.one {
-  left: 22px;
-  top: 22px;
+.cover-mark {
+  right: 16px;
+  bottom: 8px;
+  color: rgba(255, 253, 247, 0.92);
+  font-size: 3rem;
+  font-weight: 950;
+  line-height: 1;
 }
 
-.token.two {
-  right: 28px;
-  bottom: 20px;
+.cover-card {
+  width: 54px;
+  height: 76px;
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.88);
+  box-shadow: 0 16px 28px rgba(23, 33, 43, 0.18);
 }
 
-.mini-card {
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -44%) rotate(-8deg);
+.cover-card-a {
+  left: 24px;
+  bottom: -20px;
+  transform: rotate(-12deg);
+}
+
+.cover-card-b {
+  left: 56px;
+  bottom: -24px;
+  transform: rotate(10deg);
+  opacity: 0.82;
+}
+
+.game-art-dalmuti {
+  background: linear-gradient(135deg, #c95f42, #f4c95d);
+}
+
+.game-art-werewolf {
+  background: linear-gradient(135deg, #241f3d, #6f5fbf 62%, #d7c8ff);
+}
+
+.game-art-rummikub {
+  background: linear-gradient(135deg, #fffdf7, #2f78b7);
+}
+
+.game-art-rummikub .cover-title,
+.game-art-rummikub .cover-mark {
+  color: #17212b;
+}
+
+.game-art-bang {
+  background: linear-gradient(135deg, #5e2f1b, #a3682a 58%, #f4c95d);
+}
+
+.game-art-davinci {
+  background: linear-gradient(135deg, #17212b, #1c8c8c);
+}
+
+.game-art-halli-galli {
+  background: linear-gradient(135deg, #d24f6a, #f4c95d);
+}
+
+.game-art-splendor {
+  background: linear-gradient(135deg, #17212b, #2f8e74 55%, #9fd8c7);
+}
+
+.game-art-sutda {
+  background: linear-gradient(135deg, #8f3f71, #17212b);
+}
+
+.game-art-gostop {
+  background: linear-gradient(135deg, #b28a22, #2f8e74 58%, #c95f42);
+}
+
+.game-art-onecard {
+  background: linear-gradient(135deg, #2c7a9b, #fffdf7);
+}
+
+.game-art-onecard .cover-title,
+.game-art-onecard .cover-mark {
+  color: #17212b;
+}
+
+.game-art-jokerdraw {
+  background: linear-gradient(135deg, #7a4fb0, #17212b 62%, #f4c95d);
 }
 
 .game-card-body {

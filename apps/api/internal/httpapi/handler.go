@@ -42,6 +42,15 @@ type HealthChecker interface {
 	Ping(ctx context.Context) error
 }
 
+type currentUser struct {
+	ID       string
+	Nickname string
+}
+
+func (u currentUser) Public() guest.PublicUser {
+	return guest.PublicUser{ID: u.ID, Nickname: u.Nickname}
+}
+
 func (h Handler) health(w http.ResponseWriter, _ *http.Request) {
 	database := "disabled"
 	if h.healthChecker != nil {
@@ -772,13 +781,17 @@ func participantIDs(participants []room.Participant) []string {
 	return ids
 }
 
-func (h Handler) requireGuest(w http.ResponseWriter, r *http.Request) (guest.User, bool) {
-	user, err := h.guests.Me(bearerToken(r))
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "valid guest session is required"})
-		return guest.User{}, false
+func (h Handler) requireGuest(w http.ResponseWriter, r *http.Request) (currentUser, bool) {
+	token := bearerToken(r)
+	user, err := h.guests.Me(token)
+	if err == nil {
+		return currentUser{ID: user.ID, Nickname: user.Nickname}, true
 	}
-	return user, true
+	if authUser, ok := h.auths.Me(token); ok {
+		return currentUser{ID: authUser.ID, Nickname: authUser.Nickname}, true
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "valid session is required"})
+	return currentUser{}, false
 }
 
 func timeNowUTC() time.Time {
