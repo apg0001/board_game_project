@@ -470,6 +470,32 @@ func TestRegisterAndLogin(t *testing.T) {
 	}
 }
 
+func TestRegisteredUserCanCreateRoom(t *testing.T) {
+	handler := testRouter()
+
+	registerRequest := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewBufferString(`{"username":"bob","password":"secret","nickname":"Bob"}`))
+	registerResponse := httptest.NewRecorder()
+	handler.ServeHTTP(registerResponse, registerRequest)
+	if registerResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", registerResponse.Code)
+	}
+
+	var registerBody struct {
+		SessionToken string `json:"sessionToken"`
+	}
+	if err := json.NewDecoder(registerResponse.Body).Decode(&registerBody); err != nil {
+		t.Fatal(err)
+	}
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"gameId":"davinci","maxPlayers":12}`))
+	createRequest.Header.Set("Authorization", "Bearer "+registerBody.SessionToken)
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createResponse.Code)
+	}
+}
+
 func createGuestToken(t *testing.T, handler http.Handler) string {
 	t.Helper()
 

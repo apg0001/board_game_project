@@ -33,6 +33,8 @@ interface GameCard {
   difficulty: "쉬움" | "보통" | "어려움";
   categories: GameCategory[];
   accent: string;
+  cover: string;
+  mark: string;
 }
 
 const games: GameCard[] = [
@@ -45,7 +47,9 @@ const games: GameCard[] = [
     time: "20분",
     difficulty: "쉬움",
     categories: ["카드", "파티"],
-    accent: "#c95f42"
+    accent: "#c95f42",
+    cover: "DALMUTI",
+    mark: "1"
   },
   {
     id: "werewolf",
@@ -56,7 +60,9 @@ const games: GameCard[] = [
     time: "10분",
     difficulty: "보통",
     categories: ["블러핑", "파티"],
-    accent: "#6f5fbf"
+    accent: "#6f5fbf",
+    cover: "WEREWOLF",
+    mark: "夜"
   },
   {
     id: "rummikub",
@@ -67,7 +73,9 @@ const games: GameCard[] = [
     time: "35분",
     difficulty: "보통",
     categories: ["숫자/조합", "전략"],
-    accent: "#2f78b7"
+    accent: "#2f78b7",
+    cover: "RUMMIKUB",
+    mark: "30"
   },
   {
     id: "bang",
@@ -78,7 +86,9 @@ const games: GameCard[] = [
     time: "40분",
     difficulty: "어려움",
     categories: ["블러핑", "카드"],
-    accent: "#a3682a"
+    accent: "#a3682a",
+    cover: "BANG!",
+    mark: "!"
   },
   {
     id: "davinci",
@@ -89,7 +99,9 @@ const games: GameCard[] = [
     time: "15분",
     difficulty: "쉬움",
     categories: ["숫자/조합", "전략"],
-    accent: "#1c8c8c"
+    accent: "#1c8c8c",
+    cover: "DAVINCI",
+    mark: "?"
   },
   {
     id: "halli-galli",
@@ -100,7 +112,9 @@ const games: GameCard[] = [
     time: "10분",
     difficulty: "쉬움",
     categories: ["순발력", "파티"],
-    accent: "#d24f6a"
+    accent: "#d24f6a",
+    cover: "HALLI",
+    mark: "5"
   },
   {
     id: "splendor",
@@ -111,7 +125,9 @@ const games: GameCard[] = [
     time: "30분",
     difficulty: "보통",
     categories: ["전략", "카드"],
-    accent: "#2f8e74"
+    accent: "#2f8e74",
+    cover: "SPLENDOR",
+    mark: "15"
   },
   {
     id: "sutda",
@@ -122,7 +138,9 @@ const games: GameCard[] = [
     time: "8분",
     difficulty: "보통",
     categories: ["블러핑", "카드"],
-    accent: "#8f3f71"
+    accent: "#8f3f71",
+    cover: "SUTDA",
+    mark: "38"
   },
   {
     id: "gostop",
@@ -133,7 +151,9 @@ const games: GameCard[] = [
     time: "20분",
     difficulty: "보통",
     categories: ["전략", "카드"],
-    accent: "#b28a22"
+    accent: "#b28a22",
+    cover: "GO-STOP",
+    mark: "光"
   },
   {
     id: "onecard",
@@ -144,7 +164,9 @@ const games: GameCard[] = [
     time: "10분",
     difficulty: "쉬움",
     categories: ["카드", "파티"],
-    accent: "#2c7a9b"
+    accent: "#2c7a9b",
+    cover: "ONE CARD",
+    mark: "A"
   },
   {
     id: "jokerdraw",
@@ -155,7 +177,9 @@ const games: GameCard[] = [
     time: "8분",
     difficulty: "쉬움",
     categories: ["카드", "파티"],
-    accent: "#7a4fb0"
+    accent: "#7a4fb0",
+    cover: "JOKER",
+    mark: "J"
   }
 ];
 
@@ -419,6 +443,16 @@ export function App() {
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const playerSession = useMemo(
+    () =>
+      authSession
+        ? {
+            sessionToken: authSession.sessionToken,
+            user: { id: authSession.user.id, nickname: authSession.user.nickname }
+          }
+        : guestSession,
+    [authSession, guestSession]
+  );
 
   useEffect(() => {
     const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -463,7 +497,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const current = readGuestSession();
+    const current = readPlayerSession();
     if (!current?.sessionToken) return;
     authorizedJSON<{ presence: Presence }>("/api/reconnect", current.sessionToken, { method: "POST" })
       .then((data) => {
@@ -473,7 +507,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!guestSession) return;
+    if (!playerSession) return;
 
     const roomID = localStorage.getItem(roomStorageKey);
     const sessionID = localStorage.getItem(sessionStorageKey);
@@ -489,14 +523,14 @@ export function App() {
     }
 
     if (sessionID) {
-      fetchSession(sessionID, guestSession.sessionToken)
+      fetchSession(sessionID, playerSession.sessionToken)
         .then((session) => {
           setCurrentSession(session);
           setSelectedGameId(session.gameId);
         })
         .catch(() => localStorage.removeItem(sessionStorageKey));
     }
-  }, [guestSession]);
+  }, [playerSession]);
 
   useEffect(() => {
     if (currentRoom) {
@@ -516,12 +550,12 @@ export function App() {
   }, [currentSession]);
 
   useEffect(() => {
-    if (!currentRoom || !guestSession) return;
+    if (!currentRoom || !playerSession) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
     const socket = new WebSocket(
       `${wsURL}?room=${encodeURIComponent(`room:${currentRoom.id}`)}&user=${encodeURIComponent(
-        guestSession.user.id
+        playerSession.user.id
       )}`
     );
 
@@ -555,10 +589,10 @@ export function App() {
     return () => {
       socket.close();
     };
-  }, [currentRoom?.id, guestSession]);
+  }, [currentRoom?.id, playerSession]);
 
   useEffect(() => {
-    if (!currentRoom || !guestSession) return;
+    if (!currentRoom || !playerSession) return;
 
     fetchRoomChat(currentRoom.id)
       .then(setChatMessages)
@@ -567,7 +601,7 @@ export function App() {
     markPresence(currentRoom.id, currentSession?.id, "ONLINE").catch(() => undefined);
 
     const markDisconnected = () => {
-      const token = readGuestSession()?.sessionToken;
+      const token = readPlayerSession()?.sessionToken;
       if (!token) return;
       const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
       const body = JSON.stringify({
@@ -586,7 +620,7 @@ export function App() {
     };
     window.addEventListener("beforeunload", markDisconnected);
     return () => window.removeEventListener("beforeunload", markDisconnected);
-  }, [currentRoom?.id, currentSession?.id, guestSession]);
+  }, [currentRoom?.id, currentSession?.id, playerSession]);
 
   useEffect(() => {
     fetchLeaderboard(selectedGameId).then(setLeaderboard).catch(() => undefined);
@@ -611,21 +645,21 @@ export function App() {
   }, [currentRoom?.id, currentRoom?.gameId, currentRoom?.participants]);
 
   useEffect(() => {
-    if (!currentRoom?.activeSessionId || !guestSession) return;
+    if (!currentRoom?.activeSessionId || !playerSession) return;
     if (currentSession?.id === currentRoom.activeSessionId) return;
 
-    fetchSession(currentRoom.activeSessionId, guestSession.sessionToken)
+    fetchSession(currentRoom.activeSessionId, playerSession.sessionToken)
       .then(setCurrentSession)
       .catch(() => undefined);
-  }, [currentRoom?.activeSessionId, currentSession?.id, guestSession]);
+  }, [currentRoom?.activeSessionId, currentSession?.id, playerSession]);
 
   useEffect(() => {
-    if (!currentSession || !guestSession) return;
+    if (!currentSession || !playerSession) return;
 
     const wsURL = import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws";
     const socket = new WebSocket(
       `${wsURL}?room=${encodeURIComponent(`game:${currentSession.id}`)}&user=${encodeURIComponent(
-        guestSession.user.id
+        playerSession.user.id
       )}`
     );
 
@@ -640,7 +674,7 @@ export function App() {
     return () => {
       socket.close();
     };
-  }, [currentSession?.id, guestSession]);
+  }, [currentSession?.id, playerSession]);
 
   const recommendedGames = useMemo(() => {
     const source = apiGames.length === 0 ? fallbackRecommendedGames : apiGames.map((apiGame) => {
@@ -654,7 +688,9 @@ export function App() {
         time: `${apiGame.estimatedMinutes}분`,
         difficulty: apiGame.difficulty,
         categories: apiGame.categories,
-        accent: fallback?.accent ?? "#2f8e74"
+        accent: fallback?.accent ?? "#2f8e74",
+        cover: fallback?.cover ?? apiGame.title,
+        mark: fallback?.mark ?? apiGame.title.slice(0, 1)
       };
     });
 
@@ -666,14 +702,14 @@ export function App() {
   const activePlayerCount = currentRoom?.participants.length ?? playerCount;
   const partyMembers = currentRoom?.participants ?? [];
   const me = currentRoom?.participants.find(
-    (participant) => participant.user.id === guestSession?.user.id
+    (participant) => participant.user.id === playerSession?.user.id
   );
   const davinciPlayers = currentSession?.state.players ?? [];
-  const myDavinciPlayer = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
-  const opponentPlayers = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id);
+  const myDavinciPlayer = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const opponentPlayers = davinciPlayers.filter((player) => player.playerId !== playerSession?.user.id);
   const targetPlayer = opponentPlayers.find((player) => player.playerId === guessTarget) ?? opponentPlayers[0];
   const currentTurnPlayer = davinciPlayers[currentSession?.state.currentPlayerIndex ?? 0];
-  const isMyTurn = currentTurnPlayer?.playerId === guestSession?.user.id;
+  const isMyTurn = currentTurnPlayer?.playerId === playerSession?.user.id;
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
   const selectedRoomGame = games.find((game) => game.id === currentRoom?.gameId) ?? selectedGame;
   const selectedPlayerSet = new Set(selectedPlayerIds);
@@ -686,21 +722,21 @@ export function App() {
   const canStartGame = Boolean(currentRoom && amHost && selectedReady && selectedCountValid && currentRoom.status === "LOBBY");
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
   const splendorColors = ["white", "blue", "green", "red", "black"];
-  const splendorMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
-  const dalmutiMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const splendorMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const dalmutiMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
   const dalmutiGroups = groupDalmutiHand(dalmutiMe?.hand ?? []);
-  const werewolfMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
-  const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id);
-  const rummikubMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
-  const bangMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
-  const bangTargets = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id && player.alive !== false);
-  const sutdaMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
-  const gostopMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
-  const onecardMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const werewolfMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== playerSession?.user.id);
+  const rummikubMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const bangMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const bangTargets = davinciPlayers.filter((player) => player.playerId !== playerSession?.user.id && player.alive !== false);
+  const sutdaMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const gostopMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
+  const onecardMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
   const onecardTopCard = currentSession?.state.discardPile?.[(currentSession.state.discardPile?.length ?? 0) - 1];
-  const jokerdrawMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const jokerdrawMe = davinciPlayers.find((player) => player.playerId === playerSession?.user.id);
   const jokerdrawTargets = davinciPlayers.filter(
-    (player) => player.playerId !== guestSession?.user.id && player.active && !player.out
+    (player) => player.playerId !== playerSession?.user.id && player.active && !player.out
   );
 
   return (
@@ -721,7 +757,7 @@ export function App() {
               <Bell size={19} />
             </button>
             <button className="profile-button" aria-label="내 프로필">
-              {guestSession?.user.nickname.slice(-2) ?? "G"}
+              {playerSession?.user.nickname.slice(-2) ?? "G"}
             </button>
           </div>
         </nav>
@@ -752,7 +788,7 @@ export function App() {
               ) : null}
               <button className="secondary-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
                 <Plus size={18} />
-                방 만들기
+                초대 방
               </button>
             </div>
           </div>
@@ -781,7 +817,7 @@ export function App() {
           <div className="room-card">
             <div className="section-title">
               <div>
-                <span>{guestSession?.user.nickname ?? "게스트 준비 중"}</span>
+                <span>{playerSession?.user.nickname ?? "게스트 준비 중"}</span>
               <h2>{activePlayerCount}명 입장 중 · Ready {readyCount}/{partyMembers.length || activePlayerCount}</h2>
               </div>
               <UsersRound size={22} />
@@ -800,7 +836,7 @@ export function App() {
                         ? " · 이번 판 관전"
                         : ""}
                     </small>
-                    {currentRoom && amHost && participant.user.id !== guestSession?.user.id ? (
+                    {currentRoom && amHost && participant.user.id !== playerSession?.user.id ? (
                       <div className="member-actions">
                         <button
                           onClick={() =>
@@ -832,7 +868,7 @@ export function App() {
             ) : null}
           </div>
 
-          <div className="room-card">
+          <div className="room-card room-setup-card">
             <div className="section-title">
               <div>
                 <span>방 코드</span>
@@ -845,9 +881,15 @@ export function App() {
               <div className="selected-game-strip">
                 <span>선택 게임</span>
                 <strong>{selectedGame.title}</strong>
+                <small>
+                  게임 {selectedGame.players} · 초대 로비 최대 12명
+                </small>
               </div>
+              <p className="room-helper">
+                게임 최대 인원을 넘으면 방장이 이번 판 플레이어를 고르고 나머지는 같은 방에서 관전합니다.
+              </p>
               <button className="wide-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
-                방 만들기
+                {selectedGame.title} 방 만들기
                 <ChevronRight size={18} />
               </button>
               <label className="code-input">
@@ -1981,6 +2023,9 @@ export function App() {
                 onClick={() => {
                   localStorage.removeItem(authStorageKey);
                   setAuthSession(null);
+                  setCurrentRoom(null);
+                  setCurrentSession(null);
+                  setRoomMessage("로그아웃했습니다. 게스트로 계속 플레이할 수 있습니다.");
                 }}
               >
                 로그아웃
@@ -2011,17 +2056,25 @@ export function App() {
                   <button
                     onClick={() =>
                       register(authUsername, authPassword, authNickname)
-                        .then(setAuthSession)
-                        .catch(() => setRoomMessage("회원가입에 실패했습니다."))
+                        .then((session) => {
+                          setAuthSession(session);
+                          setAuthPassword("");
+                          setRoomMessage(`${session.user.nickname} 계정으로 가입하고 로그인했습니다.`);
+                        })
+                        .catch(() => setRoomMessage("회원가입에 실패했습니다. ID와 비밀번호를 확인해주세요."))
                     }
                   >
-                    가입
+                    회원가입
                   </button>
                   <button
                     onClick={() =>
                       login(authUsername, authPassword)
-                        .then(setAuthSession)
-                        .catch(() => setRoomMessage("로그인에 실패했습니다."))
+                        .then((session) => {
+                          setAuthSession(session);
+                          setAuthPassword("");
+                          setRoomMessage(`${session.user.nickname} 계정으로 로그인했습니다.`);
+                        })
+                        .catch(() => setRoomMessage("로그인에 실패했습니다. ID와 비밀번호를 확인해주세요."))
                     }
                   >
                     로그인
@@ -2083,10 +2136,11 @@ export function App() {
                 key={game.id}
                 style={{ "--accent": game.accent } as CSSProperties}
               >
-                <div className="game-art" aria-hidden="true">
-                  <span className="token one" />
-                  <span className="token two" />
-                  <span className="mini-card" />
+                <div className={`game-art game-art-${game.id}`} aria-hidden="true">
+                  <span className="cover-title">{game.cover}</span>
+                  <span className="cover-mark">{game.mark}</span>
+                  <span className="cover-card cover-card-a" />
+                  <span className="cover-card cover-card-b" />
                 </div>
                 <div className="game-card-body">
                   <div>
@@ -2259,6 +2313,17 @@ function saveAuthSession(session: AuthSession) {
   localStorage.setItem(authStorageKey, JSON.stringify(session));
 }
 
+function readPlayerSession(): GuestSession | null {
+  const auth = readAuthSession();
+  if (auth) {
+    return {
+      sessionToken: auth.sessionToken,
+      user: { id: auth.user.id, nickname: auth.user.nickname }
+    };
+  }
+  return readGuestSession();
+}
+
 async function createGuest(apiURL: string): Promise<GuestSession> {
   const response = await fetch(`${apiURL}/api/guests`, { method: "POST" });
   if (!response.ok) throw new Error("failed to create guest");
@@ -2299,7 +2364,7 @@ async function createRoom(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) {
     onMessage("게스트 세션을 준비하는 중입니다.");
     return;
@@ -2324,7 +2389,7 @@ async function quickMatch(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) {
     onMessage("게스트 세션을 준비하는 중입니다.");
     return;
@@ -2349,7 +2414,7 @@ async function joinRoom(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) {
     onMessage("게스트 세션을 준비하는 중입니다.");
     return;
@@ -2373,7 +2438,7 @@ async function spectateRoom(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) {
     onMessage("게스트 세션을 준비하는 중입니다.");
     return;
@@ -2396,7 +2461,7 @@ async function updateRoomOptions(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) {
     onMessage("게스트 세션을 준비하는 중입니다.");
     return;
@@ -2420,7 +2485,7 @@ async function kickPlayer(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) return;
   try {
     const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/kick`, session.sessionToken, {
@@ -2440,7 +2505,7 @@ async function transferHost(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) return;
   try {
     const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/transfer-host`, session.sessionToken, {
@@ -2455,7 +2520,7 @@ async function transferHost(
 }
 
 async function cancelQuickMatch(roomID: string, gameId: string, onMessage: (message: string) => void) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) return;
   try {
     const data = await authorizedJSON<{ cancelled: boolean }>("/api/match/cancel", session.sessionToken, {
@@ -2469,7 +2534,7 @@ async function cancelQuickMatch(roomID: string, gameId: string, onMessage: (mess
 }
 
 async function sendChat(roomID: string, text: string, kind: "chat" | "emoji"): Promise<ChatMessage> {
-  const guest = readGuestSession();
+  const guest = readPlayerSession();
   if (!guest) throw new Error("missing guest");
   const data = await authorizedJSON<{ message: ChatMessage }>(`/api/rooms/${roomID}/chat`, guest.sessionToken, {
     method: "POST",
@@ -2499,7 +2564,7 @@ async function markPresence(
   sessionID: string | undefined,
   status: "ONLINE" | "DISCONNECTED"
 ) {
-  const guest = readGuestSession();
+  const guest = readPlayerSession();
   if (!guest) return;
   await authorizedJSON<{ presence: Presence }>(`/api/rooms/${roomID}/presence`, guest.sessionToken, {
     method: "POST",
@@ -2529,7 +2594,7 @@ async function setReady(
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) {
     onMessage("게스트 세션을 준비하는 중입니다.");
     return;
@@ -2554,7 +2619,7 @@ async function startGame(
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void
 ) {
-  const session = readGuestSession();
+  const session = readPlayerSession();
   if (!session) {
     onMessage("게스트 세션을 준비하는 중입니다.");
     return;
@@ -2614,7 +2679,7 @@ async function sendGameAction(
   onMessage: (message: string) => void,
   payload?: Record<string, unknown>
 ) {
-  const guest = readGuestSession();
+  const guest = readPlayerSession();
   if (!guest || !roomID) return;
 
   try {
@@ -2650,7 +2715,7 @@ async function sendGuessAction(
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void
 ) {
-  const guest = readGuestSession();
+  const guest = readPlayerSession();
   if (!guest || !roomID || !payload.targetPlayerId) return;
 
   try {
@@ -2681,7 +2746,7 @@ async function roomPostAction(
   afterAction: () => void,
   onMessage: (message: string) => void
 ) {
-  const guest = readGuestSession();
+  const guest = readPlayerSession();
   if (!guest || !roomID) return;
 
   const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/${action}`, guest.sessionToken, {
