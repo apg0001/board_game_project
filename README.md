@@ -48,10 +48,14 @@ go run ./cmd/api
 ### Docker Compose
 
 ```bash
-docker compose -f docker-compose.dev.yml up --build
+./start.sh
 ```
 
-이 명령 하나로 Go API와 PWA 웹 클라이언트가 함께 실행됩니다.
+이 명령 하나로 PostgreSQL, Redis, Go API, PWA 웹 클라이언트가 함께 실행됩니다. 종료는 다음 명령을 사용합니다.
+
+```bash
+./stop.sh
+```
 
 ```txt
 api  -> http://localhost:4000
@@ -61,6 +65,22 @@ redis -> localhost:6379
 ```
 
 Docker Compose 실행 시 계정/게스트/전적은 PostgreSQL에 저장되고, 실시간 이벤트 버스는 Redis를 사용합니다. 로컬에서 `go run ./cmd/api`만 실행하면 인메모리 저장소로 동작합니다.
+
+### 직접 실행
+
+Docker 없이 Go API와 Vite 웹 서버만 백그라운드로 실행하려면 다음 명령을 사용합니다.
+
+```bash
+./start-local.sh
+```
+
+직접 실행 모드는 기본적으로 인메모리 저장소를 사용합니다. 종료는 다음 명령을 사용합니다.
+
+```bash
+./stop-local.sh
+```
+
+직접 실행 로그와 PID 파일은 `.run/` 아래에 저장됩니다.
 
 기본 관리자 계정은 개발 서버 시작 시 자동으로 보장됩니다.
 
@@ -76,7 +96,7 @@ ADMIN_NICKNAME=관리자
 export VITE_API_URL="http://192.168.0.21:4000"
 export VITE_WS_URL="ws://192.168.0.21:4000/ws"
 export CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173,http://192.168.0.21:5173"
-docker compose -f docker-compose.dev.yml up --build
+./start.sh
 ```
 
 모바일 브라우저에서는 `http://192.168.0.21:5173`으로 접속합니다.
