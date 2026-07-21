@@ -356,7 +356,7 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 	created, err := h.sessions.Start(found)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, session.ErrRoomNotReady) || errors.Is(err, session.ErrGameNotRegistered) {
+		if errors.Is(err, session.ErrRoomNotReady) || errors.Is(err, session.ErrRoomOverCapacity) || errors.Is(err, session.ErrGameNotRegistered) {
 			status = http.StatusConflict
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})

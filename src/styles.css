@@ -1069,6 +1069,52 @@ button.rummikub-tile {
   background: #17212b;
 }
 
+.hwatu-hand,
+.hwatu-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hwatu-field {
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(23, 33, 43, 0.06);
+}
+
+.hwatu-card {
+  display: grid;
+  min-width: 54px;
+  min-height: 72px;
+  place-items: center;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  border-radius: 10px;
+  padding: 6px;
+  color: #17212b;
+  background: #fff;
+  font-size: 0.8rem;
+  font-weight: 950;
+}
+
+button.hwatu-card {
+  cursor: pointer;
+}
+
+.hwatu-card.bright {
+  color: #8c3f2a;
+  background: #fff5d6;
+}
+
+.hwatu-card.animal {
+  color: #1d6959;
+  background: #e1f5ec;
+}
+
+.hwatu-card.ribbon {
+  color: #c95f42;
+  background: #fff0ed;
+}
+
 .wide-button:disabled {
   cursor: not-allowed;
   opacity: 0.54;

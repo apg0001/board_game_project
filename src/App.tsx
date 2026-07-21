@@ -112,6 +112,28 @@ const games: GameCard[] = [
     difficulty: "보통",
     categories: ["전략", "카드"],
     accent: "#2f8e74"
+  },
+  {
+    id: "sutda",
+    title: "섯다",
+    players: "2-10명",
+    minPlayers: 2,
+    maxPlayers: 10,
+    time: "8분",
+    difficulty: "보통",
+    categories: ["블러핑", "카드"],
+    accent: "#8f3f71"
+  },
+  {
+    id: "gostop",
+    title: "고스톱",
+    players: "2-3명",
+    minPlayers: 2,
+    maxPlayers: 3,
+    time: "20분",
+    difficulty: "보통",
+    categories: ["전략", "카드"],
+    accent: "#b28a22"
   }
 ];
 
@@ -207,6 +229,11 @@ interface DavinciPlayer {
   alive?: boolean;
   drawn?: boolean;
   bangUsed?: boolean;
+  rankName?: string;
+  folded?: boolean;
+  ready?: boolean;
+  captured?: HandCard[];
+  goCount?: number;
   passed?: boolean;
   out?: boolean;
   originalRole?: string;
@@ -220,6 +247,9 @@ interface HandCard {
   id: string;
   rank?: number;
   type?: string;
+  month?: number;
+  gwang?: boolean;
+  kind?: string;
 }
 
 interface RummikubTile {
@@ -263,6 +293,9 @@ interface GameSession {
     table?: RummikubTile[][];
     pool?: RummikubTile[];
     winner?: string;
+    pot?: number;
+    winnerId?: string;
+    field?: HandCard[];
   };
   results?: Array<{
     playerId: string;
@@ -612,6 +645,8 @@ export function App() {
   const rummikubMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
   const bangMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
   const bangTargets = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id && player.alive !== false);
+  const sutdaMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const gostopMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
 
   return (
     <main className="app-shell">
@@ -1281,9 +1316,136 @@ export function App() {
                           턴 종료
                           <ChevronRight size={18} />
                         </button>
-                        {currentSession.state.finished ? (
-                          <p className="helper-copy">승리 진영 {bangWinnerLabel(currentSession.state.winner ?? "")}</p>
-                        ) : null}
+	                        {currentSession.state.finished ? (
+	                          <p className="helper-copy">승리 진영 {bangWinnerLabel(currentSession.state.winner ?? "")}</p>
+	                        ) : null}
+	                      </div>
+                    ) : currentSession.gameId === "sutda" ? (
+                      <div className="room-actions">
+                        <div className="hwatu-hand" aria-label="내 섯다 패">
+                          {(sutdaMe?.hand ?? []).map((card) => (
+                            <span className="hwatu-card" key={card.id}>
+                              {card.month}월{card.gwang ? " 광" : ""}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="werewolf-panel">
+                          <strong>{sutdaMe?.rankName ?? "족보 대기"}</strong>
+                          <span>판돈 {currentSession.state.pot ?? 0}</span>
+                        </div>
+                        <div className="splendor-players">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>{player.folded ? "다이" : player.ready ? "콜" : "대기"}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className="wide-button"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "sutda.call",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn}
+                        >
+                          콜
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button dark"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "sutda.fold",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn}
+                        >
+                          다이
+                          <ChevronRight size={18} />
+                        </button>
+                      </div>
+                    ) : currentSession.gameId === "gostop" ? (
+                      <div className="room-actions">
+                        <div className="hwatu-hand" aria-label="내 고스톱 패">
+                          {(gostopMe?.hand ?? []).map((card) => (
+                            <button
+                              className={`hwatu-card ${card.kind}`}
+                              key={card.id}
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "gostop.play",
+                                  setCurrentSession,
+                                  setRoomMessage,
+                                  { cardId: card.id }
+                                )
+                              }
+                              disabled={!isMyTurn}
+                            >
+                              {card.month}월 {goStopKindLabel(card.kind ?? "")}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="hwatu-field">
+                          {(currentSession.state.field ?? []).map((card) => (
+                            <span className={`hwatu-card ${card.kind}`} key={card.id}>
+                              {card.month}월
+                            </span>
+                          ))}
+                        </div>
+                        <div className="splendor-players">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>
+                                {player.score ?? 0}점 · 획득 {player.captured?.length ?? 0}장 · {player.goCount ?? 0}고
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className="wide-button"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "gostop.go",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn || (gostopMe?.score ?? 0) < 3}
+                        >
+                          고
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button play-now"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "gostop.stop",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn || (gostopMe?.score ?? 0) < 3}
+                        >
+                          스톱
+                          <ChevronRight size={18} />
+                        </button>
                       </div>
                     ) : currentSession.gameId === "werewolf" ? (
                       <div className="room-actions">
@@ -2239,7 +2401,13 @@ async function sendGameAction(
     | "rummikub.draw"
     | "bang.draw"
     | "bang.play"
-    | "bang.end_turn",
+    | "bang.end_turn"
+    | "sutda.call"
+    | "sutda.fold"
+    | "sutda.showdown"
+    | "gostop.play"
+    | "gostop.go"
+    | "gostop.stop",
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void,
   payload?: Record<string, unknown>
@@ -2431,6 +2599,16 @@ function bangWinnerLabel(winner: string) {
     renegade: "배신자"
   };
   return labels[winner] ?? "미정";
+}
+
+function goStopKindLabel(kind: string) {
+  const labels: Record<string, string> = {
+    bright: "광",
+    animal: "열끗",
+    ribbon: "띠",
+    junk: "피"
+  };
+  return labels[kind] ?? kind;
 }
 
 function toggleSelected(values: string[], target: string) {

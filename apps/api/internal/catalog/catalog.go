@@ -63,5 +63,7 @@ func DefaultGames() []Game {
 		{ID: "davinci", Title: "다빈치 코드", MinPlayers: 2, MaxPlayers: 4, RecommendedPlayers: []int{2, 3, 4}, EstimatedMinutes: 15, Difficulty: "쉬움", Categories: []Category{CategoryNumber, CategoryStrategy}},
 		{ID: "halli-galli", Title: "할리갈리", MinPlayers: 2, MaxPlayers: 6, RecommendedPlayers: []int{3, 4, 5}, EstimatedMinutes: 10, Difficulty: "쉬움", Categories: []Category{CategoryReaction, CategoryParty}},
 		{ID: "splendor", Title: "스플랜더", MinPlayers: 2, MaxPlayers: 4, RecommendedPlayers: []int{3, 4}, EstimatedMinutes: 30, Difficulty: "보통", Categories: []Category{CategoryStrategy, CategoryCard}},
+		{ID: "sutda", Title: "섯다", MinPlayers: 2, MaxPlayers: 10, RecommendedPlayers: []int{3, 4, 5}, EstimatedMinutes: 8, Difficulty: "보통", Categories: []Category{CategoryBluffing, CategoryCard}},
+		{ID: "gostop", Title: "고스톱", MinPlayers: 2, MaxPlayers: 3, RecommendedPlayers: []int{3}, EstimatedMinutes: 20, Difficulty: "보통", Categories: []Category{CategoryStrategy, CategoryCard}},
 	}
 }
