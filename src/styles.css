@@ -112,6 +112,22 @@ select:focus-visible {
   box-shadow: var(--shadow-strong);
 }
 
+.hero-panel.compact-hero {
+  min-height: 72px;
+}
+
+.compact-hero .top-bar {
+  padding: 14px 18px;
+}
+
+.compact-hero .brand span {
+  display: none;
+}
+
+.compact-hero .hero-grid {
+  display: none;
+}
+
 .top-bar,
 .hero-grid,
 .flow-home,
@@ -515,7 +531,9 @@ h1 {
 }
 
 .playing-content-grid .games-panel,
-.playing-content-grid .control-panel > .room-card:not(.game-session-card) {
+.playing-content-grid .flow-page-header,
+.playing-content-grid .status-strip,
+.playing-content-grid .control-panel > .room-card:not(.game-session-card):not(.chat-card) {
   display: none;
 }
 
@@ -530,6 +548,55 @@ h1 {
 .game-session-card .section-title {
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(23, 33, 43, 0.08);
+}
+
+.turn-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf7;
+}
+
+.turn-banner span {
+  display: inline-grid;
+  min-height: 30px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #fffdf7;
+  background: #68727e;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.turn-banner.my-turn span {
+  color: #17212b;
+  background: #f4c95d;
+}
+
+.turn-banner strong {
+  overflow: hidden;
+  color: #17212b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-banner small {
+  color: #68727e;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.chat-card {
+  min-height: 0;
+}
+
+.playing-content-grid .chat-card {
+  display: block;
 }
 
 .section-title {
@@ -2079,6 +2146,16 @@ button.hwatu-card {
 
   .game-session-card {
     min-height: calc(100vh - 146px);
+  }
+
+  .turn-banner {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .turn-banner span,
+  .turn-banner small {
+    justify-self: start;
   }
 
   .room-status-grid {

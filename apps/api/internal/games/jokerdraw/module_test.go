@@ -89,6 +89,27 @@ func TestDrawRemovesPairAndFinishes(t *testing.T) {
 	}
 }
 
+func TestValidateDrawRequiresNextActiveTarget(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "A-1", Rank: "A"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "K-1", Rank: "K"}}, Active: true},
+			{PlayerID: "p3", Hand: []Card{{ID: "joker", Rank: "joker", Joker: true}}, Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+		Payload:  map[string]any{"targetPlayerId": "p3", "cardIndex": 0},
+	}, testContextWithPlayers("p1", "p2", "p3"))
+	if err == nil {
+		t.Fatal("expected non-next target to be rejected")
+	}
+}
+
 func TestTimeoutSetsTimedOutLoser(t *testing.T) {
 	module := NewModule()
 	state := State{
@@ -110,12 +131,17 @@ func TestTimeoutSetsTimedOutLoser(t *testing.T) {
 }
 
 func testContext() gamecore.Context {
+	return testContextWithPlayers("p1", "p2")
+}
+
+func testContextWithPlayers(ids ...string) gamecore.Context {
+	players := make([]gamecore.Player, 0, len(ids))
+	for index, id := range ids {
+		players = append(players, gamecore.Player{ID: gamecore.PlayerID(id), SeatIndex: index, DisplayName: id, Connected: true})
+	}
 	return gamecore.Context{
-		GameID: "jokerdraw",
-		Players: []gamecore.Player{
-			{ID: "p1", SeatIndex: 0, DisplayName: "P1", Connected: true},
-			{ID: "p2", SeatIndex: 1, DisplayName: "P2", Connected: true},
-		},
+		GameID:     "jokerdraw",
+		Players:    players,
 		Now:        time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC),
 		RandomSeed: "seed",
 	}
