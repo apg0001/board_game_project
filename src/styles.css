@@ -931,6 +931,45 @@ button.davinci-tile {
   gap: 8px;
 }
 
+.dalmuti-status,
+.dalmuti-group {
+  display: grid;
+  gap: 6px;
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(23, 33, 43, 0.06);
+}
+
+.dalmuti-status span,
+.dalmuti-group span {
+  color: #68727e;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.dalmuti-hand {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.dalmuti-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dalmuti-counts button {
+  min-width: 34px;
+  min-height: 34px;
+  border: 1px solid rgba(23, 33, 43, 0.14);
+  border-radius: 10px;
+  color: #17212b;
+  background: #fff;
+  font-weight: 950;
+  cursor: pointer;
+}
+
 .wide-button:disabled {
   cursor: not-allowed;
   opacity: 0.54;

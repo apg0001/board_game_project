@@ -186,7 +186,7 @@ interface DavinciTile {
 
 interface DavinciPlayer {
   playerId: string;
-  tiles: DavinciTile[];
+  tiles?: DavinciTile[];
   deck?: unknown[];
   faceUp?: Array<{
     fruit: string;
@@ -196,7 +196,16 @@ interface DavinciPlayer {
   tokens?: Record<string, number>;
   bonuses?: Record<string, number>;
   cards?: SplendorCard[];
+  hand?: DalmutiCard[];
+  handSize?: number;
+  passed?: boolean;
+  out?: boolean;
   active: boolean;
+}
+
+interface DalmutiCard {
+  id: string;
+  rank: number;
 }
 
 interface SplendorCard {
@@ -220,6 +229,12 @@ interface GameSession {
     players?: DavinciPlayer[];
     bank?: Record<string, number>;
     market?: SplendorCard[];
+    currentTrick?: {
+      rank?: number;
+      count?: number;
+      playerId?: string;
+    };
+    finishOrder?: string[];
   };
   results?: Array<{
     playerId: string;
@@ -561,6 +576,8 @@ export function App() {
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
   const splendorColors = ["white", "blue", "green", "red", "black"];
   const splendorMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const dalmutiMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const dalmutiGroups = groupDalmutiHand(dalmutiMe?.hand ?? []);
 
   return (
     <main className="app-shell">
@@ -1018,6 +1035,75 @@ export function App() {
                           내 보석 {formatCost(splendorMe?.tokens ?? {})} · 보너스 {formatCost(splendorMe?.bonuses ?? {})}
                         </p>
                       </div>
+                    ) : currentSession.gameId === "dalmuti" ? (
+                      <div className="room-actions">
+                        <div className="dalmuti-status">
+                          <strong>
+                            현재 트릭{" "}
+                            {currentSession.state.currentTrick?.count
+                              ? `${dalmutiRankLabel(currentSession.state.currentTrick.rank ?? 0)} ${currentSession.state.currentTrick.count}장`
+                              : "리드 대기"}
+                          </strong>
+                          <span>
+                            리더 {participantName(currentRoom, currentSession.state.currentTrick?.playerId ?? "")}
+                          </span>
+                        </div>
+                        <div className="dalmuti-hand" aria-label="내 카드">
+                          {dalmutiGroups.map((group) => (
+                            <div className="dalmuti-group" key={group.rank}>
+                              <strong>{dalmutiRankLabel(group.rank)}</strong>
+                              <span>{group.count}장</span>
+                              <div className="dalmuti-counts">
+                                {Array.from({ length: group.count }, (_, index) => index + 1).map((count) => (
+                                  <button
+                                    key={`${group.rank}-${count}`}
+                                    onClick={() =>
+                                      sendGameAction(
+                                        currentSession.id,
+                                        currentRoom?.id,
+                                        "dalmuti.play",
+                                        setCurrentSession,
+                                        setRoomMessage,
+                                        { rank: group.rank, count }
+                                      )
+                                    }
+                                    disabled={!isMyTurn}
+                                  >
+                                    {count}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="splendor-players">
+                          {davinciPlayers.map((player) => (
+                            <div className="halli-player" key={player.playerId}>
+                              <strong>{participantName(currentRoom, player.playerId)}</strong>
+                              <span>
+                                손패 {player.handSize ?? player.hand?.length ?? 0}장 ·{" "}
+                                {player.out ? "아웃" : player.passed ? "패스" : "진행 중"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className="wide-button dark"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "dalmuti.pass",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn || !currentSession.state.currentTrick?.count}
+                        >
+                          패스
+                          <ChevronRight size={18} />
+                        </button>
+                      </div>
                     ) : (
                       <>
                     <div className="tile-board" aria-label="내 타일">
@@ -1036,7 +1122,7 @@ export function App() {
                         <div className="opponent-row" key={player.playerId}>
                           <strong>{participantName(currentRoom, player.playerId)}</strong>
                           <div className="tile-row">
-                            {player.tiles.map((tile, index) => (
+                            {(player.tiles ?? []).map((tile, index) => (
                               <button
                                 className={`davinci-tile ${tile.color} ${
                                   targetPlayer?.playerId === player.playerId && guessTileIndex === index ? "selected" : ""
@@ -1792,7 +1878,9 @@ async function sendGameAction(
     | "halli-galli.flip"
     | "halli-galli.ring"
     | "splendor.take_token"
-    | "splendor.buy_card",
+    | "splendor.buy_card"
+    | "dalmuti.play"
+    | "dalmuti.pass",
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void,
   payload?: Record<string, unknown>
@@ -1918,6 +2006,20 @@ function formatCost(cost: Record<string, number>) {
     .filter(([, value]) => value > 0)
     .map(([color, value]) => `${gemLabel(color)} ${value}`);
   return parts.length > 0 ? parts.join(" · ") : "없음";
+}
+
+function groupDalmutiHand(hand: DalmutiCard[]) {
+  const counts = new Map<number, number>();
+  hand.forEach((card) => counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1));
+  return Array.from(counts.entries())
+    .map(([rank, count]) => ({ rank, count }))
+    .sort((left, right) => left.rank - right.rank);
+}
+
+function dalmutiRankLabel(rank: number) {
+  if (rank === 1) return "1 달무티";
+  if (rank === 13) return "광대";
+  return `${rank} 계급`;
 }
 
 async function authorizedJSON<T>(
