@@ -196,6 +196,82 @@ func TestStartGameAndApplyAction(t *testing.T) {
 	}
 }
 
+func TestStartGameWithSelectedPlayersLeavesOverflowAsSpectators(t *testing.T) {
+	handler := testRouter()
+	tokens := []string{
+		createGuestToken(t, handler),
+		createGuestToken(t, handler),
+		createGuestToken(t, handler),
+		createGuestToken(t, handler),
+	}
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"gameId":"gostop","maxPlayers":12}`))
+	createRequest.Header.Set("Authorization", "Bearer "+tokens[0])
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createResponse.Code)
+	}
+
+	var createBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&createBody); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range tokens[1:] {
+		joinRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/join", bytes.NewBufferString(`{"code":"`+createBody.Room.Code+`"}`))
+		joinRequest.Header.Set("Authorization", "Bearer "+token)
+		joinResponse := httptest.NewRecorder()
+		handler.ServeHTTP(joinResponse, joinRequest)
+		if joinResponse.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", joinResponse.Code)
+		}
+	}
+	for _, token := range tokens[:3] {
+		setReadyForTest(t, handler, createBody.Room.ID, token)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/rooms/"+createBody.Room.ID, nil)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	var getBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(getResponse.Body).Decode(&getBody); err != nil {
+		t.Fatal(err)
+	}
+	selected := []string{
+		getBody.Room.Participants[0].User.ID,
+		getBody.Room.Participants[1].User.ID,
+		getBody.Room.Participants[2].User.ID,
+	}
+	startBody, err := json.Marshal(map[string]any{"playerIds": selected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createBody.Room.ID+"/start", bytes.NewReader(startBody))
+	startRequest.Header.Set("Authorization", "Bearer "+tokens[0])
+	startResponse := httptest.NewRecorder()
+	handler.ServeHTTP(startResponse, startRequest)
+	if startResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", startResponse.Code)
+	}
+	var body struct {
+		Room    room.Room       `json:"room"`
+		Session session.Session `json:"session"`
+	}
+	if err := json.NewDecoder(startResponse.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Room.Participants) != 4 || len(body.Room.PlayingPlayerIDs) != 3 {
+		t.Fatalf("expected four lobby participants and three playing ids, got %+v", body.Room)
+	}
+	if len(body.Session.Results) != 0 || body.Session.GameID != "gostop" {
+		t.Fatalf("unexpected session: %+v", body.Session)
+	}
+}
+
 func TestReturnLobbyAndLeaveRoom(t *testing.T) {
 	handler := testRouter()
 	hostToken := createGuestToken(t, handler)

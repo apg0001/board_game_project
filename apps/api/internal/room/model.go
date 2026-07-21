@@ -33,18 +33,19 @@ type Options struct {
 }
 
 type Room struct {
-	ID              string        `json:"id"`
-	Code            string        `json:"code"`
-	GameID          string        `json:"gameId"`
-	Status          Status        `json:"status"`
-	ActiveSessionID string        `json:"activeSessionId,omitempty"`
-	MaxPlayers      int           `json:"maxPlayers"`
-	HostUserID      string        `json:"hostUserId"`
-	Participants    []Participant `json:"participants"`
-	Spectators      []Spectator   `json:"spectators"`
-	Options         Options       `json:"options"`
-	CreatedAt       time.Time     `json:"createdAt"`
-	UpdatedAt       time.Time     `json:"updatedAt"`
+	ID               string        `json:"id"`
+	Code             string        `json:"code"`
+	GameID           string        `json:"gameId"`
+	Status           Status        `json:"status"`
+	ActiveSessionID  string        `json:"activeSessionId,omitempty"`
+	PlayingPlayerIDs []string      `json:"playingPlayerIds,omitempty"`
+	MaxPlayers       int           `json:"maxPlayers"`
+	HostUserID       string        `json:"hostUserId"`
+	Participants     []Participant `json:"participants"`
+	Spectators       []Spectator   `json:"spectators"`
+	Options          Options       `json:"options"`
+	CreatedAt        time.Time     `json:"createdAt"`
+	UpdatedAt        time.Time     `json:"updatedAt"`
 }
 
 func (r Room) IsFull() bool {

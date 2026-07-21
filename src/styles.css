@@ -542,6 +542,61 @@ h1 {
   font-weight: 850;
 }
 
+.player-selection-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(23, 33, 43, 0.1);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(23, 33, 43, 0.04);
+}
+
+.player-selection-panel > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  color: #17212b;
+  font-size: 0.82rem;
+}
+
+.player-selection-panel span {
+  color: #68727e;
+  font-weight: 850;
+}
+
+.player-selection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 6px;
+}
+
+.player-select-chip {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-height: 42px;
+  border: 1px solid rgba(23, 33, 43, 0.1);
+  border-radius: 10px;
+  padding: 7px;
+  background: #fffdf7;
+}
+
+.player-select-chip span,
+.player-select-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-select-chip small {
+  grid-column: 2;
+  color: #68727e;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
 .selected-game-strip {
   display: flex;
   align-items: center;
