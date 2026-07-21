@@ -871,7 +871,7 @@ export function App() {
                 }
               }}
             >
-              {playerNickname ? playerNickname.slice(-2) : "G"}
+              {nicknameInitial(playerNickname, "G")}
             </button>
           </div>
         </nav>
@@ -998,9 +998,9 @@ export function App() {
               {currentRoom ? (
                 partyMembers.map((participant) => (
                   <div className="party-member" key={participant.user.id}>
-                    <span>{participant.user.nickname.slice(0, 1)}</span>
+                    <span>{nicknameInitial(participant.user.nickname, "U")}</span>
                     <div>
-                      <strong>{participant.user.nickname}</strong>
+                      <strong>{safeNickname(participant.user.nickname, "플레이어")}</strong>
                       <small>
                         {participant.host ? "방장" : participant.ready ? "준비 완료" : "대기 중"}
                         {" · "}
@@ -2690,7 +2690,15 @@ function readAuthSession(): AuthSession | null {
       localStorage.removeItem(authStorageKey);
       return null;
     }
-    return parsed as AuthSession;
+    return {
+      sessionToken: parsed.sessionToken,
+      user: {
+        id: parsed.user.id,
+        username: parsed.user.username,
+        nickname: safeNickname(parsed.user.nickname, parsed.user.username),
+        role: parsed.user.role === "ADMIN" ? "ADMIN" : "USER"
+      }
+    };
   } catch {
     localStorage.removeItem(authStorageKey);
     return null;
@@ -2698,7 +2706,7 @@ function readAuthSession(): AuthSession | null {
 }
 
 function saveAuthSession(session: AuthSession) {
-  localStorage.setItem(authStorageKey, JSON.stringify(session));
+  localStorage.setItem(authStorageKey, JSON.stringify(normalizeAuthSession(session)));
 }
 
 function isStoredPlayerSession(value: Partial<GuestSession> | Partial<AuthSession>): value is GuestSession {
@@ -2723,12 +2731,30 @@ function readPlayerSession(): GuestSession | null {
   return readGuestSession();
 }
 
+function normalizeAuthSession(session: AuthSession): AuthSession {
+  return {
+    sessionToken: session.sessionToken,
+    user: {
+      id: session.user.id,
+      username: session.user.username,
+      nickname: safeNickname(session.user.nickname, session.user.username),
+      role: session.user.role === "ADMIN" ? "ADMIN" : "USER"
+    }
+  };
+}
+
 function normalizeRoom(room: Room): Room {
   return {
     ...room,
     visibility: room.visibility ?? "PRIVATE",
-    participants: room.participants ?? [],
-    spectators: room.spectators ?? [],
+    participants: (room.participants ?? []).map((participant, index) => ({
+      ...participant,
+      user: normalizeUserRef(participant.user, `Player_${index + 1}`)
+    })),
+    spectators: (room.spectators ?? []).map((spectator, index) => ({
+      ...spectator,
+      user: normalizeUserRef(spectator.user, `Spectator_${index + 1}`)
+    })),
     playingPlayerIds: room.playingPlayerIds ?? [],
     options: {
       turnSeconds: room.options?.turnSeconds ?? 60,
@@ -2737,6 +2763,21 @@ function normalizeRoom(room: Room): Room {
       allowSpectators: room.options?.allowSpectators ?? true
     }
   };
+}
+
+function normalizeUserRef(user: { id: string; nickname: string } | null | undefined, fallback: string) {
+  return {
+    id: typeof user?.id === "string" && user.id.length > 0 ? user.id : fallback,
+    nickname: safeNickname(user?.nickname, fallback)
+  };
+}
+
+function safeNickname(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function nicknameInitial(value: unknown, fallback: string) {
+  return safeNickname(value, fallback).slice(0, 2);
 }
 
 async function createGuest(apiURL: string): Promise<GuestSession> {
@@ -2756,7 +2797,7 @@ async function register(username: string, password: string, nickname: string): P
     body: JSON.stringify({ username, password, nickname })
   });
   if (!response.ok) throw new Error("register failed");
-  const session = (await response.json()) as AuthSession;
+  const session = normalizeAuthSession((await response.json()) as AuthSession);
   saveAuthSession(session);
   return session;
 }
@@ -2769,7 +2810,7 @@ async function login(username: string, password: string): Promise<AuthSession> {
     body: JSON.stringify({ username, password })
   });
   if (!response.ok) throw new Error("login failed");
-  const session = (await response.json()) as AuthSession;
+  const session = normalizeAuthSession((await response.json()) as AuthSession);
   saveAuthSession(session);
   return session;
 }
