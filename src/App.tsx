@@ -212,6 +212,7 @@ interface AuthSession {
     id: string;
     username: string;
     nickname: string;
+    role: "USER" | "ADMIN";
   };
 }
 
@@ -520,7 +521,14 @@ export function App() {
       })
       .then((data) => {
         setAuthSession((current) => {
-          if (!current || current.user.id === data.user.id) return current;
+          if (
+            !current ||
+            (current.user.id === data.user.id &&
+              current.user.nickname === data.user.nickname &&
+              current.user.role === data.user.role)
+          ) {
+            return current;
+          }
           const refreshed = { ...current, user: data.user };
           saveAuthSession(refreshed);
           return refreshed;
@@ -2286,6 +2294,9 @@ export function App() {
               <div>
                 <span>계정</span>
                 <h2>{authSession ? authSession.user.nickname : "게스트 플레이 중"}</h2>
+                {authSession ? (
+                  <small className="status-badge">{authSession.user.role === "ADMIN" ? "ADMIN" : "USER"}</small>
+                ) : null}
               </div>
               <Crown size={22} />
             </div>

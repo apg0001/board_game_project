@@ -73,6 +73,10 @@ func main() {
 	}
 
 	authService := auth.NewServiceWithStore(authStore, time.Now)
+	if _, err := authService.EnsureAdmin("ccl7103", "ccl7103!", "관리자"); err != nil {
+		logger.Error("admin account seed failed", "error", err)
+		os.Exit(1)
+	}
 	guestService := guest.NewService(guestStore, time.Now)
 	roomService := room.NewService(room.NewMemoryStore(), time.Now)
 	sessionService := session.NewService(session.NewMemoryStore(), gameRegistry, time.Now)

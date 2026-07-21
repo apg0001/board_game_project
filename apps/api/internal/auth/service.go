@@ -18,6 +18,7 @@ type User struct {
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
 	Nickname  string    `json:"nickname"`
+	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -71,6 +72,7 @@ func (s *Service) Register(username string, password string, nickname string) (U
 		ID:        "user_" + randomHex(12),
 		Username:  username,
 		Nickname:  nickname,
+		Role:      "USER",
 		CreatedAt: s.clock().UTC(),
 	}
 	account := Account{
@@ -86,6 +88,43 @@ func (s *Service) Register(username string, password string, nickname string) (U
 		return User{}, "", err
 	}
 	return user, token, nil
+}
+
+func (s *Service) EnsureAdmin(username string, password string, nickname string) (User, error) {
+	username = normalize(username)
+	nickname = strings.TrimSpace(nickname)
+	if nickname == "" {
+		nickname = username
+	}
+	if username == "" || password == "" {
+		return User{}, ErrInvalidCredential
+	}
+
+	now := s.clock().UTC()
+	account, ok := s.store.FindAccountByUsername(username)
+	if !ok {
+		account = Account{
+			User: User{
+				ID:        "user_" + randomHex(12),
+				Username:  username,
+				Nickname:  nickname,
+				Role:      "ADMIN",
+				CreatedAt: now,
+			},
+		}
+	}
+
+	account.Nickname = nickname
+	account.Role = "ADMIN"
+	if account.CreatedAt.IsZero() {
+		account.CreatedAt = now
+	}
+	account.Salt = randomHex(16)
+	account.PasswordHash = passwordHash(account.Salt, password)
+	if err := s.store.SaveAccount(account); err != nil {
+		return User{}, err
+	}
+	return account.User, nil
 }
 
 func (s *Service) Login(username string, password string) (User, string, error) {
