@@ -155,15 +155,20 @@ func (h Handler) createRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		GameID     string `json:"gameId"`
-		MaxPlayers int    `json:"maxPlayers"`
+		GameID     string          `json:"gameId"`
+		MaxPlayers int             `json:"maxPlayers"`
+		Visibility room.Visibility `json:"visibility"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && r.ContentLength != 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid room payload"})
 		return
 	}
 
-	created, err := h.rooms.Create(user.Public(), body.GameID, body.MaxPlayers)
+	created, err := h.rooms.CreateWithOptions(user.Public(), room.CreateOptions{
+		GameID:     body.GameID,
+		MaxPlayers: body.MaxPlayers,
+		Visibility: body.Visibility,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create room"})
 		return
@@ -171,6 +176,19 @@ func (h Handler) createRoom(w http.ResponseWriter, r *http.Request) {
 
 	h.publishRoomUpdated(created)
 	writeJSON(w, http.StatusCreated, map[string]any{"room": created})
+}
+
+func (h Handler) listRooms(w http.ResponseWriter, r *http.Request) {
+	visibility := room.Visibility(strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("visibility"))))
+	if visibility != room.VisibilityPrivate && visibility != room.VisibilityPublic {
+		visibility = room.VisibilityPublic
+	}
+	filter := room.ListFilter{
+		GameID:     strings.TrimSpace(r.URL.Query().Get("gameId")),
+		Visibility: visibility,
+	}
+	rooms := h.rooms.List(filter)
+	writeJSON(w, http.StatusOK, map[string]any{"rooms": rooms})
 }
 
 func (h Handler) joinRoom(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +211,30 @@ func (h Handler) joinRoom(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, room.ErrRoomNotFound) {
 			status = http.StatusNotFound
 		}
-		if errors.Is(err, room.ErrRoomFull) || errors.Is(err, room.ErrRoomNotJoinable) {
+		if errors.Is(err, room.ErrRoomFull) || errors.Is(err, room.ErrRoomNotJoinable) || errors.Is(err, room.ErrSpectatorClosed) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+
+	h.publishRoomUpdated(joined)
+	writeJSON(w, http.StatusOK, map[string]any{"room": joined})
+}
+
+func (h Handler) joinPublicRoom(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+
+	joined, err := h.rooms.JoinPublicRoom(r.PathValue("roomID"), user.Public())
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, room.ErrRoomNotFound) {
+			status = http.StatusNotFound
+		}
+		if errors.Is(err, room.ErrRoomFull) || errors.Is(err, room.ErrRoomNotJoinable) || errors.Is(err, room.ErrSpectatorClosed) {
 			status = http.StatusConflict
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
@@ -288,6 +329,7 @@ func (h Handler) updateRoomOptions(w http.ResponseWriter, r *http.Request) {
 		MaxWaitSeconds  *int  `json:"maxWaitSeconds"`
 		AutoStart       *bool `json:"autoStart"`
 		AllowSpectators *bool `json:"allowSpectators"`
+		MaxPlayers      *int  `json:"maxPlayers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid options payload"})
@@ -308,7 +350,15 @@ func (h Handler) updateRoomOptions(w http.ResponseWriter, r *http.Request) {
 		nextOptions.AllowSpectators = *body.AllowSpectators
 	}
 
-	updated, err := h.rooms.UpdateOptions(found.ID, nextOptions)
+	maxPlayers := found.MaxPlayers
+	if body.MaxPlayers != nil {
+		maxPlayers = *body.MaxPlayers
+	}
+
+	updated, err := h.rooms.UpdateRoomSettings(found.ID, room.UpdateOptionsRequest{
+		Options:    nextOptions,
+		MaxPlayers: maxPlayers,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update options"})
 		return

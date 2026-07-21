@@ -27,6 +27,29 @@ func TestCreateRoom(t *testing.T) {
 	if room.Spectators == nil {
 		t.Fatal("expected empty spectator list")
 	}
+	if room.Visibility != VisibilityPrivate {
+		t.Fatalf("expected private room by default, got %s", room.Visibility)
+	}
+}
+
+func TestCreatePublicRoomAndList(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	publicRoom, err := service.CreateWithOptions(testUser("u1", "Guest_1001"), CreateOptions{
+		GameID:     "davinci",
+		MaxPlayers: 4,
+		Visibility: VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Create(testUser("u2", "Guest_1002"), "splendor", 4); err != nil {
+		t.Fatal(err)
+	}
+
+	rooms := service.List(ListFilter{Visibility: VisibilityPublic})
+	if len(rooms) != 1 || rooms[0].ID != publicRoom.ID {
+		t.Fatalf("expected one public room, got %+v", rooms)
+	}
 }
 
 func TestJoinByCode(t *testing.T) {
@@ -49,16 +72,39 @@ func TestJoinByCode(t *testing.T) {
 	}
 }
 
-func TestJoinByCodeRejectsFullRoom(t *testing.T) {
+func TestJoinPublicRoomByCode(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.CreateWithOptions(testUser("u1", "Guest_1001"), CreateOptions{
+		GameID:     "davinci",
+		MaxPlayers: 4,
+		Visibility: VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	joined, err := service.JoinByCode(created.Code, testUser("u2", "Guest_1002"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(joined.Participants) != 2 {
+		t.Fatalf("expected code join for public room, got %+v", joined.Participants)
+	}
+}
+
+func TestJoinByCodeSpectatesFullRoom(t *testing.T) {
 	service := NewService(NewMemoryStore(), fixedClock())
 	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = service.JoinByCode(created.Code, testUser("u2", "Guest_1002"))
-	if err != ErrRoomFull {
-		t.Fatalf("expected ErrRoomFull, got %v", err)
+	joined, err := service.JoinByCode(created.Code, testUser("u2", "Guest_1002"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(joined.Spectators) != 1 {
+		t.Fatalf("expected full room code join to become spectator, got %+v", joined.Spectators)
 	}
 }
 
@@ -211,6 +257,29 @@ func TestUpdateOptionsClampsTurnSeconds(t *testing.T) {
 	}
 	if updated.Options.AllowSpectators {
 		t.Fatal("expected spectator option to be disabled")
+	}
+}
+
+func TestUpdateRoomSettingsClampsMaxPlayers(t *testing.T) {
+	service := NewService(NewMemoryStore(), fixedClock())
+	created, err := service.Create(testUser("u1", "Guest_1001"), "davinci", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := service.JoinByCode(created.Code, testUser("u2", "Guest_1002"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.UpdateRoomSettings(joined.ID, UpdateOptionsRequest{
+		Options:    joined.Options,
+		MaxPlayers: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.MaxPlayers != 2 {
+		t.Fatalf("expected max players clamped to participant count, got %d", updated.MaxPlayers)
 	}
 }
 

@@ -7,12 +7,18 @@ import (
 )
 
 type Status string
+type Visibility string
 
 const (
 	StatusLobby    Status = "LOBBY"
 	StatusPlaying  Status = "PLAYING"
 	StatusFinished Status = "FINISHED"
 	StatusClosed   Status = "CLOSED"
+)
+
+const (
+	VisibilityPrivate Visibility = "PRIVATE"
+	VisibilityPublic  Visibility = "PUBLIC"
 )
 
 type Participant struct {
@@ -39,6 +45,7 @@ type Room struct {
 	ID               string        `json:"id"`
 	Code             string        `json:"code"`
 	GameID           string        `json:"gameId"`
+	Visibility       Visibility    `json:"visibility"`
 	Status           Status        `json:"status"`
 	ActiveSessionID  string        `json:"activeSessionId,omitempty"`
 	PlayingPlayerIDs []string      `json:"playingPlayerIds,omitempty"`

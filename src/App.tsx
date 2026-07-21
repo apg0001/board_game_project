@@ -236,6 +236,7 @@ interface Room {
   id: string;
   code: string;
   gameId: string;
+  visibility: "PRIVATE" | "PUBLIC";
   status: "LOBBY" | "PLAYING" | "FINISHED" | "CLOSED";
   activeSessionId?: string;
   playingPlayerIds?: string[];
@@ -251,6 +252,9 @@ interface Room {
 }
 
 type RoomOptions = Room["options"];
+type RoomSettings = RoomOptions & {
+  maxPlayers: number;
+};
 
 interface DavinciTile {
   color: "black" | "white" | "hidden";
@@ -416,7 +420,7 @@ interface TutorialGuide {
   }>;
 }
 
-type LobbyFlow = "home" | "friend-room" | "quick-match" | "game-rooms" | "room";
+type LobbyFlow = "home" | "private-room" | "public-room" | "quick-match" | "game-rooms" | "room";
 
 const guestStorageKey = "board-table.guest-session";
 const authStorageKey = "board-table.auth-session";
@@ -441,11 +445,13 @@ export function App() {
   const [chatInput, setChatInput] = useState("");
   const [presenceByUser, setPresenceByUser] = useState<Record<string, Presence>>({});
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
+  const [publicRooms, setPublicRooms] = useState<Room[]>([]);
   const [selectedGameId, setSelectedGameId] = useState("davinci");
   const [tutorialGuide, setTutorialGuide] = useState<TutorialGuide | null>(null);
   const [gameSearch, setGameSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("전체");
   const [turnSeconds, setTurnSeconds] = useState(60);
+  const [roomMaxPlayers, setRoomMaxPlayers] = useState(4);
   const [maxWaitSeconds, setMaxWaitSeconds] = useState(180);
   const [autoStart, setAutoStart] = useState(false);
   const [allowSpectators, setAllowSpectators] = useState(true);
@@ -657,6 +663,18 @@ export function App() {
   }, [currentSession?.status, selectedGameId]);
 
   useEffect(() => {
+    if (currentRoom || (lobbyFlow !== "public-room" && lobbyFlow !== "game-rooms")) return;
+
+    const gameID = lobbyFlow === "game-rooms" ? selectedGameId : "";
+    fetchPublicRooms(gameID).then(setPublicRooms).catch(() => setPublicRooms([]));
+    const timer = window.setInterval(() => {
+      fetchPublicRooms(gameID).then(setPublicRooms).catch(() => undefined);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [currentRoom, lobbyFlow, selectedGameId]);
+
+  useEffect(() => {
     if (currentRoom) {
       setLobbyFlow("room");
     } else if (lobbyFlow === "room") {
@@ -668,6 +686,7 @@ export function App() {
     if (!currentRoom) return;
 
     setTurnSeconds(currentRoom.options?.turnSeconds ?? 60);
+    setRoomMaxPlayers(currentRoom.maxPlayers ?? 4);
     setMaxWaitSeconds(currentRoom.options?.maxWaitSeconds ?? 180);
     setAutoStart(currentRoom.options?.autoStart ?? false);
     setAllowSpectators(currentRoom.options?.allowSpectators ?? true);
@@ -776,16 +795,20 @@ export function App() {
   const canStartGame = Boolean(currentRoom && amHost && selectedReady && selectedCountValid && currentRoom.status === "LOBBY");
   const showHomeFlow = !currentRoom && lobbyFlow === "home";
   const flowTitle =
-    lobbyFlow === "friend-room"
-      ? "친구 방 만들기"
+    lobbyFlow === "private-room"
+      ? "프라이빗 방 만들기"
+      : lobbyFlow === "public-room"
+        ? "공개 방 만들기"
       : lobbyFlow === "quick-match"
         ? "랜덤 방 입장"
         : lobbyFlow === "game-rooms"
           ? "게임별 방 입장"
           : "방 로비";
   const flowDescription =
-    lobbyFlow === "friend-room"
-      ? "게임을 고른 뒤 초대 방을 만들고 친구에게 코드를 공유하세요."
+    lobbyFlow === "private-room"
+      ? "게임을 고른 뒤 비공개 입장 코드를 친구에게 공유하세요."
+      : lobbyFlow === "public-room"
+        ? "누구나 목록에서 보고 들어올 수 있는 공개 방을 만들거나 입장 코드를 공유하세요."
       : lobbyFlow === "quick-match"
         ? "원하는 게임을 고르면 같은 게임을 기다리는 플레이어와 바로 매칭됩니다."
         : lobbyFlow === "game-rooms"
@@ -853,13 +876,13 @@ export function App() {
               초대 방, 랜덤 매칭, 게임별 입장을 분리해 모바일에서도 헷갈리지 않는 흐름으로 플레이합니다.
             </p>
             <div className="hero-actions">
-              <button className="primary-button" onClick={() => setLobbyFlow("friend-room")}>
+              <button className="primary-button" onClick={() => setLobbyFlow("private-room")}>
                 <Plus size={18} />
-                친구 방
+                프라이빗
               </button>
-              <button className="secondary-button" onClick={() => setLobbyFlow("quick-match")}>
-                <Play size={18} />
-                랜덤 방
+              <button className="secondary-button" onClick={() => setLobbyFlow("public-room")}>
+                <UsersRound size={18} />
+                공개 방
               </button>
               <button className="secondary-button" onClick={() => setLobbyFlow("game-rooms")}>
                 <Search size={18} />
@@ -889,20 +912,20 @@ export function App() {
 
       {showHomeFlow ? (
         <section className="flow-home" aria-label="플레이 방식 선택">
-          <button className="flow-card primary-flow" onClick={() => setLobbyFlow("friend-room")}>
+          <button className="flow-card primary-flow" onClick={() => setLobbyFlow("private-room")}>
             <span>
               <Plus size={22} />
             </span>
-            <strong>방을 만들고 친구들이랑 게임</strong>
-            <small>게임을 고르고 초대 코드를 공유해서 같은 방 로비에 모입니다.</small>
+            <strong>프라이빗 방 만들기</strong>
+            <small>친구들과 코드로 들어오는 비공개 방을 만듭니다.</small>
             <ChevronRight size={20} />
           </button>
-          <button className="flow-card" onClick={() => setLobbyFlow("quick-match")}>
+          <button className="flow-card" onClick={() => setLobbyFlow("public-room")}>
             <span>
-              <Play size={22} />
+              <UsersRound size={22} />
             </span>
-            <strong>랜덤 방에 들어가기</strong>
-            <small>선택한 게임 기준으로 기다리는 플레이어와 빠르게 매칭됩니다.</small>
+            <strong>공개 방 만들기</strong>
+            <small>목록에 노출되는 방을 만들거나 공개 방에 직접 들어갑니다.</small>
             <ChevronRight size={20} />
           </button>
           <button className="flow-card" onClick={() => setLobbyFlow("game-rooms")}>
@@ -911,6 +934,14 @@ export function App() {
             </span>
             <strong>특정 게임 방만 들어가기</strong>
             <small>게임 목록에서 하나를 고른 뒤 해당 게임 매칭으로 입장합니다.</small>
+            <ChevronRight size={20} />
+          </button>
+          <button className="flow-card" onClick={() => setLobbyFlow("quick-match")}>
+            <span>
+              <Play size={22} />
+            </span>
+            <strong>퀵매칭으로 랜덤 방</strong>
+            <small>방을 고르지 않고 선택한 게임의 대기열로 바로 들어갑니다.</small>
             <ChevronRight size={20} />
           </button>
         </section>
@@ -1008,9 +1039,11 @@ export function App() {
           <div className="room-card room-setup-card">
             <div className="section-title">
               <div>
-                <span>방 코드</span>
+                <span>{currentRoom?.visibility === "PUBLIC" ? "공개 방 입장 코드" : "프라이빗 방 입장 코드"}</span>
                 <h2>{currentRoom?.code ?? "없음"}</h2>
-                <small className="status-badge">{currentRoom?.status ?? "HOME"}</small>
+                <small className="status-badge">
+                  {currentRoom ? `${currentRoom.visibility} · ${currentRoom.status}` : "HOME"}
+                </small>
               </div>
               <LockKeyhole size={22} />
             </div>
@@ -1019,16 +1052,39 @@ export function App() {
                 <span>선택 게임</span>
                 <strong>{selectedGame.title}</strong>
                 <small>
-                  게임 {selectedGame.players} · 초대 로비 최대 12명
+                  게임 {selectedGame.players} · 방 최대 {currentRoom?.maxPlayers ?? roomMaxPlayers}명
                 </small>
               </div>
               <p className="room-helper">
                 게임 최대 인원을 넘으면 방장이 이번 판 플레이어를 고르고 나머지는 같은 방에서 관전합니다.
               </p>
-              {!currentRoom && lobbyFlow === "friend-room" ? (
+              {!currentRoom && (lobbyFlow === "private-room" || lobbyFlow === "public-room") ? (
                 <>
-                  <button className="wide-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
-                    {selectedGame.title} 방 만들기
+                  <label className="option-grid solo-option">
+                    <span>
+                      방 최대 인원
+                      <input
+                        type="number"
+                        min={selectedGame.minPlayers}
+                        max="12"
+                        value={roomMaxPlayers}
+                        onChange={(event) => setRoomMaxPlayers(Number(event.target.value))}
+                      />
+                    </span>
+                  </label>
+                  <button
+                    className="wide-button"
+                    onClick={() =>
+                      createRoom(
+                        selectedGameId,
+                        lobbyFlow === "public-room" ? "PUBLIC" : "PRIVATE",
+                        roomMaxPlayers,
+                        setCurrentRoom,
+                        setRoomMessage
+                      )
+                    }
+                  >
+                    {selectedGame.title} {lobbyFlow === "public-room" ? "공개 방 만들기" : "프라이빗 방 만들기"}
                     <ChevronRight size={18} />
                   </button>
                   <label className="code-input">
@@ -1087,6 +1143,17 @@ export function App() {
                 <div className="room-options-panel">
                   <div className="option-grid">
                     <label>
+                      방 최대 인원
+                      <input
+                        type="number"
+                        min={partyMembers.length || selectedRoomGame.minPlayers}
+                        max="12"
+                        value={roomMaxPlayers}
+                        disabled={!amHost}
+                        onChange={(event) => setRoomMaxPlayers(Number(event.target.value))}
+                      />
+                    </label>
+                    <label>
                       턴 제한
                       <input
                         type="number"
@@ -1135,6 +1202,7 @@ export function App() {
                         currentRoom.id,
                         {
                           turnSeconds,
+                          maxPlayers: roomMaxPlayers,
                           maxWaitSeconds,
                           autoStart,
                           allowSpectators
@@ -2312,6 +2380,53 @@ export function App() {
             ))}
           </div>
 
+          {!currentRoom && (lobbyFlow === "public-room" || lobbyFlow === "game-rooms") ? (
+            <div className="public-room-panel">
+              <div className="section-title">
+                <div>
+                  <span>Public Rooms</span>
+                  <h2>{lobbyFlow === "game-rooms" ? `${selectedGame.title} 공개 방` : "입장 가능한 공개 방"}</h2>
+                </div>
+                <button
+                  className="mini-command"
+                  onClick={() =>
+                    fetchPublicRooms(lobbyFlow === "game-rooms" ? selectedGameId : "")
+                      .then(setPublicRooms)
+                      .catch(() => setPublicRooms([]))
+                  }
+                >
+                  새로고침
+                </button>
+              </div>
+              <div className="public-room-list">
+                {publicRooms.length === 0 ? (
+                  <div className="empty-party-state">
+                    <strong>아직 공개 방이 없습니다.</strong>
+                    <small>공개 방을 만들거나 퀵매칭으로 새 방을 열 수 있습니다.</small>
+                  </div>
+                ) : (
+                  publicRooms.map((room) => {
+                    const roomGame = games.find((game) => game.id === room.gameId);
+                    return (
+                      <article className="public-room-item" key={room.id}>
+                        <div>
+                          <strong>{roomGame?.title ?? room.gameId}</strong>
+                          <small>
+                            코드 {room.code} · {room.status} · 참가 {room.participants.length}/{room.maxPlayers} · 관전{" "}
+                            {room.spectators?.length ?? 0}
+                          </small>
+                        </div>
+                        <button onClick={() => joinPublicRoom(room.id, setCurrentRoom, setRoomMessage)}>
+                          {room.status === "PLAYING" ? "관전 입장" : room.participants.length >= room.maxPlayers ? "관전 입장" : "입장"}
+                        </button>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : null}
+
           <div className="game-grid">
             {recommendedGames.map((game) => (
               <article
@@ -2446,17 +2561,17 @@ export function App() {
           <Gamepad2 size={20} />
           로비
         </button>
-        <button onClick={() => setLobbyFlow("game-rooms")}>
+        <button onClick={() => setLobbyFlow("public-room")}>
           <Bot size={20} />
-          게임별
+          공개
         </button>
         <button className="dock-primary" onClick={() => setLobbyFlow("quick-match")}>
           <Play size={20} />
           시작
         </button>
-        <button onClick={() => setLobbyFlow("friend-room")}>
+        <button onClick={() => setLobbyFlow("private-room")}>
           <Crown size={20} />
-          친구
+          비공개
         </button>
       </section>
       {authDialogOpen ? (
@@ -2597,6 +2712,7 @@ function readPlayerSession(): GuestSession | null {
 function normalizeRoom(room: Room): Room {
   return {
     ...room,
+    visibility: room.visibility ?? "PRIVATE",
     participants: room.participants ?? [],
     spectators: room.spectators ?? [],
     playingPlayerIds: room.playingPlayerIds ?? [],
@@ -2651,6 +2767,8 @@ function submitAuth(mode: "login" | "register", username: string, password: stri
 
 async function createRoom(
   gameId: string,
+  visibility: "PRIVATE" | "PUBLIC",
+  maxPlayers: number,
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
@@ -2661,17 +2779,26 @@ async function createRoom(
   }
 
   try {
-    const game = games.find((item) => item.id === gameId);
     const data = await authorizedJSON<{ room: Room }>("/api/rooms", session.sessionToken, {
       method: "POST",
-      body: JSON.stringify({ gameId, maxPlayers: Math.max(game?.maxPlayers ?? 4, 12) })
+      body: JSON.stringify({ gameId, maxPlayers, visibility })
     });
     onRoom(normalizeRoom(data.room));
-    onMessage(`${data.room.code} 코드를 친구에게 공유하세요.`);
+    onMessage(`${data.room.code} 코드를 공유하세요.`);
     markPresence(data.room.id, undefined, "ONLINE").catch(() => undefined);
   } catch {
     onMessage("방 생성에 실패했습니다.");
   }
+}
+
+async function fetchPublicRooms(gameId = ""): Promise<Room[]> {
+  const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  const params = new URLSearchParams({ visibility: "PUBLIC" });
+  if (gameId) params.set("gameId", gameId);
+  const response = await fetch(`${apiURL}/api/rooms?${params.toString()}`);
+  if (!response.ok) throw new Error("failed to fetch public rooms");
+  const data = (await response.json()) as { rooms: Room[] };
+  return (data.rooms ?? []).map(normalizeRoom);
 }
 
 async function quickMatch(
@@ -2716,10 +2843,33 @@ async function joinRoom(
       body: JSON.stringify({ code })
     });
     onRoom(normalizeRoom(data.room));
-    onMessage(`${data.room.code} 방에 입장했습니다.`);
+    onMessage(data.room.status === "PLAYING" ? `${data.room.code} 방에 관전자로 입장했습니다.` : `${data.room.code} 방에 입장했습니다.`);
     markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
   } catch {
     onMessage("방 코드를 확인해주세요.");
+  }
+}
+
+async function joinPublicRoom(
+  roomID: string,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readPlayerSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/join`, session.sessionToken, {
+      method: "POST"
+    });
+    onRoom(normalizeRoom(data.room));
+    markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
+    onMessage(data.room.status === "PLAYING" ? "진행 중인 방에 관전자로 입장했습니다." : "공개 방에 입장했습니다.");
+  } catch {
+    onMessage("공개 방 입장에 실패했습니다.");
   }
 }
 
@@ -2747,7 +2897,7 @@ async function spectateRoom(
 
 async function updateRoomOptions(
   roomID: string,
-  options: RoomOptions,
+  options: RoomSettings,
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
