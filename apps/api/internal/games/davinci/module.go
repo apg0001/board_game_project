@@ -271,13 +271,25 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 		return hiddenCount(current.Players[i]) > hiddenCount(current.Players[j])
 	})
 
+	topScore := 0
+	if len(current.Players) > 0 {
+		topScore = hiddenCount(current.Players[0])
+	}
+	tiedAtTop := 0
+	for _, player := range current.Players {
+		if hiddenCount(player) == topScore {
+			tiedAtTop++
+		}
+	}
+
 	for index, player := range current.Players {
 		outcome := gamecore.OutcomeLose
-		if index == 0 {
-			outcome = gamecore.OutcomeWin
-		}
-		if len(current.Players) > 1 && hiddenCount(player) == hiddenCount(current.Players[0]) {
-			outcome = gamecore.OutcomeDraw
+		if hiddenCount(player) == topScore {
+			if tiedAtTop > 1 {
+				outcome = gamecore.OutcomeDraw
+			} else {
+				outcome = gamecore.OutcomeWin
+			}
 		}
 		results = append(results, gamecore.Result{
 			PlayerID: gamecore.PlayerID(player.PlayerID),

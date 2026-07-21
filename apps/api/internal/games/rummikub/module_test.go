@@ -70,6 +70,27 @@ func TestDrawSkipsInactivePlayer(t *testing.T) {
 	}
 }
 
+func TestCalculateResultDoesNotRankForfeitedPlayerAsWinner(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Finished: true,
+		Players: []PlayerState{
+			{PlayerID: "p1", Rack: []Tile{{Color: "blue", Number: 2}}, Active: false},
+			{PlayerID: "p2", Rack: []Tile{{Color: "blue", Number: 1}, {Color: "red", Number: 5}}, Active: true},
+		},
+	}
+
+	results := module.CalculateResult(state, testContext())
+	for _, result := range results {
+		if result.PlayerID == "p1" && result.Outcome == gamecore.OutcomeWin {
+			t.Fatal("a forfeited/disconnected player must not be ranked as the winner over a connected player")
+		}
+		if result.PlayerID == "p2" && result.Outcome != gamecore.OutcomeWin {
+			t.Fatal("the connected player who stayed active should win when the other player forfeited")
+		}
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		GameID: "rummikub",

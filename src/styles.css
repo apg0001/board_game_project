@@ -1440,6 +1440,11 @@ button.davinci-tile {
   font-size: 1.1rem;
 }
 
+.gem-button.selected {
+  outline: 3px solid #ffd166;
+  outline-offset: -3px;
+}
+
 .gem-button.white,
 .splendor-card.white {
   background: #fff;

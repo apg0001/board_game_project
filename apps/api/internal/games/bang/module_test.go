@@ -37,6 +37,41 @@ func TestOutlawsWinWhenSheriffDies(t *testing.T) {
 	}
 }
 
+func TestEliminatedPlayerHandGoesToDiscardPile(t *testing.T) {
+	state := fixedState()
+	state.Players[1].HP = 1
+	state.Players[1].Hand = []Card{{ID: "gunfighter-1", Type: "gunfighter"}, {ID: "saloon-1", Type: "saloon"}}
+
+	next := damageTarget(state, "p2", 1)
+	if next.Players[1].Alive {
+		t.Fatal("expected target to be eliminated")
+	}
+	if len(next.Players[1].Hand) != 0 || next.Players[1].HandSize != 0 {
+		t.Fatalf("expected eliminated player's hand to be cleared, got %+v", next.Players[1])
+	}
+	if len(next.Discard) != 2 {
+		t.Fatalf("expected eliminated player's cards to move to the discard pile, got %d", len(next.Discard))
+	}
+}
+
+func TestApplyTimeoutMovesEliminatedHandToDiscardPile(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[1].Hand = []Card{{ID: "gunfighter-1", Type: "gunfighter"}}
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p2", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.Players[1].Hand) != 0 {
+		t.Fatal("expected timed-out player's hand to be cleared")
+	}
+	if len(next.Discard) != 1 {
+		t.Fatalf("expected timed-out player's cards to move to the discard pile, got %d", len(next.Discard))
+	}
+}
+
 func TestMustDrawBeforePlayingOrEndingTurn(t *testing.T) {
 	module := NewModule()
 	state := fixedState()

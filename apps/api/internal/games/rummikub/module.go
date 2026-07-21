@@ -206,6 +206,9 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 	current := asState(state)
 	players := append([]PlayerState(nil), current.Players...)
 	sort.SliceStable(players, func(i, j int) bool {
+		if players[i].Active != players[j].Active {
+			return players[i].Active
+		}
 		return rackPenalty(players[i].Rack) < rackPenalty(players[j].Rack)
 	})
 	results := make([]gamecore.Result, 0, len(players))

@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"sort"
+	"strings"
 
 	"board-game-platform/apps/api/internal/gamecore"
 	"board-game-platform/apps/api/internal/games/internal/gameutil"
@@ -36,14 +37,16 @@ type PlayerState struct {
 }
 
 type State struct {
-	CurrentPlayerIndex int            `json:"currentPlayerIndex"`
-	Round              int            `json:"round"`
-	Bank               map[string]int `json:"bank"`
-	Market             []Card         `json:"market"`
-	Deck               []Card         `json:"deck"`
-	Players            []PlayerState  `json:"players"`
-	Log                []string       `json:"log"`
-	Finished           bool           `json:"finished"`
+	CurrentPlayerIndex  int            `json:"currentPlayerIndex"`
+	Round               int            `json:"round"`
+	Bank                map[string]int `json:"bank"`
+	Market              []Card         `json:"market"`
+	Deck                []Card         `json:"deck"`
+	Players             []PlayerState  `json:"players"`
+	Log                 []string       `json:"log"`
+	Finished            bool           `json:"finished"`
+	EndTriggered        bool           `json:"endTriggered,omitempty"`
+	EndTriggerIndex     int            `json:"-"`
 }
 
 type Module struct{}
@@ -112,14 +115,14 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	}
 	switch action.Type {
 	case ActionTakeToken:
-		color, err := tokenPayload(action.Payload)
+		colorList, err := tokenPayload(action.Payload)
 		if err != nil {
 			return err
 		}
-		if current.Bank[color] <= 0 {
-			return errors.New("token is not available")
+		if err := validateTakeTokens(current, colorList); err != nil {
+			return err
 		}
-		if totalTokens(current.Players[current.CurrentPlayerIndex]) >= 10 {
+		if totalTokens(current.Players[current.CurrentPlayerIndex])+len(colorList) > 10 {
 			return errors.New("token limit is reached")
 		}
 	case ActionBuyCard:
@@ -144,13 +147,15 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionTakeToken:
-		color, err := tokenPayload(action.Payload)
+		colorList, err := tokenPayload(action.Payload)
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
-		player.Tokens[color]++
-		current.Bank[color]--
-		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %s 보석을 가져갔습니다.", player.PlayerID, color))
+		for _, color := range colorList {
+			player.Tokens[color]++
+			current.Bank[color]--
+		}
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %s 보석을 가져갔습니다.", player.PlayerID, strings.Join(colorList, ", ")))
 	case ActionBuyCard:
 		index, err := buyPayload(action.Payload)
 		if err != nil {
@@ -168,12 +173,17 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d점 카드를 구매했습니다.", player.PlayerID, card.Points))
 	}
-	if player.Score >= 15 {
-		current.Finished = true
-		current.Log = append(current.Log, "스플랜더가 종료되었습니다.")
+	if player.Score >= 15 && !current.EndTriggered {
+		current.EndTriggered = true
+		current.EndTriggerIndex = current.CurrentPlayerIndex
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 15점을 달성해 이번 라운드가 마지막 라운드가 됩니다.", player.PlayerID))
 	}
 	if !current.Finished {
 		current = advanceTurn(current)
+		if current.EndTriggered && current.CurrentPlayerIndex == current.EndTriggerIndex {
+			current.Finished = true
+			current.Log = append(current.Log, "스플랜더가 종료되었습니다.")
+		}
 	}
 	return gamecore.ActionResult{
 		State: current,
@@ -196,6 +206,14 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	current.Log = append(current.Log, string(playerID)+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
 	if current.CurrentPlayerIndex == index {
 		current = advanceTurn(current)
+		if current.EndTriggered && current.CurrentPlayerIndex == current.EndTriggerIndex {
+			current.Finished = true
+			current.Log = append(current.Log, "스플랜더가 종료되었습니다.")
+		}
+	}
+	if current.EndTriggered && index == current.EndTriggerIndex && !current.Finished {
+		current.Finished = true
+		current.Log = append(current.Log, "스플랜더가 종료되었습니다.")
 	}
 	if activePlayers(current) <= 1 {
 		current.Finished = true
@@ -316,16 +334,68 @@ func findPlayer(state State, playerID string) int {
 	return -1
 }
 
-func tokenPayload(payload any) (string, error) {
+func tokenPayload(payload any) ([]string, error) {
 	raw, ok := payload.(map[string]any)
 	if !ok {
-		return "", errors.New("invalid token payload")
+		return nil, errors.New("invalid token payload")
+	}
+	if rawColors, ok := raw["colors"]; ok {
+		colors := colorListFromAny(rawColors)
+		if len(colors) == 0 {
+			return nil, errors.New("invalid token colors")
+		}
+		return colors, nil
 	}
 	color, _ := raw["color"].(string)
 	if !validColor(color) {
-		return "", errors.New("invalid token color")
+		return nil, errors.New("invalid token color")
 	}
-	return color, nil
+	return []string{color}, nil
+}
+
+func colorListFromAny(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	colors := make([]string, 0, len(items))
+	for _, item := range items {
+		color, ok := item.(string)
+		if !ok {
+			return nil
+		}
+		colors = append(colors, color)
+	}
+	return colors
+}
+
+func validateTakeTokens(state State, colors []string) error {
+	switch len(colors) {
+	case 3:
+		seen := map[string]bool{}
+		for _, color := range colors {
+			if !validColor(color) {
+				return errors.New("invalid token color")
+			}
+			if seen[color] {
+				return errors.New("must take three different colors")
+			}
+			seen[color] = true
+			if state.Bank[color] <= 0 {
+				return errors.New("token is not available")
+			}
+		}
+	case 2:
+		if !validColor(colors[0]) || colors[0] != colors[1] {
+			return errors.New("taking two tokens requires the same color")
+		}
+		if state.Bank[colors[0]] < 4 {
+			return errors.New("token is not available")
+		}
+	default:
+		return errors.New("must take three different colors or two of the same color")
+	}
+	return nil
 }
 
 func buyPayload(payload any) (int, error) {

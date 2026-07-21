@@ -119,6 +119,34 @@ func TestInactivePlayerCannotRing(t *testing.T) {
 	}
 }
 
+func TestTimedOutPlayerStaysForfeitedAfterFlippingBeforeDisconnect(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 1,
+		Players: []PlayerState{
+			{PlayerID: "p1", Deck: []Card{{Fruit: "lime", Count: 1}}, FaceUp: []Card{{Fruit: "banana", Count: 2}}, Active: true},
+			{PlayerID: "p2", Deck: []Card{{Fruit: "plum", Count: 1}}, Active: true},
+		},
+	}
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p1", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Players[0].Active {
+		t.Fatal("timed-out player with leftover face-up cards should stay inactive, not be resurrected by refresh")
+	}
+
+	err = module.ValidateAction(context.Background(), next, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p1",
+	}, testContext())
+	if err == nil {
+		t.Fatal("forfeited player should not be allowed to ring after timing out")
+	}
+}
+
 func TestPublicStateDoesNotMutatePrivateDeck(t *testing.T) {
 	module := NewModule()
 	state := State{Players: []PlayerState{{PlayerID: "p1", Deck: []Card{{Fruit: "banana", Count: 1}}, Active: true}}}
