@@ -411,6 +411,8 @@ interface TutorialGuide {
   }>;
 }
 
+type LobbyFlow = "home" | "friend-room" | "quick-match" | "game-rooms" | "room";
+
 const guestStorageKey = "board-table.guest-session";
 const authStorageKey = "board-table.auth-session";
 const roomStorageKey = "board-table.current-room-id";
@@ -445,6 +447,7 @@ export function App() {
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [lobbyFlow, setLobbyFlow] = useState<LobbyFlow>("home");
   const playerToken = authSession?.sessionToken ?? guestSession?.sessionToken ?? "";
   const playerID = authSession?.user.id ?? guestSession?.user.id ?? "";
   const playerNickname = authSession?.user.nickname ?? guestSession?.user.nickname ?? "";
@@ -646,6 +649,14 @@ export function App() {
   }, [currentSession?.status, selectedGameId]);
 
   useEffect(() => {
+    if (currentRoom) {
+      setLobbyFlow("room");
+    } else if (lobbyFlow === "room") {
+      setLobbyFlow("home");
+    }
+  }, [currentRoom, lobbyFlow]);
+
+  useEffect(() => {
     fetchTutorial(selectedGameId).then(setTutorialGuide).catch(() => setTutorialGuide(null));
   }, [selectedGameId]);
 
@@ -740,6 +751,23 @@ export function App() {
   const readyCount = partyMembers.filter((participant) => participant.ready).length;
   const amHost = Boolean(me?.host);
   const canStartGame = Boolean(currentRoom && amHost && selectedReady && selectedCountValid && currentRoom.status === "LOBBY");
+  const showHomeFlow = !currentRoom && lobbyFlow === "home";
+  const flowTitle =
+    lobbyFlow === "friend-room"
+      ? "친구 방 만들기"
+      : lobbyFlow === "quick-match"
+        ? "랜덤 방 입장"
+        : lobbyFlow === "game-rooms"
+          ? "게임별 방 입장"
+          : "방 로비";
+  const flowDescription =
+    lobbyFlow === "friend-room"
+      ? "게임을 고른 뒤 초대 방을 만들고 친구에게 코드를 공유하세요."
+      : lobbyFlow === "quick-match"
+        ? "원하는 게임을 고르면 같은 게임을 기다리는 플레이어와 바로 매칭됩니다."
+        : lobbyFlow === "game-rooms"
+          ? "특정 게임만 필터링해서 해당 게임을 기다리는 방으로 입장합니다."
+          : "참가자 준비, 관전, 채팅, 게임 시작을 이 화면에서 관리합니다.";
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
   const splendorColors = ["white", "blue", "green", "red", "black"];
   const splendorMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -776,7 +804,16 @@ export function App() {
             <button className="icon-button" aria-label="알림">
               <Bell size={19} />
             </button>
-            <button className="profile-button" aria-label="내 프로필">
+            <button
+              className="profile-button"
+              aria-label="내 프로필"
+              onClick={() => {
+                if (!authSession) {
+                  setAuthMode("login");
+                  setAuthDialogOpen(true);
+                }
+              }}
+            >
               {playerNickname ? playerNickname.slice(-2) : "G"}
             </button>
           </div>
@@ -788,27 +825,22 @@ export function App() {
               <Wifi size={16} aria-hidden="true" />
               모바일, 태블릿, 데스크톱 동시 플레이 · 서버 {serverStatus}
             </p>
-            <h1>친구와 바로 모이고, 인원에 맞는 게임을 즉시 시작하세요.</h1>
+            <h1>어떻게 모일지 먼저 고르고, 다음 화면에서 게임을 시작하세요.</h1>
             <p className="summary">
-              방 코드, 퀵매치, 재접속, 관전, 채팅까지 하나의 앱 화면에서 이어지는 보드게임 플랫폼입니다.
+              초대 방, 랜덤 매칭, 게임별 입장을 분리해 모바일에서도 헷갈리지 않는 흐름으로 플레이합니다.
             </p>
             <div className="hero-actions">
-              <button className="primary-button" onClick={() => quickMatch(selectedGameId, setCurrentRoom, setRoomMessage)}>
-                <Play size={18} />
-                퀵매치
-              </button>
-              {currentRoom && amHost ? (
-                <button
-                  className="secondary-button"
-                  onClick={() => cancelQuickMatch(currentRoom.id, currentRoom.gameId, setRoomMessage)}
-                >
-                  <Search size={18} />
-                  매칭 취소
-                </button>
-              ) : null}
-              <button className="secondary-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
+              <button className="primary-button" onClick={() => setLobbyFlow("friend-room")}>
                 <Plus size={18} />
-                초대 방
+                친구 방
+              </button>
+              <button className="secondary-button" onClick={() => setLobbyFlow("quick-match")}>
+                <Play size={18} />
+                랜덤 방
+              </button>
+              <button className="secondary-button" onClick={() => setLobbyFlow("game-rooms")}>
+                <Search size={18} />
+                게임별 방
               </button>
             </div>
           </div>
@@ -832,7 +864,58 @@ export function App() {
         </div>
       </section>
 
+      {showHomeFlow ? (
+        <section className="flow-home" aria-label="플레이 방식 선택">
+          <button className="flow-card primary-flow" onClick={() => setLobbyFlow("friend-room")}>
+            <span>
+              <Plus size={22} />
+            </span>
+            <strong>방을 만들고 친구들이랑 게임</strong>
+            <small>게임을 고르고 초대 코드를 공유해서 같은 방 로비에 모입니다.</small>
+            <ChevronRight size={20} />
+          </button>
+          <button className="flow-card" onClick={() => setLobbyFlow("quick-match")}>
+            <span>
+              <Play size={22} />
+            </span>
+            <strong>랜덤 방에 들어가기</strong>
+            <small>선택한 게임 기준으로 기다리는 플레이어와 빠르게 매칭됩니다.</small>
+            <ChevronRight size={20} />
+          </button>
+          <button className="flow-card" onClick={() => setLobbyFlow("game-rooms")}>
+            <span>
+              <Search size={22} />
+            </span>
+            <strong>특정 게임 방만 들어가기</strong>
+            <small>게임 목록에서 하나를 고른 뒤 해당 게임 매칭으로 입장합니다.</small>
+            <ChevronRight size={20} />
+          </button>
+        </section>
+      ) : null}
+
+      {!showHomeFlow ? (
       <section className="content-grid">
+        <div className="flow-page-header">
+          <div>
+            <span className="eyebrow compact">
+              <Sparkles size={15} />
+              {currentRoom ? "현재 방" : "다음 단계"}
+            </span>
+            <h2>{flowTitle}</h2>
+            <p>{flowDescription}</p>
+          </div>
+          {!currentRoom ? (
+            <button
+              className="mini-command"
+              onClick={() => {
+                setLobbyFlow("home");
+                setRoomMessage("방을 만들거나 입장 방식을 선택하세요.");
+              }}
+            >
+              홈으로
+            </button>
+          ) : null}
+        </div>
         <aside className="control-panel" aria-label="매칭 패널">
           <div className="room-card">
             <div className="section-title">
@@ -919,25 +1002,41 @@ export function App() {
               <p className="room-helper">
                 게임 최대 인원을 넘으면 방장이 이번 판 플레이어를 고르고 나머지는 같은 방에서 관전합니다.
               </p>
-              <button className="wide-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
-                {selectedGame.title} 방 만들기
-                <ChevronRight size={18} />
-              </button>
-              <label className="code-input">
-                <input
-                  value={roomCodeInput}
-                  onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase())}
-                  placeholder="초대 코드"
-                  aria-label="초대 코드"
-                />
-              </label>
-              <button
-                className="wide-button dark"
-                onClick={() => joinRoom(roomCodeInput, setCurrentRoom, setRoomMessage)}
-              >
-                코드 입장
-                <ChevronRight size={18} />
-              </button>
+              {!currentRoom && lobbyFlow === "friend-room" ? (
+                <>
+                  <button className="wide-button" onClick={() => createRoom(selectedGameId, setCurrentRoom, setRoomMessage)}>
+                    {selectedGame.title} 방 만들기
+                    <ChevronRight size={18} />
+                  </button>
+                  <label className="code-input">
+                    <input
+                      value={roomCodeInput}
+                      onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase())}
+                      placeholder="초대 코드"
+                      aria-label="초대 코드"
+                    />
+                  </label>
+                  <button
+                    className="wide-button dark"
+                    onClick={() => joinRoom(roomCodeInput, setCurrentRoom, setRoomMessage)}
+                  >
+                    코드 입장
+                    <ChevronRight size={18} />
+                  </button>
+                </>
+              ) : null}
+              {!currentRoom && lobbyFlow === "quick-match" ? (
+                <button className="wide-button play-now" onClick={() => quickMatch(selectedGameId, setCurrentRoom, setRoomMessage)}>
+                  {selectedGame.title} 랜덤 방 입장
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
+              {!currentRoom && lobbyFlow === "game-rooms" ? (
+                <button className="wide-button play-now" onClick={() => quickMatch(selectedGameId, setCurrentRoom, setRoomMessage)}>
+                  {selectedGame.title} 방만 찾기
+                  <ChevronRight size={18} />
+                </button>
+              ) : null}
               {currentRoom ? (
                 <button
                   className="wide-button"
@@ -1131,6 +1230,7 @@ export function App() {
                         onClick={() => {
                           setCurrentRoom(null);
                           setCurrentSession(null);
+                          setLobbyFlow("home");
                           setRoomMessage("홈으로 돌아왔습니다.");
                         }}
                       >
@@ -2056,6 +2156,7 @@ export function App() {
                   setAuthSession(null);
                   setCurrentRoom(null);
                   setCurrentSession(null);
+                  setLobbyFlow("home");
                   setRoomMessage("로그아웃했습니다. 게스트로 계속 플레이할 수 있습니다.");
                 }}
               >
@@ -2256,6 +2357,7 @@ export function App() {
                 localStorage.removeItem(sessionStorageKey);
                 setCurrentRoom(null);
                 setCurrentSession(null);
+                setLobbyFlow("home");
                 setRoomMessage("로컬 방/게임 복구 정보를 초기화했습니다.");
               }}
             >
@@ -2264,23 +2366,24 @@ export function App() {
           </div>
         </section>
       </section>
+      ) : null}
 
       <section className="dock" aria-label="모바일 빠른 실행">
-        <button>
+        <button onClick={() => setLobbyFlow("home")}>
           <Gamepad2 size={20} />
           로비
         </button>
-        <button>
+        <button onClick={() => setLobbyFlow("game-rooms")}>
           <Bot size={20} />
-          튜토리얼
+          게임별
         </button>
-        <button className="dock-primary">
+        <button className="dock-primary" onClick={() => setLobbyFlow("quick-match")}>
           <Play size={20} />
           시작
         </button>
-        <button>
+        <button onClick={() => setLobbyFlow("friend-room")}>
           <Crown size={20} />
-          랭킹
+          친구
         </button>
       </section>
       {authDialogOpen ? (
@@ -2627,20 +2730,6 @@ async function transferHost(
     onMessage("방장을 위임했습니다.");
   } catch {
     onMessage("방장만 권한을 위임할 수 있습니다.");
-  }
-}
-
-async function cancelQuickMatch(roomID: string, gameId: string, onMessage: (message: string) => void) {
-  const session = readPlayerSession();
-  if (!session) return;
-  try {
-    const data = await authorizedJSON<{ cancelled: boolean }>("/api/match/cancel", session.sessionToken, {
-      method: "POST",
-      body: JSON.stringify({ roomId: roomID, gameId })
-    });
-    onMessage(data.cancelled ? "퀵매치 대기를 취소했습니다." : "이미 매칭 대기열에 없습니다.");
-  } catch {
-    onMessage("퀵매치 취소에 실패했습니다.");
   }
 }
 
