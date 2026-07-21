@@ -57,7 +57,15 @@ postgres -> localhost:5432
 redis -> localhost:6379
 ```
 
-현재 앱 런타임 저장소는 인메모리이고, PostgreSQL/Redis는 다음 영속화 작업을 위한 개발 컨테이너로 함께 실행됩니다.
+Docker Compose 실행 시 계정/게스트/전적은 PostgreSQL에 저장되고, 실시간 이벤트 버스는 Redis를 사용합니다. 로컬에서 `go run ./cmd/api`만 실행하면 인메모리 저장소로 동작합니다.
+
+기본 관리자 계정은 개발 서버 시작 시 자동으로 보장됩니다.
+
+```txt
+ADMIN_USERNAME=ccl7103
+ADMIN_PASSWORD=ccl7103!
+ADMIN_NICKNAME=관리자
+```
 
 같은 Wi-Fi의 모바일에서 접속하려면 PC의 로컬 IP를 확인한 뒤 다음처럼 환경변수를 조정합니다.
 
@@ -145,11 +153,5 @@ GitHub Actions 워크플로는 [.github/workflows/ci.yml](.github/workflows/ci.y
 - Docker Compose: compose 설정 검증과 서비스 이미지 빌드
 
 ## Git 작업 흐름
-
-현재 작업 브랜치:
-
-```txt
-feature/#1-pwa-go-backend
-```
 
 커밋 메시지는 한국어 본문에 What, How, Why를 포함합니다.

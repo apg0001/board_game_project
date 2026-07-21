@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { storageKeys } from "./storageKeys";
 
 type GameCategory = "블러핑" | "전략" | "순발력" | "숫자/조합" | "파티" | "카드";
 
@@ -423,10 +424,10 @@ interface TutorialGuide {
 
 type LobbyFlow = "home" | "private-room" | "public-room" | "quick-match" | "game-rooms" | "room";
 
-const guestStorageKey = "board-table.guest-session";
-const authStorageKey = "board-table.auth-session";
-const roomStorageKey = "board-table.current-room-id";
-const sessionStorageKey = "board-table.current-session-id";
+const guestStorageKey = storageKeys.guestSession;
+const authStorageKey = storageKeys.authSession;
+const roomStorageKey = storageKeys.currentRoomId;
+const sessionStorageKey = storageKeys.currentSessionId;
 
 export function App() {
   const [apiGames, setApiGames] = useState<ApiGame[]>([]);
@@ -608,7 +609,8 @@ export function App() {
     };
 
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data) as RealtimeMessage;
+      const message = parseRealtimeMessage(event.data);
+      if (!message) return;
       if (message.type === "room.updated") {
         const nextRoom = message.payload.room;
         if (!nextRoom) return;
@@ -744,7 +746,8 @@ export function App() {
     );
 
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data) as RealtimeMessage;
+      const message = parseRealtimeMessage(event.data);
+      if (!message) return;
       if (message.type !== "game.updated") return;
       if (!message.payload.session) return;
 
@@ -3344,6 +3347,19 @@ function toggleSelected(values: string[], target: string) {
     return values.filter((value) => value !== target);
   }
   return [...values, target];
+}
+
+function parseRealtimeMessage(value: unknown): RealtimeMessage | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<RealtimeMessage>;
+    if (typeof parsed.type !== "string" || typeof parsed.payload !== "object" || parsed.payload === null) {
+      return null;
+    }
+    return parsed as RealtimeMessage;
+  } catch {
+    return null;
+  }
 }
 
 async function authorizedJSON<T>(

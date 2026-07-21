@@ -186,33 +186,7 @@ func (s *Service) JoinByCode(code string, user guest.PublicUser) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
-	if room.Status == StatusPlaying {
-		return s.JoinSpectator(room.ID, user)
-	}
-	if room.Status != StatusLobby {
-		return Room{}, ErrRoomNotJoinable
-	}
-	if room.HasParticipant(user.ID) {
-		return room, nil
-	}
-	if room.IsFull() {
-		return s.JoinSpectator(room.ID, user)
-	}
-
-	now := s.clock().UTC()
-	room.Participants = append(room.Participants, Participant{
-		User:      user,
-		Ready:     false,
-		Host:      false,
-		SeatIndex: len(room.Participants),
-		JoinedAt:  now,
-	})
-	room.UpdatedAt = now
-
-	if err := s.store.Save(room); err != nil {
-		return Room{}, err
-	}
-	return room, nil
+	return s.joinRoomAsPlayerOrSpectator(room, user)
 }
 
 func (s *Service) JoinPublicRoom(roomID string, user guest.PublicUser) (Room, error) {
@@ -223,8 +197,12 @@ func (s *Service) JoinPublicRoom(roomID string, user guest.PublicUser) (Room, er
 	if room.Visibility != VisibilityPublic {
 		return Room{}, ErrRoomNotJoinable
 	}
+	return s.joinRoomAsPlayerOrSpectator(room, user)
+}
+
+func (s *Service) joinRoomAsPlayerOrSpectator(room Room, user guest.PublicUser) (Room, error) {
 	if room.Status == StatusPlaying {
-		return s.JoinSpectator(roomID, user)
+		return s.JoinSpectator(room.ID, user)
 	}
 	if room.Status != StatusLobby {
 		return Room{}, ErrRoomNotJoinable
@@ -233,7 +211,7 @@ func (s *Service) JoinPublicRoom(roomID string, user guest.PublicUser) (Room, er
 		return room, nil
 	}
 	if room.IsFull() {
-		return s.JoinSpectator(roomID, user)
+		return s.JoinSpectator(room.ID, user)
 	}
 
 	now := s.clock().UTC()
