@@ -234,6 +234,11 @@ interface RoomSpectator {
   };
 }
 
+interface RuleVote {
+  userId: string;
+  choices: Record<string, string>;
+}
+
 interface Room {
   id: string;
   code: string;
@@ -251,6 +256,9 @@ interface Room {
     allowSpectators: boolean;
   };
   participants: RoomParticipant[];
+  ruleVotes?: RuleVote[];
+  gameRules?: Record<string, unknown>;
+  ruleMessages?: string[];
 }
 
 type RoomOptions = Room["options"];
@@ -365,6 +373,10 @@ interface GameSession {
     pendingTile?: DavinciTile;
     pendingOwnerId?: string;
     canEndTurn?: boolean;
+    rules?: OneCardRules;
+    ruleMessages?: string[];
+    pendingDraw?: number;
+    pendingAttackRank?: string;
   };
   results?: Array<{
     playerId: string;
@@ -372,6 +384,14 @@ interface GameSession {
     score: number;
     outcome: "WIN" | "LOSE" | "DRAW";
   }>;
+}
+
+interface OneCardRules {
+  attackCards?: string[];
+  defenseMode?: string;
+  jokerDrawCount?: number;
+  twoDrawCount?: number;
+  stacking?: boolean;
 }
 
 interface RealtimeMessage {
@@ -464,6 +484,10 @@ export function App() {
   const [maxWaitSeconds, setMaxWaitSeconds] = useState(180);
   const [autoStart, setAutoStart] = useState(false);
   const [allowSpectators, setAllowSpectators] = useState(true);
+  const [onecardAttackCards, setOnecardAttackCards] = useState("two-ace-joker");
+  const [onecardDefenseMode, setOnecardDefenseMode] = useState("attack-or-joker");
+  const [onecardJokerDrawCount, setOnecardJokerDrawCount] = useState("5");
+  const [onecardStacking, setOnecardStacking] = useState("on");
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
@@ -716,6 +740,15 @@ export function App() {
   ]);
 
   useEffect(() => {
+    const vote = currentRoom?.ruleVotes?.find((item) => item.userId === playerID);
+    if (!vote) return;
+    setOnecardAttackCards(vote.choices.attackCards ?? "two-ace-joker");
+    setOnecardDefenseMode(vote.choices.defenseMode ?? "attack-or-joker");
+    setOnecardJokerDrawCount(vote.choices.jokerDrawCount ?? "5");
+    setOnecardStacking(vote.choices.stacking ?? "on");
+  }, [currentRoom?.ruleVotes, playerID]);
+
+  useEffect(() => {
     fetchTutorial(selectedGameId).then(setTutorialGuide).catch(() => setTutorialGuide(null));
   }, [selectedGameId]);
 
@@ -814,6 +847,7 @@ export function App() {
   const selectedCountValid =
     selectedPlayers.length >= selectedRoomGame.minPlayers && selectedPlayers.length <= selectedRoomGame.maxPlayers;
   const readyCount = partyMembers.filter((participant) => participant.ready).length;
+  const ruleVoteCount = currentRoom?.ruleVotes?.length ?? 0;
   const amHost = Boolean(me?.host);
   const canStartGame = Boolean(currentRoom && amHost && selectedReady && selectedCountValid && currentRoom.status === "LOBBY");
   const showHomeFlow = !currentRoom && lobbyFlow === "home";
@@ -1239,6 +1273,78 @@ export function App() {
                     방 옵션 적용
                     <ChevronRight size={18} />
                   </button>
+                </div>
+              ) : null}
+              {currentRoom?.gameId === "onecard" && currentRoom.status === "LOBBY" ? (
+                <div className="rule-vote-panel">
+                  <div className="section-title compact-title">
+                    <div>
+                      <span>원카드 룰 투표</span>
+                      <h2>{ruleVoteCount}/{partyMembers.length}명 투표</h2>
+                    </div>
+                    <Dice5 size={20} />
+                  </div>
+                  <div className="option-grid">
+                    <label>
+                      공격카드
+                      <select value={onecardAttackCards} onChange={(event) => setOnecardAttackCards(event.target.value)}>
+                        <option value="two">2만</option>
+                        <option value="two-ace">2/A</option>
+                        <option value="two-ace-joker">2/A/조커</option>
+                      </select>
+                    </label>
+                    <label>
+                      방어카드
+                      <select value={onecardDefenseMode} onChange={(event) => setOnecardDefenseMode(event.target.value)}>
+                        <option value="same-rank">같은 공격카드만</option>
+                        <option value="any-attack">공격카드</option>
+                        <option value="attack-or-joker">공격카드/조커</option>
+                      </select>
+                    </label>
+                    <label>
+                      조커 공격
+                      <select value={onecardJokerDrawCount} onChange={(event) => setOnecardJokerDrawCount(event.target.value)}>
+                        <option value="5">5장</option>
+                        <option value="7">7장</option>
+                        <option value="10">10장</option>
+                      </select>
+                    </label>
+                    <label>
+                      공격 누적
+                      <select value={onecardStacking} onChange={(event) => setOnecardStacking(event.target.value)}>
+                        <option value="on">허용</option>
+                        <option value="off">없음</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button
+                    className="wide-button"
+                    onClick={() =>
+                      voteRoomRules(
+                        currentRoom.id,
+                        {
+                          attackCards: onecardAttackCards,
+                          defenseMode: onecardDefenseMode,
+                          jokerDrawCount: onecardJokerDrawCount,
+                          stacking: onecardStacking
+                        },
+                        setCurrentRoom,
+                        setRoomMessage
+                      )
+                    }
+                  >
+                    룰 투표
+                    <ChevronRight size={18} />
+                  </button>
+                  {currentRoom.ruleMessages?.length ? (
+                    <div className="rule-message-list">
+                      {currentRoom.ruleMessages.map((message) => (
+                        <span key={message}>{message}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="room-helper">투표 변경 시 Ready가 해제됩니다. 동률은 시작 시 랜덤으로 정해집니다.</p>
+                  )}
                 </div>
               ) : null}
               {currentRoom ? (
@@ -1884,8 +1990,15 @@ export function App() {
                         <div className="werewolf-panel">
                           <strong>{onecardTopCard ? standardCardLabel(onecardTopCard) : "버린 카드 대기"}</strong>
                           <span>
-                            더미 {currentSession.state.drawPile?.length ?? 0}장 · 내 손패 {onecardMe?.hand?.length ?? 0}장
+                            더미 {currentSession.state.drawPile?.length ?? 0}장 · 내 손패 {onecardMe?.hand?.length ?? 0}장 · 공격 누적{" "}
+                            {currentSession.state.pendingDraw ?? 0}장
                           </span>
+                        </div>
+                        <div className="rule-message-list">
+                          <span>{onecardRuleSummary(currentSession.state.rules)}</span>
+                          {currentSession.state.ruleMessages?.map((message) => (
+                            <span key={message}>{message}</span>
+                          ))}
                         </div>
                         <div className="standard-hand" aria-label="내 원카드 손패">
                           {(onecardMe?.hand ?? []).map((card) => (
@@ -2807,6 +2920,9 @@ function normalizeRoom(room: Room): Room {
       user: normalizeUserRef(spectator.user, `Spectator_${index + 1}`)
     })),
     playingPlayerIds: room.playingPlayerIds ?? [],
+    ruleVotes: room.ruleVotes ?? [],
+    gameRules: room.gameRules ?? {},
+    ruleMessages: room.ruleMessages ?? [],
     options: {
       turnSeconds: room.options?.turnSeconds ?? 60,
       maxWaitSeconds: room.options?.maxWaitSeconds ?? 180,
@@ -3052,6 +3168,30 @@ async function updateRoomOptions(
     );
   } catch {
     onMessage("방장만 옵션을 바꿀 수 있습니다.");
+  }
+}
+
+async function voteRoomRules(
+  roomID: string,
+  choices: Record<string, string>,
+  onRoom: (room: Room) => void,
+  onMessage: (message: string) => void
+) {
+  const session = readPlayerSession();
+  if (!session) {
+    onMessage("게스트 세션을 준비하는 중입니다.");
+    return;
+  }
+
+  try {
+    const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/rules/vote`, session.sessionToken, {
+      method: "POST",
+      body: JSON.stringify({ choices })
+    });
+    onRoom(normalizeRoom(data.room));
+    onMessage("원카드 룰 투표를 반영했습니다. Ready가 해제됩니다.");
+  } catch {
+    onMessage("로비 참가자만 원카드 룰에 투표할 수 있습니다.");
   }
 }
 
@@ -3342,6 +3482,29 @@ function davinciTileLabel(tile: DavinciTile) {
   if (tile.color === "hidden") return "?";
   if (tile.joker) return "-";
   return tile.value >= 0 ? String(tile.value) : "?";
+}
+
+function onecardRuleSummary(rules: OneCardRules | undefined) {
+  if (!rules) return "원카드 기본 룰";
+  return `공격 ${onecardAttackLabel(rules.attackCards)} · 방어 ${onecardDefenseLabel(
+    rules.defenseMode
+  )} · 조커 ${rules.jokerDrawCount ?? 5}장 · 누적 ${rules.stacking === false ? "없음" : "허용"}`;
+}
+
+function onecardAttackLabel(cards: string[] | undefined) {
+  const value = (cards ?? []).join("/");
+  if (value === "2") return "2만";
+  if (value === "2/A") return "2/A";
+  return "2/A/조커";
+}
+
+function onecardDefenseLabel(mode: string | undefined) {
+  const labels: Record<string, string> = {
+    "same-rank": "같은 공격카드만",
+    "any-attack": "공격카드",
+    "attack-or-joker": "공격카드/조커"
+  };
+  return labels[mode ?? "attack-or-joker"] ?? "공격카드/조커";
 }
 
 function fruitLabel(fruit: string) {

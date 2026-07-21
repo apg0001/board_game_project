@@ -34,6 +34,12 @@ type Spectator struct {
 	JoinedAt time.Time        `json:"joinedAt"`
 }
 
+type RuleVote struct {
+	UserID    string            `json:"userId"`
+	Choices   map[string]string `json:"choices"`
+	CreatedAt time.Time         `json:"createdAt"`
+}
+
 type Options struct {
 	TurnSeconds     int  `json:"turnSeconds"`
 	MaxWaitSeconds  int  `json:"maxWaitSeconds"`
@@ -42,20 +48,23 @@ type Options struct {
 }
 
 type Room struct {
-	ID               string        `json:"id"`
-	Code             string        `json:"code"`
-	GameID           string        `json:"gameId"`
-	Visibility       Visibility    `json:"visibility"`
-	Status           Status        `json:"status"`
-	ActiveSessionID  string        `json:"activeSessionId,omitempty"`
-	PlayingPlayerIDs []string      `json:"playingPlayerIds,omitempty"`
-	MaxPlayers       int           `json:"maxPlayers"`
-	HostUserID       string        `json:"hostUserId"`
-	Participants     []Participant `json:"participants"`
-	Spectators       []Spectator   `json:"spectators"`
-	Options          Options       `json:"options"`
-	CreatedAt        time.Time     `json:"createdAt"`
-	UpdatedAt        time.Time     `json:"updatedAt"`
+	ID               string         `json:"id"`
+	Code             string         `json:"code"`
+	GameID           string         `json:"gameId"`
+	Visibility       Visibility     `json:"visibility"`
+	Status           Status         `json:"status"`
+	ActiveSessionID  string         `json:"activeSessionId,omitempty"`
+	PlayingPlayerIDs []string       `json:"playingPlayerIds,omitempty"`
+	MaxPlayers       int            `json:"maxPlayers"`
+	HostUserID       string         `json:"hostUserId"`
+	Participants     []Participant  `json:"participants"`
+	Spectators       []Spectator    `json:"spectators"`
+	Options          Options        `json:"options"`
+	RuleVotes        []RuleVote     `json:"ruleVotes,omitempty"`
+	GameRules        map[string]any `json:"gameRules,omitempty"`
+	RuleMessages     []string       `json:"ruleMessages,omitempty"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
 }
 
 func (r Room) IsFull() bool {

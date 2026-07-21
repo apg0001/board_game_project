@@ -276,12 +276,9 @@ func (h Handler) setReady(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if updated.Options.AutoStart && updated.Status == room.StatusLobby && allParticipantsReady(updated.Participants) {
-		if created, startErr := h.sessions.StartWithPlayers(updated, nil); startErr == nil {
-			playingIDs := participantIDs(updated.Participants)
-			if playingRoom, roomErr := h.rooms.SetPlaying(updated.ID, created.ID, playingIDs); roomErr == nil {
-				updated = playingRoom
-				h.publishGameUpdated(created)
-			}
+		if playingRoom, created, startErr := h.startRoomSession(updated, nil); startErr == nil {
+			updated = playingRoom
+			h.publishGameUpdated(created)
 		}
 	}
 
@@ -363,6 +360,29 @@ func (h Handler) updateRoomOptions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update options"})
 		return
 	}
+	h.publishRoomUpdated(updated)
+	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
+func (h Handler) voteRoomRules(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireGuest(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Choices map[string]string `json:"choices"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid rule vote payload"})
+		return
+	}
+
+	updated, err := h.rooms.VoteRules(r.PathValue("roomID"), user.ID, body.Choices)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "cannot vote rules in this room"})
+		return
+	}
+
 	h.publishRoomUpdated(updated)
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
 }
@@ -449,23 +469,13 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.sessions.StartWithPlayers(found, body.PlayerIDs)
+	updatedRoom, created, err := h.startRoomSession(found, body.PlayerIDs)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, session.ErrRoomNotReady) || errors.Is(err, session.ErrRoomOverCapacity) || errors.Is(err, session.ErrGameNotRegistered) {
 			status = http.StatusConflict
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
-		return
-	}
-
-	playingIDs := body.PlayerIDs
-	if len(playingIDs) == 0 {
-		playingIDs = participantIDs(found.Participants)
-	}
-	updatedRoom, err := h.rooms.SetPlaying(found.ID, created.ID, playingIDs)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update room status"})
 		return
 	}
 
@@ -478,6 +488,31 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 	h.publishRoomUpdated(updatedRoom)
 	h.publishGameUpdated(created)
 	writeJSON(w, http.StatusCreated, map[string]any{"session": publicSession, "room": updatedRoom})
+}
+
+func (h Handler) startRoomSession(found room.Room, playerIDs []string) (room.Room, session.Session, error) {
+	resolution := h.sessions.ResolveRuleOptions(found)
+	if len(resolution.Options) > 0 || len(resolution.Announcements) > 0 {
+		updated, err := h.rooms.SetRuleResolution(found.ID, resolution.Options, resolution.Announcements)
+		if err != nil {
+			return room.Room{}, session.Session{}, err
+		}
+		found = updated
+	}
+
+	created, err := h.sessions.StartWithPlayers(found, playerIDs)
+	if err != nil {
+		return room.Room{}, session.Session{}, err
+	}
+	playingIDs := playerIDs
+	if len(playingIDs) == 0 {
+		playingIDs = participantIDs(found.Participants)
+	}
+	updatedRoom, err := h.rooms.SetPlaying(found.ID, created.ID, playingIDs)
+	if err != nil {
+		return room.Room{}, session.Session{}, err
+	}
+	return updatedRoom, created, nil
 }
 
 func (h Handler) returnRoomToLobby(w http.ResponseWriter, r *http.Request) {

@@ -25,6 +25,20 @@ type Context struct {
 	RandomSeed string
 }
 
+type RuleVote struct {
+	UserID  string            `json:"userId"`
+	Choices map[string]string `json:"choices"`
+}
+
+type RuleResolution struct {
+	Options       map[string]any `json:"options"`
+	Announcements []string       `json:"announcements"`
+}
+
+type RuleResolver interface {
+	ResolveRules(votes []RuleVote, seed string) RuleResolution
+}
+
 type Action struct {
 	Type            string    `json:"type"`
 	PlayerID        PlayerID  `json:"playerId"`
