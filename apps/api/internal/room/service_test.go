@@ -82,7 +82,7 @@ func TestReturnToLobbyClearsReadyAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	playing, err := service.SetPlaying(created.ID, "session_1")
+	playing, err := service.SetPlaying(created.ID, "session_1", []string{"u1"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -34,14 +34,26 @@ func NewService(store Store, registry *gamecore.Registry, clock Clock) *Service 
 }
 
 func (s *Service) Start(room room.Room) (Session, error) {
+	return s.StartWithPlayers(room, nil)
+}
+
+func (s *Service) StartWithPlayers(room room.Room, playerIDs []string) (Session, error) {
 	module, ok := s.registry.Find(gamecore.GameID(room.GameID))
 	if !ok {
 		return Session{}, ErrGameNotRegistered
 	}
-	if len(room.Participants) > module.MaxPlayers() {
+	startRoom := room
+	if len(playerIDs) > 0 {
+		var ok bool
+		startRoom, ok = roomWithSelectedPlayers(room, playerIDs)
+		if !ok {
+			return Session{}, ErrRoomNotReady
+		}
+	}
+	if len(startRoom.Participants) > module.MaxPlayers() {
 		return Session{}, ErrRoomOverCapacity
 	}
-	if !canStart(room, module) {
+	if !canStart(startRoom, module) {
 		return Session{}, ErrRoomNotReady
 	}
 
@@ -50,7 +62,7 @@ func (s *Service) Start(room room.Room) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	gameCtx := contextFromRoom(room, now)
+	gameCtx := contextFromRoom(startRoom, now)
 	created := Session{
 		ID:        "session_" + id,
 		RoomID:    room.ID,
@@ -65,6 +77,31 @@ func (s *Service) Start(room room.Room) (Session, error) {
 		return Session{}, err
 	}
 	return created, nil
+}
+
+func roomWithSelectedPlayers(source room.Room, playerIDs []string) (room.Room, bool) {
+	seen := map[string]struct{}{}
+	selected := make([]room.Participant, 0, len(playerIDs))
+	for _, playerID := range playerIDs {
+		if _, exists := seen[playerID]; exists {
+			return room.Room{}, false
+		}
+		seen[playerID] = struct{}{}
+		for _, participant := range source.Participants {
+			if participant.User.ID == playerID {
+				selected = append(selected, participant)
+				break
+			}
+		}
+	}
+	if len(selected) != len(playerIDs) {
+		return room.Room{}, false
+	}
+	for index := range selected {
+		selected[index].SeatIndex = index
+	}
+	source.Participants = selected
+	return source, true
 }
 
 func (s *Service) FindByID(id string) (Session, error) {

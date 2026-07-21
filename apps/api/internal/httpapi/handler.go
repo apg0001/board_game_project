@@ -342,6 +342,12 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var body struct {
+		PlayerIDs []string `json:"playerIds"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
 
 	found, err := h.rooms.FindByID(r.PathValue("roomID"))
 	if err != nil {
@@ -353,7 +359,7 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.sessions.Start(found)
+	created, err := h.sessions.StartWithPlayers(found, body.PlayerIDs)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, session.ErrRoomNotReady) || errors.Is(err, session.ErrRoomOverCapacity) || errors.Is(err, session.ErrGameNotRegistered) {
@@ -363,7 +369,11 @@ func (h Handler) startGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedRoom, err := h.rooms.SetPlaying(found.ID, created.ID)
+	playingIDs := body.PlayerIDs
+	if len(playingIDs) == 0 {
+		playingIDs = participantIDs(found.Participants)
+	}
+	updatedRoom, err := h.rooms.SetPlaying(found.ID, created.ID, playingIDs)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update room status"})
 		return
@@ -752,6 +762,14 @@ func bearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(token)
+}
+
+func participantIDs(participants []room.Participant) []string {
+	ids := make([]string, 0, len(participants))
+	for _, participant := range participants {
+		ids = append(ids, participant.User.ID)
+	}
+	return ids
 }
 
 func (h Handler) requireGuest(w http.ResponseWriter, r *http.Request) (guest.User, bool) {

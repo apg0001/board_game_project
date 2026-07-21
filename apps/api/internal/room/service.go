@@ -168,7 +168,7 @@ func (s *Service) SetStatus(roomID string, status Status) (Room, error) {
 	return room, s.store.Save(room)
 }
 
-func (s *Service) SetPlaying(roomID string, sessionID string) (Room, error) {
+func (s *Service) SetPlaying(roomID string, sessionID string, playerIDs []string) (Room, error) {
 	room, err := s.store.FindByID(roomID)
 	if err != nil {
 		return Room{}, err
@@ -176,6 +176,7 @@ func (s *Service) SetPlaying(roomID string, sessionID string) (Room, error) {
 
 	room.Status = StatusPlaying
 	room.ActiveSessionID = sessionID
+	room.PlayingPlayerIDs = append([]string(nil), playerIDs...)
 	room.UpdatedAt = s.clock().UTC()
 	return room, s.store.Save(room)
 }
@@ -188,6 +189,7 @@ func (s *Service) ReturnToLobby(roomID string) (Room, error) {
 
 	room.Status = StatusLobby
 	room.ActiveSessionID = ""
+	room.PlayingPlayerIDs = nil
 	for index := range room.Participants {
 		room.Participants[index].Ready = false
 	}

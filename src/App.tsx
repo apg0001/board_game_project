@@ -214,6 +214,7 @@ interface Room {
   gameId: string;
   status: "LOBBY" | "PLAYING" | "FINISHED" | "CLOSED";
   activeSessionId?: string;
+  playingPlayerIds?: string[];
   maxPlayers: number;
   spectators: RoomSpectator[];
   options: {
@@ -417,6 +418,7 @@ export function App() {
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
 
   useEffect(() => {
     const apiURL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -595,6 +597,20 @@ export function App() {
   }, [selectedGameId]);
 
   useEffect(() => {
+    if (!currentRoom) {
+      setSelectedPlayerIds([]);
+      return;
+    }
+    const game = games.find((item) => item.id === currentRoom.gameId) ?? games[4];
+    const participantIDs = currentRoom.participants.map((participant) => participant.user.id);
+    setSelectedPlayerIds((current) => {
+      const valid = current.filter((id) => participantIDs.includes(id));
+      if (valid.length > 0) return valid.slice(0, game.maxPlayers);
+      return participantIDs.slice(0, game.maxPlayers);
+    });
+  }, [currentRoom?.id, currentRoom?.gameId, currentRoom?.participants]);
+
+  useEffect(() => {
     if (!currentRoom?.activeSessionId || !guestSession) return;
     if (currentSession?.id === currentRoom.activeSessionId) return;
 
@@ -659,10 +675,15 @@ export function App() {
   const currentTurnPlayer = davinciPlayers[currentSession?.state.currentPlayerIndex ?? 0];
   const isMyTurn = currentTurnPlayer?.playerId === guestSession?.user.id;
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
-  const everyoneReady = partyMembers.length > 0 && partyMembers.every((participant) => participant.ready);
+  const selectedRoomGame = games.find((game) => game.id === currentRoom?.gameId) ?? selectedGame;
+  const selectedPlayerSet = new Set(selectedPlayerIds);
+  const selectedPlayers = partyMembers.filter((participant) => selectedPlayerSet.has(participant.user.id));
+  const selectedReady = selectedPlayers.length > 0 && selectedPlayers.every((participant) => participant.ready);
+  const selectedCountValid =
+    selectedPlayers.length >= selectedRoomGame.minPlayers && selectedPlayers.length <= selectedRoomGame.maxPlayers;
   const readyCount = partyMembers.filter((participant) => participant.ready).length;
   const amHost = Boolean(me?.host);
-  const canStartGame = Boolean(currentRoom && amHost && everyoneReady && currentRoom.status === "LOBBY");
+  const canStartGame = Boolean(currentRoom && amHost && selectedReady && selectedCountValid && currentRoom.status === "LOBBY");
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
   const splendorColors = ["white", "blue", "green", "red", "black"];
   const splendorMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
@@ -775,6 +796,9 @@ export function App() {
                       {participant.host ? "방장" : participant.ready ? "준비 완료" : "대기 중"}
                       {" · "}
                       {presenceByUser[participant.user.id]?.status === "DISCONNECTED" ? "재접속 대기" : "온라인"}
+                      {currentRoom?.status === "PLAYING" && !currentRoom.playingPlayerIds?.includes(participant.user.id)
+                        ? " · 이번 판 관전"
+                        : ""}
                     </small>
                     {currentRoom && amHost && participant.user.id !== guestSession?.user.id ? (
                       <div className="member-actions">
@@ -894,11 +918,47 @@ export function App() {
                 </button>
               ) : null}
               {currentRoom ? (
+                <div className="player-selection-panel">
+                  <div>
+                    <strong>이번 판 플레이어</strong>
+                    <span>
+                      {selectedPlayers.length}/{selectedRoomGame.maxPlayers}명 선택 · 최소 {selectedRoomGame.minPlayers}명
+                    </span>
+                  </div>
+                  <div className="player-selection-grid">
+                    {partyMembers.map((participant) => {
+                      const checked = selectedPlayerIds.includes(participant.user.id);
+                      const locked = !checked && selectedPlayerIds.length >= selectedRoomGame.maxPlayers;
+                      return (
+                        <label className="player-select-chip" key={participant.user.id}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!amHost || currentRoom.status !== "LOBBY" || locked}
+                            onChange={(event) =>
+                              setSelectedPlayerIds((current) =>
+                                event.target.checked
+                                  ? [...current, participant.user.id].slice(0, selectedRoomGame.maxPlayers)
+                                  : current.filter((id) => id !== participant.user.id)
+                              )
+                            }
+                          />
+                          <span>{participant.user.nickname}</span>
+                          <small>{participant.ready ? "Ready" : "대기"}</small>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {currentRoom ? (
                 <button
                   className="wide-button play-now"
-                  onClick={() => startGame(currentRoom.id, setCurrentRoom, setCurrentSession, setRoomMessage)}
+                  onClick={() =>
+                    startGame(currentRoom.id, selectedPlayerIds, setCurrentRoom, setCurrentSession, setRoomMessage)
+                  }
                   disabled={!canStartGame}
-                  title={canStartGame ? "게임 시작" : "방장이고 모든 참가자가 Ready여야 시작할 수 있습니다."}
+                  title={canStartGame ? "게임 시작" : "방장이 이번 판 플레이어를 고르고 선택된 플레이어가 Ready여야 시작할 수 있습니다."}
                 >
                   게임 시작
                   <ChevronRight size={18} />
@@ -925,13 +985,14 @@ export function App() {
             <p className="room-message">{roomMessage}</p>
             {currentRoom ? (
               <p className="room-message">
-                {currentRoom.gameId} · {currentRoom.participants.length}/{currentRoom.maxPlayers}명 · 관전{" "}
+                {currentRoom.gameId} · 로비 {currentRoom.participants.length}/{currentRoom.maxPlayers}명 · 이번 판{" "}
+                {selectedPlayers.length}/{selectedRoomGame.maxPlayers}명 · 관전{" "}
                 {currentRoom.spectators?.length ?? 0}명 · 턴 {currentRoom.options?.turnSeconds ?? 60}초
               </p>
             ) : null}
             {currentRoom ? (
               <p className="room-message">
-                시작 조건: {selectedGame.minPlayers}-{selectedGame.maxPlayers}명 · 전원 Ready · 방장 시작
+                시작 조건: {selectedRoomGame.minPlayers}-{selectedRoomGame.maxPlayers}명 선택 · 선택 플레이어 Ready · 방장 시작
               </p>
             ) : null}
           </div>
@@ -2248,7 +2309,7 @@ async function createRoom(
     const game = games.find((item) => item.id === gameId);
     const data = await authorizedJSON<{ room: Room }>("/api/rooms", session.sessionToken, {
       method: "POST",
-      body: JSON.stringify({ gameId, maxPlayers: game?.maxPlayers ?? 4 })
+      body: JSON.stringify({ gameId, maxPlayers: Math.max(game?.maxPlayers ?? 4, 12) })
     });
     onRoom(data.room);
     onMessage(`${data.room.code} 코드를 친구에게 공유하세요.`);
@@ -2488,6 +2549,7 @@ async function setReady(
 
 async function startGame(
   roomID: string,
+  playerIds: string[],
   onRoom: (room: Room) => void,
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void
@@ -2502,13 +2564,16 @@ async function startGame(
     const data = await authorizedJSON<{ room: Room; session: GameSession }>(
       `/api/rooms/${roomID}/start`,
       session.sessionToken,
-      { method: "POST" }
+      {
+        method: "POST",
+        body: JSON.stringify({ playerIds })
+      }
     );
     onRoom(data.room);
     onSession(data.session);
-    onMessage("게임을 시작했습니다.");
+    onMessage("선택된 플레이어로 게임을 시작했습니다.");
   } catch {
-    onMessage("모든 참가자가 Ready 상태인지 확인해주세요.");
+    onMessage("선택 인원과 Ready 상태를 확인해주세요.");
   }
 }
 

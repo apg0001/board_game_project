@@ -33,6 +33,31 @@ func TestStartRejectsPlayersOverGameCapacity(t *testing.T) {
 	}
 }
 
+func TestStartWithPlayersAllowsSelectedPlayersUnderCapacity(t *testing.T) {
+	service := NewService(NewMemoryStore(), gamecore.NewRegistry(gostop.NewModule()), func() time.Time {
+		return time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC)
+	})
+	testRoom := room.Room{
+		ID:         "room_1",
+		GameID:     "gostop",
+		MaxPlayers: 8,
+		Participants: []room.Participant{
+			{User: testUser("u1"), Ready: true},
+			{User: testUser("u2"), Ready: true},
+			{User: testUser("u3"), Ready: true},
+			{User: testUser("u4"), Ready: false},
+		},
+	}
+
+	created, err := service.StartWithPlayers(testRoom, []string{"u1", "u2", "u3"})
+	if err != nil {
+		t.Fatalf("expected selected players to start, got %v", err)
+	}
+	if created.GameID != "gostop" {
+		t.Fatalf("expected gostop session, got %s", created.GameID)
+	}
+}
+
 func testUser(id string) guest.PublicUser {
 	return guest.PublicUser{ID: id, Nickname: id}
 }
