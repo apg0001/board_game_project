@@ -59,10 +59,12 @@ func (db *Postgres) Migrate(ctx context.Context) error {
 			id text primary key,
 			username text not null unique,
 			nickname text not null,
+			role text not null default 'USER',
 			created_at timestamptz not null,
 			salt text not null,
 			password_hash text not null
 		)`,
+		`alter table app_users add column if not exists role text not null default 'USER'`,
 		`create table if not exists auth_sessions (
 			token text primary key,
 			user_id text not null references app_users(id) on delete cascade,

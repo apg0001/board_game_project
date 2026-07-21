@@ -12,6 +12,9 @@ func TestRegisterLoginAndMe(t *testing.T) {
 	if created.Username != "alice" || token == "" {
 		t.Fatalf("unexpected register result: %+v %s", created, token)
 	}
+	if created.Role != "USER" {
+		t.Fatalf("expected user role, got %s", created.Role)
+	}
 
 	loggedIn, loginToken, err := service.Login("alice", "secret")
 	if err != nil {
@@ -24,6 +27,26 @@ func TestRegisterLoginAndMe(t *testing.T) {
 	me, ok := service.Me(loginToken)
 	if !ok || me.ID != created.ID {
 		t.Fatal("expected session lookup")
+	}
+}
+
+func TestEnsureAdmin(t *testing.T) {
+	service := NewService(nil)
+
+	admin, err := service.EnsureAdmin("ccl7103", "ccl7103!", "관리자")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admin.Username != "ccl7103" || admin.Role != "ADMIN" {
+		t.Fatalf("unexpected admin user: %+v", admin)
+	}
+
+	loggedIn, token, err := service.Login("ccl7103", "ccl7103!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token == "" || loggedIn.Role != "ADMIN" {
+		t.Fatalf("expected admin login, got %+v %s", loggedIn, token)
 	}
 }
 

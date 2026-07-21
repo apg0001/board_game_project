@@ -18,13 +18,13 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 
 func (s *PostgresStore) FindAccountByUsername(username string) (Account, bool) {
 	row := s.pool.QueryRow(context.Background(), `
-		select id, username, nickname, created_at, salt, password_hash
+		select id, username, nickname, role, created_at, salt, password_hash
 		from app_users
 		where username = $1
 	`, username)
 
 	var account Account
-	if err := row.Scan(&account.ID, &account.Username, &account.Nickname, &account.CreatedAt, &account.Salt, &account.PasswordHash); err != nil {
+	if err := row.Scan(&account.ID, &account.Username, &account.Nickname, &account.Role, &account.CreatedAt, &account.Salt, &account.PasswordHash); err != nil {
 		return Account{}, false
 	}
 	return account, true
@@ -32,9 +32,14 @@ func (s *PostgresStore) FindAccountByUsername(username string) (Account, bool) {
 
 func (s *PostgresStore) SaveAccount(account Account) error {
 	_, err := s.pool.Exec(context.Background(), `
-		insert into app_users (id, username, nickname, created_at, salt, password_hash)
-		values ($1, $2, $3, $4, $5, $6)
-	`, account.ID, account.Username, account.Nickname, account.CreatedAt, account.Salt, account.PasswordHash)
+		insert into app_users (id, username, nickname, role, created_at, salt, password_hash)
+		values ($1, $2, $3, $4, $5, $6, $7)
+		on conflict (username) do update set
+			nickname = excluded.nickname,
+			role = excluded.role,
+			salt = excluded.salt,
+			password_hash = excluded.password_hash
+	`, account.ID, account.Username, account.Nickname, account.Role, account.CreatedAt, account.Salt, account.PasswordHash)
 	return err
 }
 
@@ -49,14 +54,14 @@ func (s *PostgresStore) SaveSession(token string, user User) error {
 
 func (s *PostgresStore) FindSession(token string) (User, bool) {
 	row := s.pool.QueryRow(context.Background(), `
-		select u.id, u.username, u.nickname, u.created_at
+		select u.id, u.username, u.nickname, u.role, u.created_at
 		from auth_sessions s
 		join app_users u on u.id = s.user_id
 		where s.token = $1
 	`, token)
 
 	var user User
-	if err := row.Scan(&user.ID, &user.Username, &user.Nickname, &user.CreatedAt); err != nil {
+	if err := row.Scan(&user.ID, &user.Username, &user.Nickname, &user.Role, &user.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return User{}, false
 		}
