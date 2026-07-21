@@ -23,6 +23,7 @@
 - [우선순위 로드맵](docs/priority-roadmap.md)
 - [우선순위 체크리스트](docs/checklist.md)
 - [게임 규칙 준수 감사표](docs/rules-compliance.md)
+- [공식/표준 게임 설명서](docs/official-rulebooks.md)
 
 ## 실행
 
