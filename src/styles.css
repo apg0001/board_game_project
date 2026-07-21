@@ -659,13 +659,28 @@ h1 {
   font-weight: 900;
 }
 
-.option-row {
+.option-row,
+.option-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 64px;
   gap: 8px;
 }
 
-.option-row label {
+.room-options-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 248, 232, 0.58);
+}
+
+.option-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.option-row label,
+.option-grid label {
   display: grid;
   gap: 4px;
   color: #68727e;
@@ -674,7 +689,8 @@ h1 {
 }
 
 .option-row input,
-.option-row button {
+.option-row button,
+.option-grid input {
   min-height: 38px;
   border: 1px solid rgba(23, 33, 43, 0.12);
   border-radius: 12px;
@@ -687,6 +703,21 @@ h1 {
   color: #fff8e8;
   background: #17212b;
   font-weight: 850;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #17212b;
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2f8e74;
 }
 
 .player-selection-panel {

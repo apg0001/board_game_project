@@ -29,7 +29,10 @@ type Spectator struct {
 }
 
 type Options struct {
-	TurnSeconds int `json:"turnSeconds"`
+	TurnSeconds     int  `json:"turnSeconds"`
+	MaxWaitSeconds  int  `json:"maxWaitSeconds"`
+	AutoStart       bool `json:"autoStart"`
+	AllowSpectators bool `json:"allowSpectators"`
 }
 
 type Room struct {

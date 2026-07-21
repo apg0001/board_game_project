@@ -15,6 +15,7 @@ import (
 var (
 	ErrRoomFull        = errors.New("room is full")
 	ErrRoomNotJoinable = errors.New("room is not joinable")
+	ErrSpectatorClosed = errors.New("spectator mode is disabled")
 )
 
 type Clock func() time.Time
@@ -57,7 +58,10 @@ func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (
 		MaxPlayers: maxPlayers,
 		HostUserID: host.ID,
 		Options: Options{
-			TurnSeconds: 60,
+			TurnSeconds:     60,
+			MaxWaitSeconds:  180,
+			AutoStart:       false,
+			AllowSpectators: true,
 		},
 		Participants: []Participant{{
 			User:      host,
@@ -85,24 +89,36 @@ func (s *Service) JoinSpectator(roomID string, user guest.PublicUser) (Room, err
 	if room.HasParticipant(user.ID) || room.HasSpectator(user.ID) {
 		return room, nil
 	}
+	if !room.Options.AllowSpectators {
+		return Room{}, ErrSpectatorClosed
+	}
 
 	room.Spectators = append(room.Spectators, Spectator{User: user, JoinedAt: s.clock().UTC()})
 	room.UpdatedAt = s.clock().UTC()
 	return room, s.store.Save(room)
 }
 
-func (s *Service) UpdateOptions(roomID string, turnSeconds int) (Room, error) {
+func (s *Service) UpdateOptions(roomID string, options Options) (Room, error) {
 	room, err := s.store.FindByID(roomID)
 	if err != nil {
 		return Room{}, err
 	}
-	if turnSeconds < 10 {
-		turnSeconds = 10
+	if options.TurnSeconds < 10 {
+		options.TurnSeconds = 10
 	}
-	if turnSeconds > 300 {
-		turnSeconds = 300
+	if options.TurnSeconds > 300 {
+		options.TurnSeconds = 300
 	}
-	room.Options.TurnSeconds = turnSeconds
+	if options.MaxWaitSeconds < 30 {
+		options.MaxWaitSeconds = 30
+	}
+	if options.MaxWaitSeconds > 1800 {
+		options.MaxWaitSeconds = 1800
+	}
+	room.Options.TurnSeconds = options.TurnSeconds
+	room.Options.MaxWaitSeconds = options.MaxWaitSeconds
+	room.Options.AutoStart = options.AutoStart
+	room.Options.AllowSpectators = options.AllowSpectators
 	room.UpdatedAt = s.clock().UTC()
 	return room, s.store.Save(room)
 }

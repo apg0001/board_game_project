@@ -301,6 +301,7 @@ func TestSpectateAndUpdateRoomOptions(t *testing.T) {
 	handler := testRouter()
 	hostToken := createGuestToken(t, handler)
 	spectatorToken := createGuestToken(t, handler)
+	blockedSpectatorToken := createGuestToken(t, handler)
 
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"gameId":"davinci","maxPlayers":4}`))
 	createRequest.Header.Set("Authorization", "Bearer "+hostToken)
@@ -322,12 +323,91 @@ func TestSpectateAndUpdateRoomOptions(t *testing.T) {
 		t.Fatalf("expected 200, got %d", spectateResponse.Code)
 	}
 
-	optionsRequest := httptest.NewRequest(http.MethodPatch, "/api/rooms/"+createBody.Room.ID+"/options", bytes.NewBufferString(`{"turnSeconds":45}`))
+	optionsRequest := httptest.NewRequest(http.MethodPatch, "/api/rooms/"+createBody.Room.ID+"/options", bytes.NewBufferString(`{"turnSeconds":45,"maxWaitSeconds":240,"autoStart":true,"allowSpectators":false}`))
 	optionsRequest.Header.Set("Authorization", "Bearer "+hostToken)
 	optionsResponse := httptest.NewRecorder()
 	handler.ServeHTTP(optionsResponse, optionsRequest)
 	if optionsResponse.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", optionsResponse.Code)
+	}
+	var optionsBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(optionsResponse.Body).Decode(&optionsBody); err != nil {
+		t.Fatal(err)
+	}
+	if optionsBody.Room.Options.TurnSeconds != 45 || optionsBody.Room.Options.MaxWaitSeconds != 240 {
+		t.Fatalf("unexpected options: %+v", optionsBody.Room.Options)
+	}
+	if !optionsBody.Room.Options.AutoStart || optionsBody.Room.Options.AllowSpectators {
+		t.Fatalf("unexpected boolean options: %+v", optionsBody.Room.Options)
+	}
+
+	blockedSpectateRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createBody.Room.ID+"/spectate", nil)
+	blockedSpectateRequest.Header.Set("Authorization", "Bearer "+spectatorToken)
+	blockedSpectateResponse := httptest.NewRecorder()
+	handler.ServeHTTP(blockedSpectateResponse, blockedSpectateRequest)
+	if blockedSpectateResponse.Code != http.StatusOK {
+		t.Fatalf("existing spectator should remain in room, got %d", blockedSpectateResponse.Code)
+	}
+
+	newSpectateRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+createBody.Room.ID+"/spectate", nil)
+	newSpectateRequest.Header.Set("Authorization", "Bearer "+blockedSpectatorToken)
+	newSpectateResponse := httptest.NewRecorder()
+	handler.ServeHTTP(newSpectateResponse, newSpectateRequest)
+	if newSpectateResponse.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for blocked spectator, got %d", newSpectateResponse.Code)
+	}
+}
+
+func TestAutoStartWhenAllParticipantsReady(t *testing.T) {
+	handler := testRouter()
+	hostToken := createGuestToken(t, handler)
+	guestToken := createGuestToken(t, handler)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"gameId":"davinci","maxPlayers":4}`))
+	createRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+
+	var createBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&createBody); err != nil {
+		t.Fatal(err)
+	}
+
+	optionsRequest := httptest.NewRequest(http.MethodPatch, "/api/rooms/"+createBody.Room.ID+"/options", bytes.NewBufferString(`{"turnSeconds":60,"maxWaitSeconds":180,"autoStart":true,"allowSpectators":true}`))
+	optionsRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	optionsResponse := httptest.NewRecorder()
+	handler.ServeHTTP(optionsResponse, optionsRequest)
+	if optionsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", optionsResponse.Code)
+	}
+
+	joinRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/join", bytes.NewBufferString(`{"code":"`+createBody.Room.Code+`"}`))
+	joinRequest.Header.Set("Authorization", "Bearer "+guestToken)
+	joinResponse := httptest.NewRecorder()
+	handler.ServeHTTP(joinResponse, joinRequest)
+	if joinResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", joinResponse.Code)
+	}
+
+	setReadyForTest(t, handler, createBody.Room.ID, hostToken)
+	setReadyForTest(t, handler, createBody.Room.ID, guestToken)
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/rooms/"+createBody.Room.ID, nil)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+
+	var getBody struct {
+		Room room.Room `json:"room"`
+	}
+	if err := json.NewDecoder(getResponse.Body).Decode(&getBody); err != nil {
+		t.Fatal(err)
+	}
+	if getBody.Room.Status != room.StatusPlaying || getBody.Room.ActiveSessionID == "" {
+		t.Fatalf("expected auto started room, got %+v", getBody.Room)
 	}
 }
 
