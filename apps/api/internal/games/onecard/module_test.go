@@ -113,6 +113,31 @@ func TestPendingAttackCanBeDefendedByConfiguredCard(t *testing.T) {
 	}
 }
 
+func TestAttackOrJokerDefenseAllowsJokerOutsideAttackSet(t *testing.T) {
+	state := State{
+		Rules:       ruleConfigFromOptions(map[string]any{"attackCards": []string{"2"}, "defenseMode": "attack-or-joker"}),
+		PendingDraw: 2,
+		DiscardPile: []Card{{ID: "heart-2", Suit: "heart", Rank: "2"}},
+	}
+	if !canPlay(Card{ID: "joker-black", Suit: "joker", Rank: "JOKER", Joker: true}, state) {
+		t.Fatal("expected joker to defend when defense mode allows attack cards or joker")
+	}
+}
+
+func TestAnyAttackDefenseRequiresConfiguredAttackCard(t *testing.T) {
+	state := State{
+		Rules:       ruleConfigFromOptions(map[string]any{"attackCards": []string{"2"}, "defenseMode": "any-attack"}),
+		PendingDraw: 2,
+		DiscardPile: []Card{{ID: "heart-2", Suit: "heart", Rank: "2"}},
+	}
+	if canPlay(Card{ID: "joker-black", Suit: "joker", Rank: "JOKER", Joker: true}, state) {
+		t.Fatal("expected joker to be rejected when it is not a configured attack card")
+	}
+	if !canPlay(Card{ID: "spade-2", Suit: "spade", Rank: "2"}, state) {
+		t.Fatal("expected configured attack card to defend")
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		GameID: "onecard",

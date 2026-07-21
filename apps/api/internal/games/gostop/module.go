@@ -39,6 +39,7 @@ type State struct {
 	Field              []Card        `json:"field"`
 	Deck               []Card        `json:"deck"`
 	WinnerID           string        `json:"winnerId,omitempty"`
+	AwaitingDecision   bool          `json:"awaitingDecision"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
 }
@@ -111,6 +112,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	}
 	switch action.Type {
 	case ActionPlay:
+		if current.AwaitingDecision {
+			return errors.New("must choose go or stop")
+		}
 		payload, err := playPayload(action.Payload)
 		if err != nil {
 			return err
@@ -122,9 +126,15 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if current.Players[current.CurrentPlayerIndex].Score < 3 {
 			return errors.New("go requires at least 3 points")
 		}
+		if !current.AwaitingDecision {
+			return errors.New("no go decision is pending")
+		}
 	case ActionStop:
 		if current.Players[current.CurrentPlayerIndex].Score < 3 {
 			return errors.New("stop requires at least 3 points")
+		}
+		if !current.AwaitingDecision {
+			return errors.New("no stop decision is pending")
 		}
 	default:
 		return errors.New("unsupported action")
@@ -137,6 +147,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionPlay:
+		previousScore := player.Score
 		payload, err := playPayload(action.Payload)
 		if err != nil {
 			return gamecore.ActionResult{}, err
@@ -154,17 +165,22 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		if len(player.Hand) == 0 || len(current.Deck) == 0 {
 			current.WinnerID = bestPlayer(current).PlayerID
 			current.Finished = true
+		} else if player.Score >= 3 && player.Score > previousScore {
+			current.AwaitingDecision = true
+			current.Log = append(current.Log, player.PlayerID+" 님이 고/스톱을 선택해야 합니다.")
 		}
 	case ActionGo:
 		player.GoCount++
+		current.AwaitingDecision = false
 		current.Log = append(current.Log, player.PlayerID+" 님이 고를 외쳤습니다.")
 	case ActionStop:
+		current.AwaitingDecision = false
 		current.WinnerID = player.PlayerID
 		current.Finished = true
 		current.Log = append(current.Log, player.PlayerID+" 님이 스톱했습니다.")
 	}
-	if !current.Finished && action.Type != ActionGo {
-		current.CurrentPlayerIndex = (current.CurrentPlayerIndex + 1) % len(current.Players)
+	if !current.Finished && !current.AwaitingDecision {
+		current.CurrentPlayerIndex = nextActiveIndex(current, current.CurrentPlayerIndex)
 		current.Round++
 	}
 	return gamecore.ActionResult{
@@ -274,6 +290,16 @@ func bestPlayer(state State) PlayerState {
 		}
 	}
 	return best
+}
+
+func nextActiveIndex(state State, current int) int {
+	for step := 1; step <= len(state.Players); step++ {
+		next := (current + step) % len(state.Players)
+		if state.Players[next].Active {
+			return next
+		}
+	}
+	return current
 }
 
 func playPayload(payload any) (PlayPayload, error) {

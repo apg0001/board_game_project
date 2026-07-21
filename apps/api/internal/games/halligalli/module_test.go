@@ -101,6 +101,24 @@ func TestWrongRingPaysOneCardToEachActiveOpponent(t *testing.T) {
 	}
 }
 
+func TestInactivePlayerCannotRing(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Deck: []Card{}, FaceUp: []Card{}, Active: false},
+			{PlayerID: "p2", Deck: []Card{{Fruit: "lime", Count: 1}}, Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p1",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected inactive player ring to be rejected")
+	}
+}
+
 func TestPublicStateDoesNotMutatePrivateDeck(t *testing.T) {
 	module := NewModule()
 	state := State{Players: []PlayerState{{PlayerID: "p1", Deck: []Card{{Fruit: "banana", Count: 1}}, Active: true}}}

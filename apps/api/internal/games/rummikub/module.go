@@ -112,6 +112,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
+	if !current.Players[current.CurrentPlayerIndex].Active {
+		return errors.New("player is not active")
+	}
 	switch action.Type {
 	case ActionDraw:
 		if len(current.Pool) == 0 {
@@ -167,7 +170,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 	}
 	if !current.Finished {
-		current.CurrentPlayerIndex = (current.CurrentPlayerIndex + 1) % len(current.Players)
+		current.CurrentPlayerIndex = nextActiveIndex(current, current.CurrentPlayerIndex)
 		current.Round++
 	}
 	return gamecore.ActionResult{
@@ -276,7 +279,7 @@ func validRun(tiles []Tile) bool {
 		}
 		gaps += diff - 1
 	}
-	return gaps <= jokers && nonJokers[0].Number-gaps >= 1 && nonJokers[len(nonJokers)-1].Number <= 13
+	return len(tiles) <= 13 && gaps <= jokers && nonJokers[len(nonJokers)-1].Number <= 13
 }
 
 func meldValue(tiles []Tile) int {

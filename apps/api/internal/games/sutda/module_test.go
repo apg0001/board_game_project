@@ -1,6 +1,12 @@
 package sutda
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+
+	"board-game-platform/apps/api/internal/gamecore"
+)
 
 func TestEvaluateRanks(t *testing.T) {
 	rank, name := evaluate([]Card{{Month: 3, Gwang: true}, {Month: 8, Gwang: true}})
@@ -22,5 +28,40 @@ func TestCompareHands(t *testing.T) {
 	right := []Card{{Month: 1}, {Month: 2}}
 	if compare(left, right) <= 0 {
 		t.Fatal("expected jang-ttaeng to beat ali")
+	}
+}
+
+func TestTimeoutCurrentPlayerAdvancesTurn(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{Month: 1}, {Month: 2}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{Month: 3}, {Month: 4}}, Active: true},
+			{PlayerID: "p3", Hand: []Card{{Month: 5}, {Month: 6}}, Active: true},
+		},
+	}
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p1", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if next.CurrentPlayerIndex != 1 || next.Finished {
+		t.Fatalf("expected turn to advance to p2 without finishing, got %+v", next)
+	}
+}
+
+func testContext() gamecore.Context {
+	return gamecore.Context{
+		GameID: "sutda",
+		Players: []gamecore.Player{
+			{ID: "p1", SeatIndex: 0, DisplayName: "P1", Connected: true},
+			{ID: "p2", SeatIndex: 1, DisplayName: "P2", Connected: true},
+			{ID: "p3", SeatIndex: 2, DisplayName: "P3", Connected: true},
+		},
+		Now:        time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC),
+		RandomSeed: "seed",
 	}
 }

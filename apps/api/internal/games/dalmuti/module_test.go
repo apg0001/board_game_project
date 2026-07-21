@@ -55,6 +55,31 @@ func TestJesterCanCompleteSetAsWild(t *testing.T) {
 	}
 }
 
+func TestPlayPayloadAcceptsIntegerNumbers(t *testing.T) {
+	module := NewModule()
+	err := module.ValidateAction(context.Background(), fixedState(), gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"rank": 10, "count": 2},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPublicStateDoesNotMutatePrivateHands(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	public := module.PublicState(state, "p1").(State)
+
+	if len(public.Players[1].Hand) != 0 {
+		t.Fatalf("expected opponent hand to be hidden, got %+v", public.Players[1].Hand)
+	}
+	if len(state.Players[1].Hand) != 2 {
+		t.Fatal("public state must not mutate private hands")
+	}
+}
+
 func fixedState() State {
 	return State{
 		CurrentPlayerIndex: 0,

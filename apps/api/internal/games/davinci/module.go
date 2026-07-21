@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"board-game-platform/apps/api/internal/gamecore"
+	"board-game-platform/apps/api/internal/games/internal/gameutil"
 )
 
 const (
@@ -140,7 +141,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		return errors.New("game has no players")
 	}
 	if action.Type == ActionFinish {
-		return nil
+		return errors.New("manual finish is not allowed")
 	}
 	if current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
@@ -200,8 +201,9 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		current.Log = append(current.Log, string(action.PlayerID)+" 님이 턴을 종료했습니다.")
 		current = advanceTurn(current)
 	case ActionFinish:
-		current.Log = append(current.Log, string(action.PlayerID)+" 님이 게임 종료를 요청했습니다.")
-		current.Finished = true
+		return gamecore.ActionResult{}, errors.New("manual finish is not allowed")
+	default:
+		return gamecore.ActionResult{}, errors.New("unsupported action")
 	}
 
 	current = refreshActivePlayers(current)
@@ -548,20 +550,20 @@ func guessPayload(payload any) (GuessPayload, error) {
 	if value, ok := raw["targetPlayerId"].(string); ok {
 		result.TargetPlayerID = value
 	}
-	if value, ok := raw["tileIndex"].(float64); ok {
-		result.TileIndex = int(value)
+	if value, ok := gameutil.Int(raw["tileIndex"]); ok {
+		result.TileIndex = value
 	}
 	if value, ok := raw["color"].(string); ok {
 		result.Color = value
 	}
-	if value, ok := raw["value"].(float64); ok {
-		result.Value = int(value)
+	if value, ok := gameutil.Int(raw["value"]); ok {
+		result.Value = value
 	}
 	if value, ok := raw["joker"].(bool); ok {
 		result.Joker = value
 	}
-	if value, ok := raw["insertIndex"].(float64); ok {
-		result.InsertIndex = int(value)
+	if value, ok := gameutil.Int(raw["insertIndex"]); ok {
+		result.InsertIndex = value
 	}
 	if result.TargetPlayerID == "" || result.Color == "" {
 		return GuessPayload{}, errors.New("guess target, color and value are required")
@@ -575,8 +577,8 @@ func endTurnPayload(payload any) EndTurnPayload {
 		return EndTurnPayload{InsertIndex: -1}
 	}
 	result := EndTurnPayload{InsertIndex: -1}
-	if value, ok := raw["insertIndex"].(float64); ok {
-		result.InsertIndex = int(value)
+	if value, ok := gameutil.Int(raw["insertIndex"]); ok {
+		result.InsertIndex = value
 	}
 	return result
 }

@@ -144,9 +144,18 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if player.Drawn {
 			return errors.New("already drawn this turn")
 		}
+		if availableDrawCount(current) == 0 {
+			return errors.New("deck is empty")
+		}
 	case ActionEndTurn:
+		if !player.Drawn && availableDrawCount(current) > 0 {
+			return errors.New("must draw before ending turn")
+		}
 		return nil
 	case ActionPlay:
+		if !player.Drawn {
+			return errors.New("must draw before playing cards")
+		}
 		payload, err := playPayload(action.Payload)
 		if err != nil {
 			return err
@@ -175,15 +184,11 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionDraw:
-		drawCount := 2
-		for drawCount > 0 && len(current.Deck) > 0 {
-			player.Hand = append(player.Hand, current.Deck[0])
-			current.Deck = current.Deck[1:]
-			drawCount--
-		}
+		drawn := drawCards(&current, 2)
+		player.Hand = append(player.Hand, drawn...)
 		player.HandSize = len(player.Hand)
 		player.Drawn = true
-		current.Log = append(current.Log, player.PlayerID+" 님이 카드 2장을 뽑았습니다.")
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", player.PlayerID, len(drawn)))
 	case ActionPlay:
 		payload, err := playPayload(action.Payload)
 		if err != nil {
@@ -333,6 +338,38 @@ func winningRole(role string, winner string) bool {
 	default:
 		return false
 	}
+}
+
+func drawCards(state *State, count int) []Card {
+	drawn := make([]Card, 0, count)
+	for len(drawn) < count && availableDrawCount(*state) > 0 {
+		if len(state.Deck) == 0 {
+			recycleDiscard(state)
+		}
+		if len(state.Deck) == 0 {
+			break
+		}
+		drawn = append(drawn, state.Deck[0])
+		state.Deck = state.Deck[1:]
+	}
+	return drawn
+}
+
+func availableDrawCount(state State) int {
+	return len(state.Deck) + len(state.Discard)
+}
+
+func recycleDiscard(state *State) {
+	if len(state.Discard) == 0 {
+		return
+	}
+	recycled := append([]Card(nil), state.Discard...)
+	random := rand.New(rand.NewSource(seedToInt(fmt.Sprintf("discard:%d:%d", len(recycled), len(state.Deck)))))
+	random.Shuffle(len(recycled), func(i, j int) {
+		recycled[i], recycled[j] = recycled[j], recycled[i]
+	})
+	state.Deck = recycled
+	state.Discard = []Card{}
 }
 
 func rolesFor(count int) []string {

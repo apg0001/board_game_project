@@ -1,6 +1,7 @@
 package gostop
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -26,6 +27,66 @@ func TestScoreBrightAndJunk(t *testing.T) {
 	}
 	if score(cards) != 4 {
 		t.Fatalf("expected 4 points, got %d", score(cards))
+	}
+}
+
+func TestScoringPlayWaitsForGoStopDecision(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{
+				PlayerID: "p1",
+				Hand:     []Card{{ID: "8-bright", Month: 8, Kind: "bright"}, {ID: "9-junk", Month: 9, Kind: "junk"}},
+				Captured: []Card{{ID: "1-bright", Kind: "bright"}, {ID: "3-bright", Kind: "bright"}},
+				Active:   true,
+			},
+			{PlayerID: "p2", Hand: []Card{{ID: "2-junk", Month: 2, Kind: "junk"}}, Active: true},
+		},
+		Field: []Card{{ID: "8-junk", Month: 8, Kind: "junk"}},
+		Deck: []Card{
+			{ID: "12-junk", Month: 12, Kind: "junk"},
+			{ID: "11-junk", Month: 11, Kind: "junk"},
+		},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "8-bright"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if !next.AwaitingDecision || next.CurrentPlayerIndex != 0 {
+		t.Fatalf("expected p1 to choose go/stop before turn advances, got %+v", next)
+	}
+}
+
+func TestGoDecisionAdvancesTurn(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		AwaitingDecision:   true,
+		Players: []PlayerState{
+			{PlayerID: "p1", Score: 3, Active: true},
+			{PlayerID: "p2", Score: 0, Active: true},
+		},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionGo,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if next.AwaitingDecision || next.CurrentPlayerIndex != 1 || next.Players[0].GoCount != 1 {
+		t.Fatalf("expected go to clear decision and advance turn, got %+v", next)
 	}
 }
 

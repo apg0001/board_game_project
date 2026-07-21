@@ -128,6 +128,45 @@ func TestCorrectGuessKeepsTurnAndAllowsEndTurn(t *testing.T) {
 	}
 }
 
+func TestGuessPayloadAcceptsIntegerIndexes(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Tiles: []Tile{{Color: "black", Value: 1}}, Active: true},
+			{PlayerID: "p2", Tiles: []Tile{{Color: "white", Value: 4}}, Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionGuess,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"targetPlayerId": "p2",
+			"tileIndex":      0,
+			"color":          "white",
+			"value":          4,
+			"insertIndex":    0,
+		},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManualFinishIsRejected(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	action := gamecore.Action{Type: ActionFinish, PlayerID: "p1"}
+
+	if err := module.ValidateAction(context.Background(), state, action, testContext()); err == nil {
+		t.Fatal("expected manual finish validation to fail")
+	}
+	if _, err := module.ApplyAction(context.Background(), state, action, testContext()); err == nil {
+		t.Fatal("expected manual finish apply to fail")
+	}
+}
+
 func TestCorrectJokerGuessRevealsDash(t *testing.T) {
 	module := NewModule()
 	state := State{

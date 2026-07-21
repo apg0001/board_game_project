@@ -59,6 +59,55 @@ func TestBuyCardUsesTokens(t *testing.T) {
 	}
 }
 
+func TestBuyPayloadAcceptsIntegerMarketIndex(t *testing.T) {
+	index, err := buyPayload(map[string]any{"marketIndex": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index != 0 {
+		t.Fatalf("expected market index 0, got %d", index)
+	}
+}
+
+func TestPublicStateMasksDeckAndDoesNotMutatePrivateState(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	public := module.PublicState(state, "p1").(State)
+
+	if len(public.Deck) != len(state.Deck) {
+		t.Fatalf("expected masked deck length %d, got %d", len(state.Deck), len(public.Deck))
+	}
+	if len(public.Deck) > 0 && public.Deck[0].ID != "" {
+		t.Fatalf("expected hidden deck card, got %+v", public.Deck[0])
+	}
+	if len(state.Deck) > 0 && state.Deck[0].ID == "" {
+		t.Fatal("public state must not mutate private deck")
+	}
+
+	public.Bank["white"] = 99
+	public.Market[0].Cost["blue"] = 99
+	if state.Bank["white"] == 99 || state.Market[0].Cost["blue"] == 99 {
+		t.Fatal("public state must not share mutable maps with private state")
+	}
+}
+
+func TestTimeoutReturnsTokensToBank(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Players[0].Tokens["white"] = 2
+	state.Bank["white"] -= 2
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p1", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if next.Players[0].Tokens["white"] != 0 || next.Bank["white"] != 4 {
+		t.Fatalf("expected timed out player's tokens returned, got tokens=%d bank=%d", next.Players[0].Tokens["white"], next.Bank["white"])
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		GameID: "splendor",

@@ -103,8 +103,12 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 			return errors.New("player has no cards to flip")
 		}
 	case ActionRing:
-		if findPlayer(current, string(action.PlayerID)) < 0 {
+		index := findPlayer(current, string(action.PlayerID))
+		if index < 0 {
 			return errors.New("player not found")
+		}
+		if !current.Players[index].Active || totalCards(current.Players[index]) == 0 {
+			return errors.New("player cannot ring")
 		}
 		return nil
 	default:

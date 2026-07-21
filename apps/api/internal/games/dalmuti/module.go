@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"board-game-platform/apps/api/internal/gamecore"
+	"board-game-platform/apps/api/internal/games/internal/gameutil"
 )
 
 const (
@@ -98,7 +99,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 }
 
 func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
-	current := asState(state)
+	current := cloneState(asState(state))
 	for index := range current.Players {
 		current.Players[index].HandSize = len(current.Players[index].Hand)
 		if current.Players[index].PlayerID != string(viewerID) {
@@ -390,15 +391,27 @@ func playPayload(payload any) (PlayPayload, error) {
 	if !ok {
 		return PlayPayload{}, errors.New("invalid play payload")
 	}
-	payloadRank, ok := raw["rank"].(float64)
+	payloadRank, ok := gameutil.Int(raw["rank"])
 	if !ok {
 		return PlayPayload{}, errors.New("rank is required")
 	}
-	payloadCount, ok := raw["count"].(float64)
+	payloadCount, ok := gameutil.Int(raw["count"])
 	if !ok {
 		return PlayPayload{}, errors.New("count is required")
 	}
-	return PlayPayload{Rank: int(payloadRank), Count: int(payloadCount)}, nil
+	return PlayPayload{Rank: payloadRank, Count: payloadCount}, nil
+}
+
+func cloneState(state State) State {
+	clone := state
+	clone.Players = make([]PlayerState, len(state.Players))
+	for index := range state.Players {
+		clone.Players[index] = state.Players[index]
+		clone.Players[index].Hand = append([]Card(nil), state.Players[index].Hand...)
+	}
+	clone.FinishOrder = append([]string(nil), state.FinishOrder...)
+	clone.Log = append([]string(nil), state.Log...)
+	return clone
 }
 
 func shuffledDeck(seed string) []Card {
