@@ -67,6 +67,38 @@ func TestVoteKillsWerewolfAndVillageWins(t *testing.T) {
 	}
 }
 
+func TestFinishNightRequiresRequiredRoleActions(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionFinishNight,
+		PlayerID: "p2",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected night finish to wait for required role actions")
+	}
+
+	state.CompletedActions["p1"] = true
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionFinishNight,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCenterIndexesAcceptIntegerPayload(t *testing.T) {
+	indexes, err := centerIndexes(map[string]any{"centerIndexes": []any{0, 1}}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexes[0] != 0 || indexes[1] != 1 {
+		t.Fatalf("expected integer center indexes, got %+v", indexes)
+	}
+}
+
 func fixedState() State {
 	return State{
 		Phase: PhaseNight,

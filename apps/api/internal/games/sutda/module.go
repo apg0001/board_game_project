@@ -105,6 +105,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
+	if current.Players[current.CurrentPlayerIndex].Folded || !current.Players[current.CurrentPlayerIndex].Active {
+		return errors.New("player is not active")
+	}
 	switch action.Type {
 	case ActionCall, ActionFold, ActionShowdown:
 		return nil
@@ -154,6 +157,9 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 		current.Players[index].Active = false
 		if activeCount(current) <= 1 {
 			current = finish(current)
+		} else if current.CurrentPlayerIndex == index {
+			current.CurrentPlayerIndex = nextActiveIndex(current, index)
+			current.Round++
 		}
 	}
 	return gamecore.ActionResult{State: current}, nil

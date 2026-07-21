@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"board-game-platform/apps/api/internal/gamecore"
+	"board-game-platform/apps/api/internal/games/internal/gameutil"
 )
 
 const (
@@ -93,7 +94,9 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 }
 
 func (m Module) PublicState(state any, _ gamecore.PlayerID) any {
-	return asState(state)
+	current := cloneState(asState(state))
+	current.Deck = make([]Card, len(current.Deck))
+	return current
 }
 
 func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) error {
@@ -104,6 +107,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
+	if !current.Players[current.CurrentPlayerIndex].Active {
+		return errors.New("player is not active")
+	}
 	switch action.Type {
 	case ActionTakeToken:
 		color, err := tokenPayload(action.Payload)
@@ -112,6 +118,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		}
 		if current.Bank[color] <= 0 {
 			return errors.New("token is not available")
+		}
+		if totalTokens(current.Players[current.CurrentPlayerIndex]) >= 10 {
+			return errors.New("token limit is reached")
 		}
 	case ActionBuyCard:
 		index, err := buyPayload(action.Payload)
@@ -183,6 +192,7 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 		return gamecore.ActionResult{State: current}, nil
 	}
 	current.Players[index].Active = false
+	returnTokensToBank(&current, index)
 	current.Log = append(current.Log, string(playerID)+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
 	if current.CurrentPlayerIndex == index {
 		current = advanceTurn(current)
@@ -269,6 +279,24 @@ func payCost(player *PlayerState, state *State, card Card) {
 	}
 }
 
+func returnTokensToBank(state *State, playerIndex int) {
+	for color, count := range state.Players[playerIndex].Tokens {
+		if count <= 0 {
+			continue
+		}
+		state.Bank[color] += count
+		state.Players[playerIndex].Tokens[color] = 0
+	}
+}
+
+func totalTokens(player PlayerState) int {
+	total := 0
+	for _, count := range player.Tokens {
+		total += count
+	}
+	return total
+}
+
 func activePlayers(state State) int {
 	count := 0
 	for _, player := range state.Players {
@@ -305,11 +333,11 @@ func buyPayload(payload any) (int, error) {
 	if !ok {
 		return 0, errors.New("invalid buy payload")
 	}
-	value, ok := raw["marketIndex"].(float64)
+	value, ok := gameutil.Int(raw["marketIndex"])
 	if !ok {
 		return 0, errors.New("market index is required")
 	}
-	return int(value), nil
+	return value, nil
 }
 
 func validColor(color string) bool {
@@ -342,6 +370,39 @@ func startingBank(playerCount int) map[string]int {
 		bank[color] = amount
 	}
 	return bank
+}
+
+func cloneState(state State) State {
+	clone := state
+	clone.Bank = copyCounter(state.Bank)
+	clone.Market = cloneCards(state.Market)
+	clone.Deck = cloneCards(state.Deck)
+	clone.Players = make([]PlayerState, len(state.Players))
+	for index := range state.Players {
+		clone.Players[index] = state.Players[index]
+		clone.Players[index].Tokens = copyCounter(state.Players[index].Tokens)
+		clone.Players[index].Bonuses = copyCounter(state.Players[index].Bonuses)
+		clone.Players[index].Cards = cloneCards(state.Players[index].Cards)
+	}
+	clone.Log = append([]string(nil), state.Log...)
+	return clone
+}
+
+func cloneCards(cards []Card) []Card {
+	result := make([]Card, len(cards))
+	for index := range cards {
+		result[index] = cards[index]
+		result[index].Cost = copyCounter(cards[index].Cost)
+	}
+	return result
+}
+
+func copyCounter(source map[string]int) map[string]int {
+	result := map[string]int{}
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }
 
 func shuffledDeck(seed string) []Card {

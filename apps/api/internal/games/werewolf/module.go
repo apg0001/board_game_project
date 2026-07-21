@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"board-game-platform/apps/api/internal/gamecore"
+	"board-game-platform/apps/api/internal/games/internal/gameutil"
 )
 
 const (
@@ -145,6 +146,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	case ActionFinishNight:
 		if current.Phase != PhaseNight {
 			return errors.New("night is already finished")
+		}
+		if !requiredNightActionsComplete(current) {
+			return errors.New("night actions are not completed")
 		}
 	case ActionVote:
 		if current.Phase != PhaseDiscussion {
@@ -309,6 +313,27 @@ func requireNightRole(state State, player PlayerState, role string) error {
 	return nil
 }
 
+func requiredNightActionsComplete(state State) bool {
+	for _, player := range state.Players {
+		if !player.Active || !isRequiredNightRole(player.OriginalRole) {
+			continue
+		}
+		if !state.CompletedActions[player.PlayerID] {
+			return false
+		}
+	}
+	return true
+}
+
+func isRequiredNightRole(role string) bool {
+	switch role {
+	case RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
+		return true
+	default:
+		return false
+	}
+}
+
 func finishVote(state State) State {
 	counts := map[string]int{}
 	for _, target := range state.Votes {
@@ -423,11 +448,10 @@ func centerIndexes(payload any, expected int) ([]int, error) {
 	indexes := make([]int, 0, expected)
 	seen := map[int]bool{}
 	for _, value := range values {
-		number, ok := value.(float64)
+		index, ok := gameutil.Int(value)
 		if !ok {
 			return nil, errors.New("invalid center index")
 		}
-		index := int(number)
 		if index < 0 || index > 2 || seen[index] {
 			return nil, errors.New("center index out of range")
 		}

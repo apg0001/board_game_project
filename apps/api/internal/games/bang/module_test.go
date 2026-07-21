@@ -1,6 +1,7 @@
 package bang
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -33,6 +34,62 @@ func TestOutlawsWinWhenSheriffDies(t *testing.T) {
 	next := checkEnd(damageTarget(state, "p1", 1))
 	if !next.Finished || next.Winner != "outlaw" {
 		t.Fatalf("expected outlaw win, got %+v", next)
+	}
+}
+
+func TestMustDrawBeforePlayingOrEndingTurn(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Deck = []Card{{ID: "beer-1", Type: CardBeer}}
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected play before draw to be rejected")
+	}
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionEndTurn,
+		PlayerID: "p1",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected ending turn before draw to be rejected")
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if !next.Players[0].Drawn {
+		t.Fatal("expected player to enter play phase after drawing")
+	}
+}
+
+func TestDrawRecyclesDiscardWhenDeckIsEmpty(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Deck = []Card{}
+	state.Discard = []Card{{ID: "beer-1", Type: CardBeer}, {ID: "bang-1", Type: CardBang}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Hand) != 2 || len(next.Discard) != 0 {
+		t.Fatalf("expected recycled discard to be drawn, got hand=%d discard=%d", len(next.Players[0].Hand), len(next.Discard))
 	}
 }
 

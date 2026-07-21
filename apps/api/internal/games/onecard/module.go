@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"board-game-platform/apps/api/internal/gamecore"
+	"board-game-platform/apps/api/internal/games/internal/gameutil"
 )
 
 const (
@@ -161,6 +162,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
+	if !current.Players[current.CurrentPlayerIndex].Active {
+		return errors.New("player is not active")
+	}
 	switch action.Type {
 	case ActionDraw:
 		if availableDrawCount(current) == 0 {
@@ -299,16 +303,17 @@ func canPlay(card Card, state State) bool {
 }
 
 func canDefend(card Card, top Card, state State) bool {
-	if attackAmount(card, state.Rules) <= 0 {
-		return false
-	}
+	isAttackCard := attackAmount(card, state.Rules) > 0
 	switch state.Rules.DefenseMode {
 	case "same-rank":
-		return card.Joker && top.Joker || card.Rank == top.Rank
+		if card.Joker || top.Joker {
+			return card.Joker && top.Joker
+		}
+		return isAttackCard && card.Rank == top.Rank
 	case "any-attack":
-		return !card.Joker
+		return isAttackCard
 	default:
-		return true
+		return isAttackCard || card.Joker
 	}
 }
 
@@ -368,8 +373,12 @@ func removeCard(player *PlayerState, cardID string) (Card, bool) {
 }
 
 func nextActiveIndex(state State, current int) int {
+	direction := state.Direction
+	if direction == 0 {
+		direction = 1
+	}
 	for step := 1; step <= len(state.Players); step++ {
-		next := (current + step*state.Direction + len(state.Players)*2) % len(state.Players)
+		next := (current + step*direction + len(state.Players)*2) % len(state.Players)
 		if state.Players[next].Active {
 			return next
 		}
@@ -542,14 +551,10 @@ func intChoice(choice string, fallback int) int {
 }
 
 func intOption(value any, fallback int) int {
-	switch typed := value.(type) {
-	case int:
+	if typed, ok := gameutil.Int(value); ok {
 		return typed
-	case float64:
-		return int(typed)
-	default:
-		return fallback
 	}
+	return fallback
 }
 
 func stringList(value any, fallback []string) []string {

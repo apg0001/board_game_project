@@ -1454,7 +1454,7 @@ export function App() {
                                   }
                                 )
                               }
-                              disabled={!isMyTurn}
+                              disabled={!isMyTurn || !bangMe?.drawn}
                             >
                               {bangCardLabel(card.type ?? "")}
                             </button>
@@ -1498,7 +1498,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn}
+                          disabled={!isMyTurn || !bangMe?.drawn}
                         >
                           턴 종료
                           <ChevronRight size={18} />
@@ -1612,7 +1612,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn || (gostopMe?.score ?? 0) < 3}
+                          disabled={!isMyTurn || !currentSession.state.awaitingDecision || (gostopMe?.score ?? 0) < 3}
                         >
                           고
                           <ChevronRight size={18} />
@@ -1628,7 +1628,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn || (gostopMe?.score ?? 0) < 3}
+                          disabled={!isMyTurn || !currentSession.state.awaitingDecision || (gostopMe?.score ?? 0) < 3}
                         >
                           스톱
                           <ChevronRight size={18} />
