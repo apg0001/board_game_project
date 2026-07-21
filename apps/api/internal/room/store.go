@@ -14,6 +14,7 @@ type Store interface {
 	Save(room Room) error
 	FindByID(id string) (Room, error)
 	FindByCode(code string) (Room, error)
+	List() []Room
 	CodeExists(code string) bool
 }
 
@@ -63,6 +64,17 @@ func (s *MemoryStore) FindByCode(code string) (Room, error) {
 		return Room{}, ErrRoomNotFound
 	}
 	return s.byID[id], nil
+}
+
+func (s *MemoryStore) List() []Room {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rooms := make([]Room, 0, len(s.byID))
+	for _, room := range s.byID {
+		rooms = append(rooms, room)
+	}
+	return rooms
 }
 
 func (s *MemoryStore) CodeExists(code string) bool {

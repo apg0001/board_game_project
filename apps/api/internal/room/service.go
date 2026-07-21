@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,23 @@ type Service struct {
 	clock Clock
 }
 
+type CreateOptions struct {
+	GameID     string
+	MaxPlayers int
+	Visibility Visibility
+}
+
+type UpdateOptionsRequest struct {
+	Options    Options
+	MaxPlayers int
+}
+
+type ListFilter struct {
+	GameID        string
+	Visibility    Visibility
+	IncludeClosed bool
+}
+
 func NewService(store Store, clock Clock) *Service {
 	if clock == nil {
 		clock = time.Now
@@ -33,11 +51,21 @@ func NewService(store Store, clock Clock) *Service {
 }
 
 func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (Room, error) {
+	return s.CreateWithOptions(host, CreateOptions{GameID: gameID, MaxPlayers: maxPlayers, Visibility: VisibilityPrivate})
+}
+
+func (s *Service) CreateWithOptions(host guest.PublicUser, options CreateOptions) (Room, error) {
+	gameID := options.GameID
 	if gameID == "" {
 		gameID = "davinci"
 	}
+	maxPlayers := options.MaxPlayers
 	if maxPlayers <= 0 {
 		maxPlayers = 4
+	}
+	visibility := options.Visibility
+	if visibility != VisibilityPublic {
+		visibility = VisibilityPrivate
 	}
 
 	now := s.clock().UTC()
@@ -54,6 +82,7 @@ func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (
 		ID:         "room_" + id,
 		Code:       code,
 		GameID:     gameID,
+		Visibility: visibility,
 		Status:     StatusLobby,
 		MaxPlayers: maxPlayers,
 		HostUserID: host.ID,
@@ -81,6 +110,27 @@ func (s *Service) Create(host guest.PublicUser, gameID string, maxPlayers int) (
 	return room, nil
 }
 
+func (s *Service) List(filter ListFilter) []Room {
+	rooms := s.store.List()
+	result := make([]Room, 0, len(rooms))
+	for _, room := range rooms {
+		if !filter.IncludeClosed && room.Status == StatusClosed {
+			continue
+		}
+		if filter.GameID != "" && room.GameID != filter.GameID {
+			continue
+		}
+		if filter.Visibility != "" && room.Visibility != filter.Visibility {
+			continue
+		}
+		result = append(result, room)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
+	return result
+}
+
 func (s *Service) JoinSpectator(roomID string, user guest.PublicUser) (Room, error) {
 	room, err := s.store.FindByID(roomID)
 	if err != nil {
@@ -99,10 +149,15 @@ func (s *Service) JoinSpectator(roomID string, user guest.PublicUser) (Room, err
 }
 
 func (s *Service) UpdateOptions(roomID string, options Options) (Room, error) {
+	return s.UpdateRoomSettings(roomID, UpdateOptionsRequest{Options: options})
+}
+
+func (s *Service) UpdateRoomSettings(roomID string, settings UpdateOptionsRequest) (Room, error) {
 	room, err := s.store.FindByID(roomID)
 	if err != nil {
 		return Room{}, err
 	}
+	options := settings.Options
 	if options.TurnSeconds < 10 {
 		options.TurnSeconds = 10
 	}
@@ -119,6 +174,9 @@ func (s *Service) UpdateOptions(roomID string, options Options) (Room, error) {
 	room.Options.MaxWaitSeconds = options.MaxWaitSeconds
 	room.Options.AutoStart = options.AutoStart
 	room.Options.AllowSpectators = options.AllowSpectators
+	if settings.MaxPlayers > 0 {
+		room.MaxPlayers = clampInt(settings.MaxPlayers, len(room.Participants), 12)
+	}
 	room.UpdatedAt = s.clock().UTC()
 	return room, s.store.Save(room)
 }
@@ -128,6 +186,9 @@ func (s *Service) JoinByCode(code string, user guest.PublicUser) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
+	if room.Status == StatusPlaying {
+		return s.JoinSpectator(room.ID, user)
+	}
 	if room.Status != StatusLobby {
 		return Room{}, ErrRoomNotJoinable
 	}
@@ -135,7 +196,44 @@ func (s *Service) JoinByCode(code string, user guest.PublicUser) (Room, error) {
 		return room, nil
 	}
 	if room.IsFull() {
-		return Room{}, ErrRoomFull
+		return s.JoinSpectator(room.ID, user)
+	}
+
+	now := s.clock().UTC()
+	room.Participants = append(room.Participants, Participant{
+		User:      user,
+		Ready:     false,
+		Host:      false,
+		SeatIndex: len(room.Participants),
+		JoinedAt:  now,
+	})
+	room.UpdatedAt = now
+
+	if err := s.store.Save(room); err != nil {
+		return Room{}, err
+	}
+	return room, nil
+}
+
+func (s *Service) JoinPublicRoom(roomID string, user guest.PublicUser) (Room, error) {
+	room, err := s.store.FindByID(roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if room.Visibility != VisibilityPublic {
+		return Room{}, ErrRoomNotJoinable
+	}
+	if room.Status == StatusPlaying {
+		return s.JoinSpectator(roomID, user)
+	}
+	if room.Status != StatusLobby {
+		return Room{}, ErrRoomNotJoinable
+	}
+	if room.HasParticipant(user.ID) {
+		return room, nil
+	}
+	if room.IsFull() {
+		return s.JoinSpectator(roomID, user)
 	}
 
 	now := s.clock().UTC()
@@ -273,6 +371,16 @@ func (s *Service) TransferHost(roomID string, nextHostUserID string) (Room, erro
 	}
 	room.UpdatedAt = s.clock().UTC()
 	return room, s.store.Save(room)
+}
+
+func clampInt(value int, minValue int, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }
 
 func (s *Service) uniqueCode() (string, error) {

@@ -374,7 +374,7 @@ h1 {
 
 .flow-home {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   padding-top: 18px;
 }
@@ -679,6 +679,10 @@ h1 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.solo-option {
+  grid-template-columns: 1fr;
+}
+
 .option-row label,
 .option-grid label {
   display: grid;
@@ -718,6 +722,55 @@ h1 {
   width: 18px;
   height: 18px;
   accent-color: #2f8e74;
+}
+
+.public-room-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.public-room-list {
+  display: grid;
+  gap: 10px;
+}
+
+.public-room-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.public-room-item strong,
+.public-room-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.public-room-item small {
+  margin-top: 4px;
+  color: #68727e;
+}
+
+.public-room-item button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: #fff8e8;
+  background: #17212b;
+  font-weight: 850;
 }
 
 .player-selection-panel {
@@ -1761,6 +1814,10 @@ button.hwatu-card {
 }
 
 @media (max-width: 1080px) {
+  .flow-home {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .game-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1866,6 +1923,10 @@ button.hwatu-card {
     grid-template-columns: 42px minmax(0, 1fr) 22px;
     min-height: 118px;
     padding: 15px;
+  }
+
+  .public-room-item {
+    grid-template-columns: 1fr;
   }
 
   .game-card {
