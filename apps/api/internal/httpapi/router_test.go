@@ -19,6 +19,8 @@ import (
 	"board-game-platform/apps/api/internal/games/davinci"
 	"board-game-platform/apps/api/internal/games/gostop"
 	"board-game-platform/apps/api/internal/games/halligalli"
+	"board-game-platform/apps/api/internal/games/jokerdraw"
+	"board-game-platform/apps/api/internal/games/onecard"
 	"board-game-platform/apps/api/internal/games/rummikub"
 	"board-game-platform/apps/api/internal/games/splendor"
 	"board-game-platform/apps/api/internal/games/sutda"
@@ -355,7 +357,7 @@ func TestQuickMatchCreatesThenJoinsWaitingRoom(t *testing.T) {
 
 func testRouter() http.Handler {
 	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
-	registry := gamecore.NewRegistry(bang.NewModule(), dalmuti.NewModule(), davinci.NewModule(), gostop.NewModule(), halligalli.NewModule(), rummikub.NewModule(), splendor.NewModule(), sutda.NewModule(), werewolf.NewModule())
+	registry := gamecore.NewRegistry(bang.NewModule(), dalmuti.NewModule(), davinci.NewModule(), gostop.NewModule(), halligalli.NewModule(), jokerdraw.NewModule(), onecard.NewModule(), rummikub.NewModule(), splendor.NewModule(), sutda.NewModule(), werewolf.NewModule())
 	return NewRouter(
 		config.Config{HTTPAddr: ":0", AllowedOrigins: map[string]struct{}{"http://localhost:5173": {}}},
 		logger,
