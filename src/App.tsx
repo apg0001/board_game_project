@@ -200,6 +200,10 @@ interface DavinciPlayer {
   handSize?: number;
   passed?: boolean;
   out?: boolean;
+  originalRole?: string;
+  currentRole?: string;
+  seenRoles?: Record<string, string>;
+  votedFor?: string;
   active: boolean;
 }
 
@@ -224,6 +228,7 @@ interface GameSession {
     currentPlayerIndex?: number;
     turnIndex?: number;
     round?: number;
+    phase?: "NIGHT" | "DISCUSSION" | "FINISHED";
     log?: string[];
     finished?: boolean;
     players?: DavinciPlayer[];
@@ -235,6 +240,9 @@ interface GameSession {
       playerId?: string;
     };
     finishOrder?: string[];
+    center?: string[];
+    executed?: string[];
+    winningTeam?: string;
   };
   results?: Array<{
     playerId: string;
@@ -578,6 +586,8 @@ export function App() {
   const splendorMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
   const dalmutiMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
   const dalmutiGroups = groupDalmutiHand(dalmutiMe?.hand ?? []);
+  const werewolfMe = davinciPlayers.find((player) => player.playerId === guestSession?.user.id);
+  const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== guestSession?.user.id);
 
   return (
     <main className="app-shell">
@@ -1103,6 +1113,172 @@ export function App() {
                           패스
                           <ChevronRight size={18} />
                         </button>
+                      </div>
+                    ) : currentSession.gameId === "werewolf" ? (
+                      <div className="room-actions">
+                        <div className="werewolf-panel">
+                          <strong>{werewolfRoleLabel(werewolfMe?.originalRole ?? "hidden")}</strong>
+                          <span>
+                            현재 단계 {werewolfPhaseLabel(currentSession.state.phase)} · 현재 역할{" "}
+                            {werewolfRoleLabel(werewolfMe?.currentRole ?? "hidden")}
+                          </span>
+                          <div className="halli-cards">
+                            {Object.entries(werewolfMe?.seenRoles ?? {}).map(([key, role]) => (
+                              <span key={key}>
+                                {key} {werewolfRoleLabel(role)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        {currentSession.state.phase === "NIGHT" ? (
+                          <div className="werewolf-actions">
+                            {werewolfMe?.originalRole === "seer" ? (
+                              <>
+                                {werewolfOthers.map((player) => (
+                                  <button
+                                    className="wide-button"
+                                    key={player.playerId}
+                                    onClick={() =>
+                                      sendGameAction(
+                                        currentSession.id,
+                                        currentRoom?.id,
+                                        "werewolf.see_player",
+                                        setCurrentSession,
+                                        setRoomMessage,
+                                        { targetPlayerId: player.playerId }
+                                      )
+                                    }
+                                  >
+                                    {participantName(currentRoom, player.playerId)} 확인
+                                    <ChevronRight size={18} />
+                                  </button>
+                                ))}
+                                <button
+                                  className="wide-button"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "werewolf.see_center",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { centerIndexes: [0, 1] }
+                                    )
+                                  }
+                                >
+                                  중앙 2장 확인
+                                  <ChevronRight size={18} />
+                                </button>
+                              </>
+                            ) : null}
+                            {werewolfMe?.originalRole === "robber"
+                              ? werewolfOthers.map((player) => (
+                                  <button
+                                    className="wide-button"
+                                    key={player.playerId}
+                                    onClick={() =>
+                                      sendGameAction(
+                                        currentSession.id,
+                                        currentRoom?.id,
+                                        "werewolf.rob",
+                                        setCurrentSession,
+                                        setRoomMessage,
+                                        { targetPlayerId: player.playerId }
+                                      )
+                                    }
+                                  >
+                                    {participantName(currentRoom, player.playerId)} 강탈
+                                    <ChevronRight size={18} />
+                                  </button>
+                                ))
+                              : null}
+                            {werewolfMe?.originalRole === "troublemaker" && werewolfOthers.length >= 2 ? (
+                              <button
+                                className="wide-button"
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "werewolf.troublemake",
+                                    setCurrentSession,
+                                    setRoomMessage,
+                                    {
+                                      leftPlayerId: werewolfOthers[0].playerId,
+                                      rightPlayerId: werewolfOthers[1].playerId
+                                    }
+                                  )
+                                }
+                              >
+                                앞의 두 명 바꾸기
+                                <ChevronRight size={18} />
+                              </button>
+                            ) : null}
+                            {werewolfMe?.originalRole === "drunk" ? (
+                              <button
+                                className="wide-button"
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "werewolf.drunk_swap",
+                                    setCurrentSession,
+                                    setRoomMessage,
+                                    { centerIndexes: [0] }
+                                  )
+                                }
+                              >
+                                중앙 1번과 교환
+                                <ChevronRight size={18} />
+                              </button>
+                            ) : null}
+                            <button
+                              className="wide-button play-now"
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "werewolf.finish_night",
+                                  setCurrentSession,
+                                  setRoomMessage
+                                )
+                              }
+                            >
+                              밤 종료
+                              <ChevronRight size={18} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="werewolf-actions">
+                            <div className="splendor-players">
+                              {davinciPlayers.map((player) => (
+                                <button
+                                  className="wide-button"
+                                  key={player.playerId}
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "werewolf.vote",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { targetPlayerId: player.playerId }
+                                    )
+                                  }
+                                  disabled={currentSession.state.phase !== "DISCUSSION"}
+                                >
+                                  {participantName(currentRoom, player.playerId)} 투표
+                                  <ChevronRight size={18} />
+                                </button>
+                              ))}
+                            </div>
+                            {currentSession.state.finished ? (
+                              <p className="helper-copy">
+                                처형 {currentSession.state.executed?.map((id) => participantName(currentRoom, id)).join(", ") || "없음"} · 승리팀{" "}
+                                {currentSession.state.winningTeam === "village" ? "마을" : "늑대"}
+                              </p>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <>
@@ -1880,7 +2056,14 @@ async function sendGameAction(
     | "splendor.take_token"
     | "splendor.buy_card"
     | "dalmuti.play"
-    | "dalmuti.pass",
+    | "dalmuti.pass"
+    | "werewolf.see_player"
+    | "werewolf.see_center"
+    | "werewolf.rob"
+    | "werewolf.troublemake"
+    | "werewolf.drunk_swap"
+    | "werewolf.finish_night"
+    | "werewolf.vote",
   onSession: (session: GameSession) => void,
   onMessage: (message: string) => void,
   payload?: Record<string, unknown>
@@ -2020,6 +2203,27 @@ function dalmutiRankLabel(rank: number) {
   if (rank === 1) return "1 달무티";
   if (rank === 13) return "광대";
   return `${rank} 계급`;
+}
+
+function werewolfRoleLabel(role: string) {
+  const labels: Record<string, string> = {
+    werewolf: "늑대인간",
+    seer: "예언자",
+    robber: "강도",
+    troublemaker: "말썽쟁이",
+    drunk: "주정뱅이",
+    insomniac: "불면증",
+    villager: "마을 주민",
+    hidden: "비공개"
+  };
+  return labels[role] ?? role;
+}
+
+function werewolfPhaseLabel(phase: GameSession["state"]["phase"]) {
+  if (phase === "NIGHT") return "밤";
+  if (phase === "DISCUSSION") return "토론/투표";
+  if (phase === "FINISHED") return "종료";
+  return "대기";
 }
 
 async function authorizedJSON<T>(

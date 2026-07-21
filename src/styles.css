@@ -970,6 +970,29 @@ button.davinci-tile {
   cursor: pointer;
 }
 
+.werewolf-panel,
+.werewolf-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.werewolf-panel {
+  border-radius: 12px;
+  padding: 12px;
+  color: #fff8e8;
+  background: #17212b;
+}
+
+.werewolf-panel strong {
+  font-size: 1.15rem;
+}
+
+.werewolf-panel span {
+  color: rgba(255, 248, 232, 0.78);
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
 .wide-button:disabled {
   cursor: not-allowed;
   opacity: 0.54;
