@@ -75,12 +75,11 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	}
 	state := State{Players: players, Log: []string{"조커뽑기가 시작되었습니다."}}
 	state.CurrentPlayerIndex = nextActiveIndex(state, len(players)-1)
-	return state
+	return finalizeIfComplete(state)
 }
 
 func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
-	current := asState(state)
-	current.Players = append([]PlayerState(nil), current.Players...)
+	current := cloneState(asState(state))
 	for index := range current.Players {
 		current.Players[index].HandSize = len(current.Players[index].Hand)
 		if current.Players[index].PlayerID != string(viewerID) && !current.Finished {
@@ -132,15 +131,8 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player.HandSize = len(player.Hand)
 	markOuts(&current)
 	current.Log = append(current.Log, fmt.Sprintf("%s 님이 %s 님에게서 카드를 뽑았습니다.", player.PlayerID, target.PlayerID))
-	if activeCount(current) <= 1 {
-		current.Finished = true
-		for _, item := range current.Players {
-			if item.Active {
-				current.LoserID = item.PlayerID
-			}
-		}
-		current.Log = append(current.Log, "조커뽑기가 종료되었습니다.")
-	} else {
+	current = finalizeIfComplete(current)
+	if !current.Finished {
 		current.CurrentPlayerIndex = nextActiveIndex(current, current.CurrentPlayerIndex)
 		current.Round++
 	}
@@ -159,6 +151,8 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	if index := findPlayer(current, string(playerID)); index >= 0 && !current.Finished {
 		current.Players[index].Out = true
 		current.Players[index].Active = false
+		current.LoserID = current.Players[index].PlayerID
+		current.Log = append(current.Log, string(playerID)+" 님의 시간이 만료되어 패배 처리되었습니다.")
 		if activeCount(current) <= 1 {
 			current.Finished = true
 		} else if current.CurrentPlayerIndex == index {
@@ -174,10 +168,14 @@ func (m Module) IsFinished(state any, _ gamecore.Context) bool {
 
 func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result {
 	current := asState(state)
+	loserID := current.LoserID
+	if loserID == "" {
+		loserID = playerHoldingJoker(current)
+	}
 	results := make([]gamecore.Result, 0, len(current.Players))
 	for _, player := range current.Players {
 		outcome := gamecore.OutcomeWin
-		if player.PlayerID == current.LoserID {
+		if player.PlayerID == loserID {
 			outcome = gamecore.OutcomeLose
 		}
 		results = append(results, gamecore.Result{PlayerID: gamecore.PlayerID(player.PlayerID), Rank: rankForOutcome(outcome), Score: -len(player.Hand), Outcome: outcome})
@@ -186,19 +184,24 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 }
 
 func removePairs(hand []Card) []Card {
-	buckets := map[string][]Card{}
+	result := make([]Card, 0, len(hand))
 	for _, card := range hand {
 		if card.Joker {
-			buckets[card.ID] = append(buckets[card.ID], card)
+			result = append(result, card)
 			continue
 		}
-		buckets[card.Rank] = append(buckets[card.Rank], card)
-	}
-	result := []Card{}
-	for key, cards := range buckets {
-		if key == "joker" || len(cards)%2 == 1 {
-			result = append(result, cards[len(cards)-1])
+		pairIndex := -1
+		for index := range result {
+			if !result[index].Joker && result[index].Rank == card.Rank {
+				pairIndex = index
+				break
+			}
 		}
+		if pairIndex >= 0 {
+			result = append(result[:pairIndex], result[pairIndex+1:]...)
+			continue
+		}
+		result = append(result, card)
 	}
 	return result
 }
@@ -210,6 +213,35 @@ func markOuts(state *State) {
 			state.Players[index].Active = false
 		}
 	}
+}
+
+func finalizeIfComplete(state State) State {
+	if activeCount(state) > 1 {
+		return state
+	}
+	state.Finished = true
+	state.LoserID = playerHoldingJoker(state)
+	if state.LoserID == "" {
+		for _, player := range state.Players {
+			if player.Active {
+				state.LoserID = player.PlayerID
+				break
+			}
+		}
+	}
+	state.Log = append(state.Log, "조커뽑기가 종료되었습니다.")
+	return state
+}
+
+func playerHoldingJoker(state State) string {
+	for _, player := range state.Players {
+		for _, card := range player.Hand {
+			if card.Joker {
+				return player.PlayerID
+			}
+		}
+	}
+	return ""
 }
 
 func drawPayload(payload any) (DrawPayload, error) {
@@ -259,6 +291,17 @@ func rankForOutcome(outcome gamecore.Outcome) int {
 		return 1
 	}
 	return 2
+}
+
+func cloneState(state State) State {
+	clone := state
+	clone.Players = make([]PlayerState, len(state.Players))
+	for index := range state.Players {
+		clone.Players[index] = state.Players[index]
+		clone.Players[index].Hand = append([]Card(nil), state.Players[index].Hand...)
+	}
+	clone.Log = append([]string(nil), state.Log...)
+	return clone
 }
 
 func shuffledDeck(seed string) []Card {
