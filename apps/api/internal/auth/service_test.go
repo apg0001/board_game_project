@@ -60,3 +60,15 @@ func TestDuplicateRegister(t *testing.T) {
 		t.Fatalf("expected duplicate error, got %v", err)
 	}
 }
+
+func TestRegisterFallbackNickname(t *testing.T) {
+	service := NewService(nil)
+
+	created, _, err := service.Register("NoNick", "secret", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Nickname != "nonick" {
+		t.Fatalf("expected username fallback nickname, got %s", created.Nickname)
+	}
+}

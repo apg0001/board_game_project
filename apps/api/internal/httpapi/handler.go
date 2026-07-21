@@ -48,7 +48,7 @@ type currentUser struct {
 }
 
 func (u currentUser) Public() guest.PublicUser {
-	return guest.PublicUser{ID: u.ID, Nickname: u.Nickname}
+	return guest.PublicUser{ID: u.ID, Nickname: guest.DisplayNickname(u.Nickname, u.ID)}
 }
 
 func (h Handler) health(w http.ResponseWriter, _ *http.Request) {

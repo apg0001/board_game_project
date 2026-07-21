@@ -55,7 +55,7 @@ func NewServiceWithStore(store Store, clock Clock) *Service {
 
 func (s *Service) Register(username string, password string, nickname string) (User, string, error) {
 	username = normalize(username)
-	nickname = strings.TrimSpace(nickname)
+	nickname = displayNickname(nickname, username)
 	if nickname == "" {
 		nickname = username
 	}
@@ -92,10 +92,7 @@ func (s *Service) Register(username string, password string, nickname string) (U
 
 func (s *Service) EnsureAdmin(username string, password string, nickname string) (User, error) {
 	username = normalize(username)
-	nickname = strings.TrimSpace(nickname)
-	if nickname == "" {
-		nickname = username
-	}
+	nickname = displayNickname(nickname, username)
 	if username == "" || password == "" {
 		return User{}, ErrInvalidCredential
 	}
@@ -136,18 +133,43 @@ func (s *Service) Login(username string, password string) (User, string, error) 
 	}
 
 	token := randomHex(24)
-	if err := s.store.SaveSession(token, account.User); err != nil {
+	user := normalizeUser(account.User)
+	if err := s.store.SaveSession(token, user); err != nil {
 		return User{}, "", err
 	}
-	return account.User, token, nil
+	return user, token, nil
 }
 
 func (s *Service) Me(token string) (User, bool) {
-	return s.store.FindSession(token)
+	user, ok := s.store.FindSession(token)
+	if !ok {
+		return User{}, false
+	}
+	return normalizeUser(user), true
 }
 
 func normalize(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizeUser(user User) User {
+	user.Nickname = displayNickname(user.Nickname, user.Username)
+	if user.Role == "" {
+		user.Role = "USER"
+	}
+	return user
+}
+
+func displayNickname(nickname string, fallback string) string {
+	nickname = strings.TrimSpace(nickname)
+	if nickname != "" {
+		return nickname
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		return fallback
+	}
+	return "User"
 }
 
 func passwordHash(salt string, password string) string {

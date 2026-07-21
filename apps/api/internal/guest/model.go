@@ -1,6 +1,9 @@
 package guest
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type User struct {
 	ID           string    `json:"id"`
@@ -20,8 +23,20 @@ type PublicUser struct {
 func (u User) Public() PublicUser {
 	return PublicUser{
 		ID:         u.ID,
-		Nickname:   u.Nickname,
+		Nickname:   DisplayNickname(u.Nickname, u.ID),
 		CreatedAt:  u.CreatedAt,
 		LastSeenAt: u.LastSeenAt,
 	}
+}
+
+func DisplayNickname(nickname string, fallback string) string {
+	nickname = strings.TrimSpace(nickname)
+	if nickname != "" {
+		return nickname
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		return fallback
+	}
+	return "Player"
 }

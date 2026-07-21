@@ -17,6 +17,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 }
 
 func (s *PostgresStore) Save(user User) error {
+	user.Nickname = DisplayNickname(user.Nickname, user.ID)
 	_, err := s.pool.Exec(context.Background(), `
 		insert into guest_users (id, nickname, session_token, created_at, last_seen_at)
 		values ($1, $2, $3, $4, $5)
@@ -42,6 +43,7 @@ func (s *PostgresStore) FindByToken(token string) (User, error) {
 		}
 		return User{}, err
 	}
+	user.Nickname = DisplayNickname(user.Nickname, user.ID)
 	return user, nil
 }
 
