@@ -26,6 +26,7 @@ import type {
   ApiGame,
   AuthSession,
   ChatMessage,
+  DavinciPlayer,
   DavinciTile,
   GameCategory,
   GameSession,
@@ -463,7 +464,8 @@ export function App() {
   const opponentPlayers = davinciPlayers.filter((player) => player.playerId !== playerID);
   const targetPlayer = opponentPlayers.find((player) => player.playerId === guessTarget) ?? opponentPlayers[0];
   const currentTurnPlayer = davinciPlayers[currentSession?.state.currentPlayerIndex ?? 0];
-  const isMyTurn = currentTurnPlayer?.playerId === playerID;
+  const isSessionFinished = currentSession?.status === "FINISHED" || Boolean(currentSession?.state.finished);
+  const isMyTurn = Boolean(!isSessionFinished && currentTurnPlayer?.playerId === playerID);
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
   const selectedRoomGame = games.find((game) => game.id === currentRoom?.gameId) ?? selectedGame;
   const setupGame = currentRoom ? selectedRoomGame : selectedGame;
@@ -498,6 +500,7 @@ export function App() {
           ? "특정 게임만 필터링해서 해당 게임을 기다리는 방으로 입장합니다."
           : "참가자 준비, 관전, 채팅, 게임 시작을 이 화면에서 관리합니다.";
   const currentTurnName = currentTurnPlayer ? participantName(currentRoom, currentTurnPlayer.playerId) : "대기 중";
+  const turnBadgeLabel = isSessionFinished ? "게임 종료" : isMyTurn ? "내 차례" : "상대 차례";
   const splendorColors = ["white", "blue", "green", "red", "black"];
   const splendorMe = davinciPlayers.find((player) => player.playerId === playerID);
   const dalmutiMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -512,13 +515,16 @@ export function App() {
   const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardTopCard = currentSession?.state.discardPile?.[(currentSession.state.discardPile?.length ?? 0) - 1];
   const jokerdrawMe = davinciPlayers.find((player) => player.playerId === playerID);
-  const jokerdrawTargets = davinciPlayers.filter(
-    (player) => player.playerId !== playerID && player.active && !player.out
-  );
+  const jokerdrawNextTarget =
+    currentSession?.gameId === "jokerdraw"
+      ? nextActivePlayerAfter(davinciPlayers, currentSession.state.currentPlayerIndex ?? 0)
+      : undefined;
+  const jokerdrawTargets =
+    jokerdrawNextTarget && jokerdrawNextTarget.playerId !== currentTurnPlayer?.playerId ? [jokerdrawNextTarget] : [];
 
   return (
     <main className="app-shell">
-      <section className="hero-panel" aria-label="게임 로비">
+      <section className={`hero-panel ${currentSession ? "compact-hero" : ""}`} aria-label="게임 로비">
         <nav className="top-bar">
           <div className="brand">
             <span className="brand-mark">
@@ -1086,7 +1092,13 @@ export function App() {
                 <Gamepad2 size={22} />
               </div>
               <div className="game-session-panel">
-                <p>라운드 {currentSession.state.round ?? 1} · 현재 턴 {currentTurnName}</p>
+                <div className={`turn-banner ${isMyTurn ? "my-turn" : "waiting-turn"}`} aria-live="polite">
+                  <span>{turnBadgeLabel}</span>
+                  <strong>{currentTurnName}</strong>
+                  <small>
+                    {selectedRoomGame.title} · 라운드 {currentSession.state.round ?? 1}
+                  </small>
+                </div>
                 <div className="session-log">
                   {tail(currentSession.state.log, 3).map((item) => (
                     <span key={item}>{item}</span>
@@ -1696,6 +1708,12 @@ export function App() {
                           ))}
                         </div>
                         <div className="joker-targets">
+                          {jokerdrawTargets.length === 0 ? (
+                            <div className="empty-party-state">
+                              <strong>{isMyTurn ? "뽑을 대상이 없습니다." : `${currentTurnName} 님 차례입니다.`}</strong>
+                              <small>차례가 오면 다음 플레이어의 뒷면 카드가 표시됩니다.</small>
+                            </div>
+                          ) : null}
                           {jokerdrawTargets.map((player) => (
                             <div className="halli-player joker-target" key={player.playerId}>
                               <strong>{participantName(currentRoom, player.playerId)}</strong>
@@ -2033,11 +2051,11 @@ export function App() {
           ) : null}
 
           {currentRoom ? (
-            <div className="room-card">
+            <div className="room-card chat-card">
               <div className="section-title">
                 <div>
-                  <span>채팅</span>
-                  <h2>로비 메시지</h2>
+                  <span>{currentSession ? "인게임" : "채팅"}</span>
+                  <h2>{currentSession ? "채팅/감정표현" : "로비 메시지"}</h2>
                 </div>
                 <MessageCircle size={22} />
               </div>
@@ -2077,7 +2095,7 @@ export function App() {
                 </button>
               </div>
               <div className="emoji-row">
-                {["👍", "🎉", "😮"].map((emoji) => (
+                {["👍", "🎉", "😮", "👏", "🔥"].map((emoji) => (
                   <button
                     key={emoji}
                     onClick={() =>
@@ -2464,6 +2482,15 @@ export function App() {
 
 function participantName(room: Room | null, playerID: string) {
   return room?.participants.find((participant) => participant.user.id === playerID)?.user.nickname ?? "상대";
+}
+
+function nextActivePlayerAfter(players: DavinciPlayer[], currentIndex: number) {
+  if (players.length === 0) return undefined;
+  for (let step = 1; step <= players.length; step++) {
+    const player = players[(currentIndex + step) % players.length];
+    if (player?.active && !player.out) return player;
+  }
+  return undefined;
 }
 
 function davinciTileLabel(tile: DavinciTile) {

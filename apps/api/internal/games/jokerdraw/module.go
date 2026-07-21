@@ -2,6 +2,7 @@ package jokerdraw
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -107,6 +108,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	targetIndex := findPlayer(current, payload.TargetPlayerID)
 	if targetIndex < 0 || !current.Players[targetIndex].Active || targetIndex == current.CurrentPlayerIndex {
 		return errors.New("invalid draw target")
+	}
+	if targetIndex != nextActiveIndex(current, current.CurrentPlayerIndex) {
+		return errors.New("draw target must be next active player")
 	}
 	if payload.CardIndex < 0 || payload.CardIndex >= len(current.Players[targetIndex].Hand) {
 		return errors.New("card index out of range")
@@ -250,11 +254,29 @@ func drawPayload(payload any) (DrawPayload, error) {
 		return DrawPayload{}, errors.New("invalid draw payload")
 	}
 	targetID, _ := raw["targetPlayerId"].(string)
-	value, ok := raw["cardIndex"].(float64)
+	value, ok := numberAsInt(raw["cardIndex"])
 	if targetID == "" || !ok {
 		return DrawPayload{}, errors.New("target and card index are required")
 	}
-	return DrawPayload{TargetPlayerID: targetID, CardIndex: int(value)}, nil
+	return DrawPayload{TargetPlayerID: targetID, CardIndex: value}, nil
+}
+
+func numberAsInt(value any) (int, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed), true
+	case float32:
+		return int(typed), true
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case json.Number:
+		parsed, err := typed.Int64()
+		return int(parsed), err == nil
+	default:
+		return 0, false
+	}
 }
 
 func activeCount(state State) int {
