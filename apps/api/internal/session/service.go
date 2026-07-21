@@ -14,6 +14,7 @@ import (
 var (
 	ErrGameNotRegistered  = errors.New("game module is not registered")
 	ErrRoomNotReady       = errors.New("room is not ready to start")
+	ErrRoomOverCapacity   = errors.New("room has too many players for selected game")
 	ErrTimeoutUnsupported = errors.New("game module does not support timeout handling")
 )
 
@@ -36,6 +37,9 @@ func (s *Service) Start(room room.Room) (Session, error) {
 	module, ok := s.registry.Find(gamecore.GameID(room.GameID))
 	if !ok {
 		return Session{}, ErrGameNotRegistered
+	}
+	if len(room.Participants) > module.MaxPlayers() {
+		return Session{}, ErrRoomOverCapacity
 	}
 	if !canStart(room, module) {
 		return Session{}, ErrRoomNotReady
