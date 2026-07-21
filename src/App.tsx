@@ -243,9 +243,14 @@ interface Room {
   spectators: RoomSpectator[];
   options: {
     turnSeconds: number;
+    maxWaitSeconds: number;
+    autoStart: boolean;
+    allowSpectators: boolean;
   };
   participants: RoomParticipant[];
 }
+
+type RoomOptions = Room["options"];
 
 interface DavinciTile {
   color: "black" | "white" | "hidden";
@@ -441,6 +446,9 @@ export function App() {
   const [gameSearch, setGameSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("전체");
   const [turnSeconds, setTurnSeconds] = useState(60);
+  const [maxWaitSeconds, setMaxWaitSeconds] = useState(180);
+  const [autoStart, setAutoStart] = useState(false);
+  const [allowSpectators, setAllowSpectators] = useState(true);
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
@@ -655,6 +663,21 @@ export function App() {
       setLobbyFlow("home");
     }
   }, [currentRoom, lobbyFlow]);
+
+  useEffect(() => {
+    if (!currentRoom) return;
+
+    setTurnSeconds(currentRoom.options?.turnSeconds ?? 60);
+    setMaxWaitSeconds(currentRoom.options?.maxWaitSeconds ?? 180);
+    setAutoStart(currentRoom.options?.autoStart ?? false);
+    setAllowSpectators(currentRoom.options?.allowSpectators ?? true);
+  }, [
+    currentRoom?.id,
+    currentRoom?.options?.turnSeconds,
+    currentRoom?.options?.maxWaitSeconds,
+    currentRoom?.options?.autoStart,
+    currentRoom?.options?.allowSpectators
+  ]);
 
   useEffect(() => {
     fetchTutorial(selectedGameId).then(setTutorialGuide).catch(() => setTutorialGuide(null));
@@ -1061,22 +1084,69 @@ export function App() {
                 </button>
               ) : null}
               {currentRoom ? (
-                <div className="option-row">
-                  <label>
-                    턴 제한
+                <div className="room-options-panel">
+                  <div className="option-grid">
+                    <label>
+                      턴 제한
+                      <input
+                        type="number"
+                        min="10"
+                        max="300"
+                        value={turnSeconds}
+                        disabled={!amHost}
+                        onChange={(event) => setTurnSeconds(Number(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      최대 대기
+                      <input
+                        type="number"
+                        min="30"
+                        max="1800"
+                        step="30"
+                        value={maxWaitSeconds}
+                        disabled={!amHost}
+                        onChange={(event) => setMaxWaitSeconds(Number(event.target.value))}
+                      />
+                    </label>
+                  </div>
+                  <label className="toggle-row">
                     <input
-                      type="number"
-                      min="10"
-                      max="300"
-                      value={turnSeconds}
-                      onChange={(event) => setTurnSeconds(Number(event.target.value))}
+                      type="checkbox"
+                      checked={autoStart}
+                      disabled={!amHost}
+                      onChange={(event) => setAutoStart(event.target.checked)}
                     />
+                    <span>전원 Ready 시 자동 시작</span>
+                  </label>
+                  <label className="toggle-row">
+                    <input
+                      type="checkbox"
+                      checked={allowSpectators}
+                      disabled={!amHost}
+                      onChange={(event) => setAllowSpectators(event.target.checked)}
+                    />
+                    <span>관전 허용</span>
                   </label>
                   <button
-                    onClick={() => updateRoomOptions(currentRoom.id, turnSeconds, setCurrentRoom, setRoomMessage)}
+                    className="wide-button"
+                    onClick={() =>
+                      updateRoomOptions(
+                        currentRoom.id,
+                        {
+                          turnSeconds,
+                          maxWaitSeconds,
+                          autoStart,
+                          allowSpectators
+                        },
+                        setCurrentRoom,
+                        setRoomMessage
+                      )
+                    }
                     disabled={!amHost}
                   >
-                    적용
+                    방 옵션 적용
+                    <ChevronRight size={18} />
                   </button>
                 </div>
               ) : null}
@@ -1159,7 +1229,10 @@ export function App() {
               <p className="room-message">
                 {currentRoom.gameId} · 로비 {currentRoom.participants.length}/{currentRoom.maxPlayers}명 · 이번 판{" "}
                 {selectedPlayers.length}/{selectedRoomGame.maxPlayers}명 · 관전{" "}
-                {currentRoom.spectators?.length ?? 0}명 · 턴 {currentRoom.options?.turnSeconds ?? 60}초
+                {currentRoom.spectators?.length ?? 0}명 · 턴 {currentRoom.options?.turnSeconds ?? 60}초 · 대기{" "}
+                {currentRoom.options?.maxWaitSeconds ?? 180}초 ·{" "}
+                {currentRoom.options?.autoStart ? "자동 시작" : "수동 시작"} ·{" "}
+                {currentRoom.options?.allowSpectators ? "관전 허용" : "관전 닫힘"}
               </p>
             ) : null}
             {currentRoom ? (
@@ -2528,7 +2601,10 @@ function normalizeRoom(room: Room): Room {
     spectators: room.spectators ?? [],
     playingPlayerIds: room.playingPlayerIds ?? [],
     options: {
-      turnSeconds: room.options?.turnSeconds ?? 60
+      turnSeconds: room.options?.turnSeconds ?? 60,
+      maxWaitSeconds: room.options?.maxWaitSeconds ?? 180,
+      autoStart: room.options?.autoStart ?? false,
+      allowSpectators: room.options?.allowSpectators ?? true
     }
   };
 }
@@ -2671,7 +2747,7 @@ async function spectateRoom(
 
 async function updateRoomOptions(
   roomID: string,
-  turnSeconds: number,
+  options: RoomOptions,
   onRoom: (room: Room) => void,
   onMessage: (message: string) => void
 ) {
@@ -2684,10 +2760,12 @@ async function updateRoomOptions(
   try {
     const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/options`, session.sessionToken, {
       method: "PATCH",
-      body: JSON.stringify({ turnSeconds })
+      body: JSON.stringify(options)
     });
     onRoom(normalizeRoom(data.room));
-    onMessage(`턴 제한시간을 ${data.room.options.turnSeconds}초로 변경했습니다.`);
+    onMessage(
+      `방 옵션을 적용했습니다. 턴 ${data.room.options.turnSeconds}초, 대기 ${data.room.options.maxWaitSeconds}초`
+    );
   } catch {
     onMessage("방장만 옵션을 바꿀 수 있습니다.");
   }

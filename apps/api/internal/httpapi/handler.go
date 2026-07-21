@@ -234,6 +234,16 @@ func (h Handler) setReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if updated.Options.AutoStart && updated.Status == room.StatusLobby && allParticipantsReady(updated.Participants) {
+		if created, startErr := h.sessions.StartWithPlayers(updated, nil); startErr == nil {
+			playingIDs := participantIDs(updated.Participants)
+			if playingRoom, roomErr := h.rooms.SetPlaying(updated.ID, created.ID, playingIDs); roomErr == nil {
+				updated = playingRoom
+				h.publishGameUpdated(created)
+			}
+		}
+	}
+
 	h.publishRoomUpdated(updated)
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
 }
@@ -246,6 +256,10 @@ func (h Handler) spectateRoom(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.rooms.JoinSpectator(r.PathValue("roomID"), user.Public())
 	if err != nil {
+		if errors.Is(err, room.ErrSpectatorClosed) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "spectator mode is disabled"})
+			return
+		}
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
 		return
 	}
@@ -270,14 +284,31 @@ func (h Handler) updateRoomOptions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		TurnSeconds int `json:"turnSeconds"`
+		TurnSeconds     *int  `json:"turnSeconds"`
+		MaxWaitSeconds  *int  `json:"maxWaitSeconds"`
+		AutoStart       *bool `json:"autoStart"`
+		AllowSpectators *bool `json:"allowSpectators"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid options payload"})
 		return
 	}
 
-	updated, err := h.rooms.UpdateOptions(found.ID, body.TurnSeconds)
+	nextOptions := found.Options
+	if body.TurnSeconds != nil {
+		nextOptions.TurnSeconds = *body.TurnSeconds
+	}
+	if body.MaxWaitSeconds != nil {
+		nextOptions.MaxWaitSeconds = *body.MaxWaitSeconds
+	}
+	if body.AutoStart != nil {
+		nextOptions.AutoStart = *body.AutoStart
+	}
+	if body.AllowSpectators != nil {
+		nextOptions.AllowSpectators = *body.AllowSpectators
+	}
+
+	updated, err := h.rooms.UpdateOptions(found.ID, nextOptions)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update options"})
 		return
@@ -779,6 +810,18 @@ func participantIDs(participants []room.Participant) []string {
 		ids = append(ids, participant.User.ID)
 	}
 	return ids
+}
+
+func allParticipantsReady(participants []room.Participant) bool {
+	if len(participants) == 0 {
+		return false
+	}
+	for _, participant := range participants {
+		if !participant.Ready {
+			return false
+		}
+	}
+	return true
 }
 
 func (h Handler) requireGuest(w http.ResponseWriter, r *http.Request) (currentUser, bool) {

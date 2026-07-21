@@ -191,12 +191,26 @@ func TestUpdateOptionsClampsTurnSeconds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	updated, err := service.UpdateOptions(created.ID, 3)
+	updated, err := service.UpdateOptions(created.ID, Options{
+		TurnSeconds:     3,
+		MaxWaitSeconds:  9,
+		AutoStart:       true,
+		AllowSpectators: false,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Options.TurnSeconds != 10 {
 		t.Fatalf("expected clamped turn seconds, got %d", updated.Options.TurnSeconds)
+	}
+	if updated.Options.MaxWaitSeconds != 30 {
+		t.Fatalf("expected clamped wait seconds, got %d", updated.Options.MaxWaitSeconds)
+	}
+	if !updated.Options.AutoStart {
+		t.Fatal("expected auto start option to be enabled")
+	}
+	if updated.Options.AllowSpectators {
+		t.Fatal("expected spectator option to be disabled")
 	}
 }
 
