@@ -718,7 +718,8 @@ export function App() {
       .filter((game) => categoryFilter === "전체" || game.categories.includes(categoryFilter as GameCategory));
   }, [apiGames, categoryFilter, gameSearch]);
 
-  const activePlayerCount = currentRoom?.participants.length ?? playerCount;
+  const activePlayerCount = currentRoom?.participants.length ?? 0;
+  const recommendationPlayerCount = currentRoom ? activePlayerCount : playerCount;
   const partyMembers = currentRoom?.participants ?? [];
   const me = currentRoom?.participants.find(
     (participant) => participant.user.id === playerID
@@ -837,45 +838,56 @@ export function App() {
             <div className="section-title">
               <div>
                 <span>{playerNickname || "게스트 준비 중"}</span>
-              <h2>{activePlayerCount}명 입장 중 · Ready {readyCount}/{partyMembers.length || activePlayerCount}</h2>
+                <h2>
+                  {currentRoom
+                    ? `${activePlayerCount}명 입장 중 · Ready ${readyCount}/${partyMembers.length}`
+                    : "아직 방 없음"}
+                </h2>
               </div>
               <UsersRound size={22} />
             </div>
             <div className="party-list">
-              {(partyMembers.length > 0 ? partyMembers : demoParticipants()).map((participant) => (
-                <div className="party-member" key={participant.user.id}>
-                  <span>{participant.user.nickname.slice(0, 1)}</span>
-                  <div>
-                    <strong>{participant.user.nickname}</strong>
-                    <small>
-                      {participant.host ? "방장" : participant.ready ? "준비 완료" : "대기 중"}
-                      {" · "}
-                      {presenceByUser[participant.user.id]?.status === "DISCONNECTED" ? "재접속 대기" : "온라인"}
-                      {currentRoom?.status === "PLAYING" && !currentRoom.playingPlayerIds?.includes(participant.user.id)
-                        ? " · 이번 판 관전"
-                        : ""}
-                    </small>
-                    {currentRoom && amHost && participant.user.id !== playerID ? (
-                      <div className="member-actions">
-                        <button
-                          onClick={() =>
-                            transferHost(currentRoom.id, participant.user.id, setCurrentRoom, setRoomMessage)
-                          }
-                        >
-                          위임
-                        </button>
-                        <button
-                          onClick={() =>
-                            kickPlayer(currentRoom.id, participant.user.id, setCurrentRoom, setRoomMessage)
-                          }
-                        >
-                          강퇴
-                        </button>
-                      </div>
-                    ) : null}
+              {currentRoom ? (
+                partyMembers.map((participant) => (
+                  <div className="party-member" key={participant.user.id}>
+                    <span>{participant.user.nickname.slice(0, 1)}</span>
+                    <div>
+                      <strong>{participant.user.nickname}</strong>
+                      <small>
+                        {participant.host ? "방장" : participant.ready ? "준비 완료" : "대기 중"}
+                        {" · "}
+                        {presenceByUser[participant.user.id]?.status === "DISCONNECTED" ? "재접속 대기" : "온라인"}
+                        {currentRoom.status === "PLAYING" && !currentRoom.playingPlayerIds?.includes(participant.user.id)
+                          ? " · 이번 판 관전"
+                          : ""}
+                      </small>
+                      {amHost && participant.user.id !== playerID ? (
+                        <div className="member-actions">
+                          <button
+                            onClick={() =>
+                              transferHost(currentRoom.id, participant.user.id, setCurrentRoom, setRoomMessage)
+                            }
+                          >
+                            위임
+                          </button>
+                          <button
+                            onClick={() =>
+                              kickPlayer(currentRoom.id, participant.user.id, setCurrentRoom, setRoomMessage)
+                            }
+                          >
+                            강퇴
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="empty-party-state">
+                  <strong>방을 만들거나 코드로 입장하세요.</strong>
+                  <small>참가자 수와 Ready 상태는 실제 방에 들어간 뒤 표시됩니다.</small>
                 </div>
-              ))}
+              )}
             </div>
             {currentRoom?.spectators?.length ? (
               <div className="spectator-list">
@@ -2096,7 +2108,11 @@ export function App() {
                 <Sparkles size={15} />
                 인원 기반 추천
               </span>
-              <h2>{activePlayerCount}명이 바로 플레이 가능한 게임</h2>
+              <h2>
+                {currentRoom
+                  ? `${activePlayerCount}명이 바로 플레이 가능한 게임`
+                  : `${recommendationPlayerCount}명 기준 추천 게임`}
+              </h2>
             </div>
             <label className="search-box">
               <Search size={17} aria-hidden="true" />
@@ -2338,15 +2354,6 @@ export function App() {
       ) : null}
     </main>
   );
-}
-
-function demoParticipants(): RoomParticipant[] {
-  return ["Guest_8391", "Nara", "Min", "Seo"].map((nickname, index) => ({
-    user: { id: `demo-${nickname}`, nickname },
-    ready: index > 0,
-    host: index === 0,
-    seatIndex: index
-  }));
 }
 
 function readGuestSession(): GuestSession | null {

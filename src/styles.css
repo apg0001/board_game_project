@@ -419,6 +419,25 @@ h1 {
   gap: 10px;
 }
 
+.empty-party-state {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px dashed rgba(23, 33, 43, 0.22);
+  border-radius: 14px;
+  background: rgba(255, 248, 232, 0.7);
+}
+
+.empty-party-state strong {
+  color: #17212b;
+  font-size: 0.95rem;
+}
+
+.empty-party-state small {
+  color: #68727e;
+  line-height: 1.45;
+}
+
 .party-member {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
