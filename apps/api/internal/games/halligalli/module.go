@@ -82,7 +82,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 }
 
 func (m Module) PublicState(state any, _ gamecore.PlayerID) any {
-	current := asState(state)
+	current := cloneState(asState(state))
 	for index := range current.Players {
 		current.Players[index].Deck = make([]Card, len(current.Players[index].Deck))
 	}
@@ -99,7 +99,13 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 			return errors.New("not your turn")
 		}
+		if len(current.Players[current.CurrentPlayerIndex].Deck) == 0 {
+			return errors.New("player has no cards to flip")
+		}
 	case ActionRing:
+		if findPlayer(current, string(action.PlayerID)) < 0 {
+			return errors.New("player not found")
+		}
 		return nil
 	default:
 		return errors.New("unsupported action")
@@ -170,7 +176,7 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 		results = append(results, gamecore.Result{
 			PlayerID: gamecore.PlayerID(player.PlayerID),
 			Rank:     index + 1,
-			Score:    player.Score + len(player.Deck),
+			Score:    totalCards(player),
 			Outcome:  outcome,
 		})
 	}
@@ -196,15 +202,22 @@ func ring(state State, playerID string) State {
 		index := findPlayer(state, playerID)
 		if index >= 0 {
 			won := collectFaceUp(&state)
-			state.Players[index].Score += won
+			state.Players[index].Deck = append(state.Players[index].Deck, won...)
+			state.Players[index].Score += len(won)
 			state.Log = append(state.Log, playerID+" 님이 종을 맞게 눌렀습니다.")
 		}
 	} else {
 		index := findPlayer(state, playerID)
-		if index >= 0 && state.Players[index].Score > 0 {
-			state.Players[index].Score--
+		if index >= 0 {
+			penalty := payWrongRingPenalty(&state, index)
+			if penalty > 0 {
+				state.Log = append(state.Log, playerID+" 님이 종을 잘못 눌러 벌칙 카드를 냈습니다.")
+			} else {
+				state.Log = append(state.Log, playerID+" 님이 종을 잘못 눌렀지만 낼 카드가 없습니다.")
+			}
+		} else {
+			state.Log = append(state.Log, playerID+" 님이 종을 잘못 눌렀습니다.")
 		}
-		state.Log = append(state.Log, playerID+" 님이 종을 잘못 눌렀습니다.")
 	}
 	return state
 }
@@ -212,7 +225,7 @@ func ring(state State, playerID string) State {
 func refresh(state State) State {
 	active := 0
 	for index := range state.Players {
-		state.Players[index].Active = len(state.Players[index].Deck) > 0
+		state.Players[index].Active = totalCards(state.Players[index]) > 0
 		if state.Players[index].Active {
 			active++
 		}
@@ -220,6 +233,10 @@ func refresh(state State) State {
 	if active <= 1 {
 		state.Finished = true
 		state.Log = append(state.Log, "할리갈리가 종료되었습니다.")
+		return state
+	}
+	if len(state.Players[state.CurrentPlayerIndex].Deck) == 0 {
+		state.CurrentPlayerIndex = nextCanFlipIndex(state, state.CurrentPlayerIndex)
 	}
 	return state
 }
@@ -241,19 +258,43 @@ func hasFiveFruit(state State) bool {
 	return false
 }
 
-func collectFaceUp(state *State) int {
-	total := 0
+func collectFaceUp(state *State) []Card {
+	won := []Card{}
 	for playerIndex := range state.Players {
-		total += len(state.Players[playerIndex].FaceUp)
+		won = append(won, state.Players[playerIndex].FaceUp...)
 		state.Players[playerIndex].FaceUp = []Card{}
 	}
-	return total
+	return won
+}
+
+func payWrongRingPenalty(state *State, payerIndex int) int {
+	paid := 0
+	for playerIndex := range state.Players {
+		if playerIndex == payerIndex || !state.Players[playerIndex].Active || len(state.Players[payerIndex].Deck) == 0 {
+			continue
+		}
+		card := state.Players[payerIndex].Deck[0]
+		state.Players[payerIndex].Deck = state.Players[payerIndex].Deck[1:]
+		state.Players[playerIndex].Deck = append(state.Players[playerIndex].Deck, card)
+		paid++
+	}
+	return paid
 }
 
 func nextActiveIndex(state State, current int) int {
 	for step := 1; step <= len(state.Players); step++ {
 		next := (current + step) % len(state.Players)
-		if state.Players[next].Active {
+		if state.Players[next].Active && len(state.Players[next].Deck) > 0 {
+			return next
+		}
+	}
+	return current
+}
+
+func nextCanFlipIndex(state State, current int) int {
+	for step := 1; step <= len(state.Players); step++ {
+		next := (current + step) % len(state.Players)
+		if len(state.Players[next].Deck) > 0 {
 			return next
 		}
 	}
@@ -271,10 +312,11 @@ func findPlayer(state State, playerID string) int {
 
 func shuffledDeck(seed string) []Card {
 	fruits := []string{"banana", "strawberry", "lime", "plum"}
+	copiesByCount := map[int]int{1: 5, 2: 3, 3: 3, 4: 2, 5: 1}
 	deck := make([]Card, 0, 56)
 	for _, fruit := range fruits {
 		for count := 1; count <= 5; count++ {
-			for copy := 0; copy < 3; copy++ {
+			for copy := 0; copy < copiesByCount[count]; copy++ {
 				deck = append(deck, Card{Fruit: fruit, Count: count})
 			}
 		}
@@ -296,12 +338,28 @@ func sortedPlayers(players []PlayerState) []PlayerState {
 	copyPlayers := append([]PlayerState(nil), players...)
 	for i := range copyPlayers {
 		for j := i + 1; j < len(copyPlayers); j++ {
-			if copyPlayers[j].Score+len(copyPlayers[j].Deck) > copyPlayers[i].Score+len(copyPlayers[i].Deck) {
+			if totalCards(copyPlayers[j]) > totalCards(copyPlayers[i]) {
 				copyPlayers[i], copyPlayers[j] = copyPlayers[j], copyPlayers[i]
 			}
 		}
 	}
 	return copyPlayers
+}
+
+func totalCards(player PlayerState) int {
+	return len(player.Deck) + len(player.FaceUp)
+}
+
+func cloneState(state State) State {
+	clone := state
+	clone.Players = make([]PlayerState, len(state.Players))
+	for index := range state.Players {
+		clone.Players[index] = state.Players[index]
+		clone.Players[index].Deck = append([]Card(nil), state.Players[index].Deck...)
+		clone.Players[index].FaceUp = append([]Card(nil), state.Players[index].FaceUp...)
+	}
+	clone.Log = append([]string(nil), state.Log...)
+	return clone
 }
 
 func asState(state any) State {
