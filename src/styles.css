@@ -1101,6 +1101,29 @@ h1 {
   background: rgba(28, 140, 140, 0.1);
 }
 
+.joker-insert-control,
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #46505c;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.joker-insert-control input {
+  width: 72px;
+  border: 1px solid rgba(23, 33, 43, 0.12);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.checkbox-inline input {
+  width: 16px;
+  height: 16px;
+  accent-color: #1c8c8c;
+}
+
 .tile-board > span,
 .opponent-row strong {
   color: #68727e;

@@ -20,6 +20,7 @@ const (
 type Tile struct {
 	Color    string `json:"color"`
 	Value    int    `json:"value"`
+	Joker    bool   `json:"joker"`
 	Revealed bool   `json:"revealed"`
 }
 
@@ -46,6 +47,12 @@ type GuessPayload struct {
 	TileIndex      int    `json:"tileIndex"`
 	Color          string `json:"color"`
 	Value          int    `json:"value"`
+	Joker          bool   `json:"joker"`
+	InsertIndex    int    `json:"insertIndex"`
+}
+
+type EndTurnPayload struct {
+	InsertIndex int `json:"insertIndex"`
 }
 
 type Module struct{}
@@ -78,10 +85,10 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	}
 
 	players := make([]PlayerState, 0, len(ctx.Players))
-	for _, player := range ctx.Players {
+	for playerIndex, player := range ctx.Players {
 		hand := append([]Tile(nil), deck[:handSize]...)
 		deck = deck[handSize:]
-		sortTiles(hand)
+		hand = arrangeInitialTiles(hand, fmt.Sprintf("%s:%s:%d", ctx.RandomSeed, player.ID, playerIndex))
 		players = append(players, PlayerState{
 			PlayerID: string(player.ID),
 			Tiles:    hand,
@@ -110,12 +117,14 @@ func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
 			}
 			tile.Value = -1
 			tile.Color = "hidden"
+			tile.Joker = false
 		}
 	}
 	if current.PendingTile != nil && current.PendingOwnerID != string(viewerID) {
 		hidden := *current.PendingTile
 		hidden.Value = -1
 		hidden.Color = "hidden"
+		hidden.Joker = false
 		hidden.Revealed = false
 		current.PendingTile = &hidden
 	}
@@ -169,7 +178,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if payload.Color != "black" && payload.Color != "white" {
 		return errors.New("tile color must be black or white")
 	}
-	if payload.Value < 0 || payload.Value > 11 {
+	if !payload.Joker && (payload.Value < 0 || payload.Value > 11) {
 		return errors.New("tile value must be between 0 and 11")
 	}
 	return nil
@@ -186,7 +195,8 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 		current = applyGuess(current, string(action.PlayerID), payload)
 	case ActionPass:
-		insertPendingTile(&current, false)
+		payload := endTurnPayload(action.Payload)
+		insertPendingTile(&current, false, payload.InsertIndex)
 		current.Log = append(current.Log, string(action.PlayerID)+" 님이 턴을 종료했습니다.")
 		current = advanceTurn(current)
 	case ActionFinish:
@@ -217,6 +227,9 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 		return gamecore.ActionResult{State: current}, nil
 	}
 
+	if current.PendingOwnerID == string(playerID) {
+		insertPendingTile(&current, true, -1)
+	}
 	for tileIndex := range current.Players[index].Tiles {
 		current.Players[index].Tiles[tileIndex].Revealed = true
 	}
@@ -277,7 +290,7 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 func applyGuess(state State, playerID string, payload GuessPayload) State {
 	targetIndex := findPlayerIndex(state, payload.TargetPlayerID)
 	targetTile := &state.Players[targetIndex].Tiles[payload.TileIndex]
-	correct := targetTile.Color == payload.Color && targetTile.Value == payload.Value
+	correct := matchesGuess(*targetTile, payload)
 
 	if correct {
 		targetTile.Revealed = true
@@ -290,13 +303,23 @@ func applyGuess(state State, playerID string, payload GuessPayload) State {
 		}
 		return state
 	} else {
-		if !insertPendingTile(&state, true) {
+		if !insertPendingTile(&state, true, payload.InsertIndex) {
 			revealFirstHiddenOwnTile(&state, playerID)
 		}
 		state.Log = append(state.Log, fmt.Sprintf("%s 님의 추측이 실패했습니다.", playerID))
 	}
 
 	return advanceTurn(state)
+}
+
+func matchesGuess(tile Tile, payload GuessPayload) bool {
+	if tile.Color != payload.Color {
+		return false
+	}
+	if tile.Joker {
+		return payload.Joker
+	}
+	return !payload.Joker && tile.Value == payload.Value
 }
 
 func beginTurn(state State) State {
@@ -318,7 +341,7 @@ func beginTurn(state State) State {
 	return state
 }
 
-func insertPendingTile(state *State, revealed bool) bool {
+func insertPendingTile(state *State, revealed bool, insertIndex int) bool {
 	if state.PendingTile == nil {
 		return false
 	}
@@ -331,8 +354,11 @@ func insertPendingTile(state *State, revealed bool) bool {
 	}
 	tile := *state.PendingTile
 	tile.Revealed = revealed
-	state.Players[playerIndex].Tiles = append(state.Players[playerIndex].Tiles, tile)
-	sortTiles(state.Players[playerIndex].Tiles)
+	if tile.Joker {
+		state.Players[playerIndex].Tiles = insertTileAt(state.Players[playerIndex].Tiles, tile, insertIndex)
+	} else {
+		state.Players[playerIndex].Tiles = insertNumberTile(state.Players[playerIndex].Tiles, tile)
+	}
 	state.PendingTile = nil
 	state.PendingOwnerID = ""
 	state.CanEndTurn = false
@@ -407,11 +433,12 @@ func findPlayerIndex(state State, playerID string) int {
 }
 
 func shuffledDeck(seed string) []Tile {
-	deck := make([]Tile, 0, 24)
+	deck := make([]Tile, 0, 26)
 	for _, color := range []string{"black", "white"} {
 		for value := 0; value <= 11; value++ {
 			deck = append(deck, Tile{Color: color, Value: value})
 		}
+		deck = append(deck, Tile{Color: color, Value: -1, Joker: true})
 	}
 
 	random := rand.New(rand.NewSource(seedToInt(seed)))
@@ -428,6 +455,65 @@ func sortTiles(tiles []Tile) {
 		}
 		return tiles[i].Color < tiles[j].Color
 	})
+}
+
+func arrangeInitialTiles(tiles []Tile, seed string) []Tile {
+	numbered := make([]Tile, 0, len(tiles))
+	jokers := make([]Tile, 0, len(tiles))
+	for _, tile := range tiles {
+		if tile.Joker {
+			jokers = append(jokers, tile)
+			continue
+		}
+		numbered = append(numbered, tile)
+	}
+	sortTiles(numbered)
+	if len(jokers) == 0 {
+		return numbered
+	}
+
+	random := rand.New(rand.NewSource(seedToInt(seed)))
+	arranged := append([]Tile(nil), numbered...)
+	for _, joker := range jokers {
+		insertIndex := 0
+		if len(arranged) > 0 {
+			insertIndex = random.Intn(len(arranged) + 1)
+		}
+		arranged = insertTileAt(arranged, joker, insertIndex)
+	}
+	return arranged
+}
+
+func insertNumberTile(tiles []Tile, tile Tile) []Tile {
+	insertIndex := len(tiles)
+	for index, existing := range tiles {
+		if existing.Joker {
+			continue
+		}
+		if tileComesBefore(tile, existing) {
+			insertIndex = index
+			break
+		}
+	}
+	return insertTileAt(tiles, tile, insertIndex)
+}
+
+func insertTileAt(tiles []Tile, tile Tile, index int) []Tile {
+	if index < 0 || index > len(tiles) {
+		index = len(tiles)
+	}
+	next := make([]Tile, 0, len(tiles)+1)
+	next = append(next, tiles[:index]...)
+	next = append(next, tile)
+	next = append(next, tiles[index:]...)
+	return next
+}
+
+func tileComesBefore(left Tile, right Tile) bool {
+	if left.Value != right.Value {
+		return left.Value < right.Value
+	}
+	return left.Color < right.Color
 }
 
 func cloneState(state State) State {
@@ -458,7 +544,7 @@ func guessPayload(payload any) (GuessPayload, error) {
 		return GuessPayload{}, errors.New("invalid guess payload")
 	}
 
-	result := GuessPayload{}
+	result := GuessPayload{TileIndex: -1, InsertIndex: -1}
 	if value, ok := raw["targetPlayerId"].(string); ok {
 		result.TargetPlayerID = value
 	}
@@ -471,10 +557,28 @@ func guessPayload(payload any) (GuessPayload, error) {
 	if value, ok := raw["value"].(float64); ok {
 		result.Value = int(value)
 	}
+	if value, ok := raw["joker"].(bool); ok {
+		result.Joker = value
+	}
+	if value, ok := raw["insertIndex"].(float64); ok {
+		result.InsertIndex = int(value)
+	}
 	if result.TargetPlayerID == "" || result.Color == "" {
 		return GuessPayload{}, errors.New("guess target, color and value are required")
 	}
 	return result, nil
+}
+
+func endTurnPayload(payload any) EndTurnPayload {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return EndTurnPayload{InsertIndex: -1}
+	}
+	result := EndTurnPayload{InsertIndex: -1}
+	if value, ok := raw["insertIndex"].(float64); ok {
+		result.InsertIndex = int(value)
+	}
+	return result
 }
 
 func asState(state any) State {
