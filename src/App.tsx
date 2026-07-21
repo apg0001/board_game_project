@@ -443,6 +443,8 @@ export function App() {
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const playerSession = useMemo(
     () =>
       authSession
@@ -515,7 +517,7 @@ export function App() {
     if (roomID) {
       fetchRoom(roomID)
         .then((room) => {
-          setCurrentRoom(room);
+          setCurrentRoom(normalizeRoom(room));
           setSelectedGameId(room.gameId);
           setRoomMessage(`${room.code} 방을 복구했습니다.`);
         })
@@ -568,7 +570,7 @@ export function App() {
       if (message.type === "room.updated") {
         const nextRoom = message.payload.room;
         if (!nextRoom) return;
-        setCurrentRoom(nextRoom);
+        setCurrentRoom(normalizeRoom(nextRoom));
         setRoomMessage(`${nextRoom.code} 방 상태가 갱신되었습니다.`);
       }
       if (message.type === "chat.message" && message.payload.message) {
@@ -2032,54 +2034,28 @@ export function App() {
                 <ChevronRight size={18} />
               </button>
             ) : (
-              <div className="auth-panel">
-                <input
-                  value={authUsername}
-                  onChange={(event) => setAuthUsername(event.target.value)}
-                  placeholder="ID"
-                  aria-label="회원 ID"
-                />
-                <input
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  placeholder="Password"
-                  type="password"
-                  aria-label="비밀번호"
-                />
-                <input
-                  value={authNickname}
-                  onChange={(event) => setAuthNickname(event.target.value)}
-                  placeholder="닉네임"
-                  aria-label="닉네임"
-                />
-                <div className="auth-actions">
-                  <button
-                    onClick={() =>
-                      register(authUsername, authPassword, authNickname)
-                        .then((session) => {
-                          setAuthSession(session);
-                          setAuthPassword("");
-                          setRoomMessage(`${session.user.nickname} 계정으로 가입하고 로그인했습니다.`);
-                        })
-                        .catch(() => setRoomMessage("회원가입에 실패했습니다. ID와 비밀번호를 확인해주세요."))
-                    }
-                  >
-                    회원가입
-                  </button>
-                  <button
-                    onClick={() =>
-                      login(authUsername, authPassword)
-                        .then((session) => {
-                          setAuthSession(session);
-                          setAuthPassword("");
-                          setRoomMessage(`${session.user.nickname} 계정으로 로그인했습니다.`);
-                        })
-                        .catch(() => setRoomMessage("로그인에 실패했습니다. ID와 비밀번호를 확인해주세요."))
-                    }
-                  >
-                    로그인
-                  </button>
-                </div>
+              <div className="auth-cta">
+                <p>전적 저장과 고정 닉네임은 계정으로 사용할 수 있습니다.</p>
+                <button
+                  className="wide-button"
+                  onClick={() => {
+                    setAuthMode("login");
+                    setAuthDialogOpen(true);
+                  }}
+                >
+                  로그인
+                  <ChevronRight size={18} />
+                </button>
+                <button
+                  className="wide-button dark"
+                  onClick={() => {
+                    setAuthMode("register");
+                    setAuthDialogOpen(true);
+                  }}
+                >
+                  회원가입
+                  <ChevronRight size={18} />
+                </button>
               </div>
             )}
           </div>
@@ -2274,6 +2250,75 @@ export function App() {
           랭킹
         </button>
       </section>
+      {authDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+            <div className="section-title">
+              <div>
+                <span>계정</span>
+                <h2 id="auth-title">{authMode === "login" ? "로그인" : "회원가입"}</h2>
+              </div>
+              <button className="mini-command" onClick={() => setAuthDialogOpen(false)}>
+                닫기
+              </button>
+            </div>
+            <div className="auth-panel">
+              <input
+                value={authUsername}
+                onChange={(event) => setAuthUsername(event.target.value)}
+                placeholder="ID"
+                aria-label="회원 ID"
+              />
+              <input
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                placeholder="Password"
+                type="password"
+                aria-label="비밀번호"
+              />
+              {authMode === "register" ? (
+                <input
+                  value={authNickname}
+                  onChange={(event) => setAuthNickname(event.target.value)}
+                  placeholder="닉네임"
+                  aria-label="닉네임"
+                />
+              ) : null}
+              <div className="auth-actions">
+                <button
+                  onClick={() =>
+                    submitAuth(authMode, authUsername, authPassword, authNickname)
+                      .then((session) => {
+                        setAuthSession(session);
+                        setAuthPassword("");
+                        setAuthDialogOpen(false);
+                        setRoomMessage(
+                          authMode === "register"
+                            ? `${session.user.nickname} 계정으로 가입하고 로그인했습니다.`
+                            : `${session.user.nickname} 계정으로 로그인했습니다.`
+                        );
+                      })
+                      .catch(() =>
+                        setRoomMessage(
+                          authMode === "register"
+                            ? "회원가입에 실패했습니다. ID와 비밀번호를 확인해주세요."
+                            : "로그인에 실패했습니다. ID와 비밀번호를 확인해주세요."
+                        )
+                      )
+                  }
+                >
+                  {authMode === "register" ? "회원가입" : "로그인"}
+                </button>
+                <button
+                  onClick={() => setAuthMode(authMode === "register" ? "login" : "register")}
+                >
+                  {authMode === "register" ? "로그인으로" : "회원가입으로"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -2324,6 +2369,18 @@ function readPlayerSession(): GuestSession | null {
   return readGuestSession();
 }
 
+function normalizeRoom(room: Room): Room {
+  return {
+    ...room,
+    participants: room.participants ?? [],
+    spectators: room.spectators ?? [],
+    playingPlayerIds: room.playingPlayerIds ?? [],
+    options: {
+      turnSeconds: room.options?.turnSeconds ?? 60
+    }
+  };
+}
+
 async function createGuest(apiURL: string): Promise<GuestSession> {
   const response = await fetch(`${apiURL}/api/guests`, { method: "POST" });
   if (!response.ok) throw new Error("failed to create guest");
@@ -2359,6 +2416,11 @@ async function login(username: string, password: string): Promise<AuthSession> {
   return session;
 }
 
+function submitAuth(mode: "login" | "register", username: string, password: string, nickname: string) {
+  if (mode === "register") return register(username, password, nickname);
+  return login(username, password);
+}
+
 async function createRoom(
   gameId: string,
   onRoom: (room: Room) => void,
@@ -2376,7 +2438,7 @@ async function createRoom(
       method: "POST",
       body: JSON.stringify({ gameId, maxPlayers: Math.max(game?.maxPlayers ?? 4, 12) })
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage(`${data.room.code} 코드를 친구에게 공유하세요.`);
     markPresence(data.room.id, undefined, "ONLINE").catch(() => undefined);
   } catch {
@@ -2401,7 +2463,7 @@ async function quickMatch(
       method: "POST",
       body: JSON.stringify({ gameId, maxPlayers: game?.maxPlayers ?? 4 })
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
     onMessage(data.matched ? "대기 중인 방에 매칭되었습니다." : "퀵매치 방을 만들고 친구를 기다립니다.");
   } catch {
@@ -2425,7 +2487,7 @@ async function joinRoom(
       method: "POST",
       body: JSON.stringify({ code })
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage(`${data.room.code} 방에 입장했습니다.`);
     markPresence(data.room.id, data.room.activeSessionId, "ONLINE").catch(() => undefined);
   } catch {
@@ -2448,7 +2510,7 @@ async function spectateRoom(
     const data = await authorizedJSON<{ room: Room }>(`/api/rooms/${roomID}/spectate`, session.sessionToken, {
       method: "POST"
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage("관전자로 입장했습니다.");
   } catch {
     onMessage("관전 입장에 실패했습니다.");
@@ -2472,7 +2534,7 @@ async function updateRoomOptions(
       method: "PATCH",
       body: JSON.stringify({ turnSeconds })
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage(`턴 제한시간을 ${data.room.options.turnSeconds}초로 변경했습니다.`);
   } catch {
     onMessage("방장만 옵션을 바꿀 수 있습니다.");
@@ -2492,7 +2554,7 @@ async function kickPlayer(
       method: "POST",
       body: JSON.stringify({ userId: userID })
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage("선택한 사용자를 방에서 내보냈습니다.");
   } catch {
     onMessage("방장만 강퇴할 수 있습니다.");
@@ -2512,7 +2574,7 @@ async function transferHost(
       method: "POST",
       body: JSON.stringify({ userId: userID })
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage("방장을 위임했습니다.");
   } catch {
     onMessage("방장만 권한을 위임할 수 있습니다.");
@@ -2556,7 +2618,7 @@ async function fetchRoom(roomID: string): Promise<Room> {
   const response = await fetch(`${apiURL}/api/rooms/${roomID}`);
   if (!response.ok) throw new Error("failed to fetch room");
   const data = (await response.json()) as { room: Room };
-  return data.room;
+  return normalizeRoom(data.room);
 }
 
 async function markPresence(
@@ -2605,7 +2667,7 @@ async function setReady(
       method: "POST",
       body: JSON.stringify({ ready })
     });
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage(ready ? "준비 완료했습니다." : "준비를 취소했습니다.");
   } catch {
     onMessage("Ready 변경에 실패했습니다.");
@@ -2634,7 +2696,7 @@ async function startGame(
         body: JSON.stringify({ playerIds })
       }
     );
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onSession(data.session);
     onMessage("선택된 플레이어로 게임을 시작했습니다.");
   } catch {
@@ -2757,7 +2819,7 @@ async function roomPostAction(
     onRoom(null);
     onMessage("방에서 나왔습니다.");
   } else {
-    onRoom(data.room);
+    onRoom(normalizeRoom(data.room));
     onMessage(action === "rematch" ? "다시 하기 준비 로비로 돌아왔습니다." : "로비로 돌아왔습니다.");
   }
   afterAction();

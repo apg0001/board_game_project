@@ -745,6 +745,18 @@ h1 {
   gap: 8px;
 }
 
+.auth-cta {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-cta p {
+  margin: 0;
+  color: #68727e;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .auth-panel input {
   min-height: 40px;
   min-width: 0;
@@ -767,6 +779,28 @@ h1 {
   color: #fff8e8;
   background: #17212b;
   font-weight: 850;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(23, 33, 43, 0.48);
+  backdrop-filter: blur(10px);
+}
+
+.auth-dialog {
+  display: grid;
+  width: min(420px, 100%);
+  gap: 14px;
+  border: 1px solid rgba(23, 33, 43, 0.1);
+  border-radius: 18px;
+  padding: 16px;
+  background: #fff8e8;
+  box-shadow: 0 24px 70px rgba(23, 33, 43, 0.26);
 }
 
 .game-session-panel p {
