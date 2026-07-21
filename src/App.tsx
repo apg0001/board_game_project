@@ -360,6 +360,10 @@ interface GameSession {
     field?: HandCard[];
     discardPile?: HandCard[];
     drawPile?: HandCard[];
+    deck?: DavinciTile[];
+    pendingTile?: DavinciTile;
+    pendingOwnerId?: string;
+    canEndTurn?: boolean;
   };
   results?: Array<{
     playerId: string;
@@ -2145,11 +2149,25 @@ export function App() {
                       <div className="tile-row">
                         {(myDavinciPlayer?.tiles ?? []).map((tile, index) => (
                           <span className={`davinci-tile ${tile.color}`} key={`${tile.color}-${tile.value}-${index}`}>
-                            {tile.value}
+                            {tile.value >= 0 ? tile.value : "?"}
                           </span>
                         ))}
                       </div>
                     </div>
+                    {currentSession.state.pendingTile ? (
+                      <div className="tile-board pending-davinci-tile" aria-label="이번 턴에 뽑은 타일">
+                        <span>
+                          {currentSession.state.pendingOwnerId === playerID
+                            ? "이번 턴에 뽑은 타일"
+                            : `${participantName(currentRoom, currentSession.state.pendingOwnerId ?? "")} 님이 뽑은 타일`}
+                        </span>
+                        <div className="tile-row">
+                          <span className={`davinci-tile ${currentSession.state.pendingTile.color}`}>
+                            {currentSession.state.pendingTile.value >= 0 ? currentSession.state.pendingTile.value : "?"}
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="tile-board" aria-label="상대 타일">
                       <span>상대 타일</span>
                       {opponentPlayers.map((player) => (
@@ -2224,8 +2242,9 @@ export function App() {
                           setRoomMessage
                         )
                       }
+                      disabled={!isMyTurn || !currentSession.state.canEndTurn}
                     >
-                      턴 넘기기
+                      턴 종료
                       <ChevronRight size={18} />
                     </button>
                       </>
