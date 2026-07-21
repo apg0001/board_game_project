@@ -20,11 +20,12 @@ type Card struct {
 }
 
 type PlayerState struct {
-	PlayerID string `json:"playerId"`
-	Deck     []Card `json:"deck"`
-	FaceUp   []Card `json:"faceUp"`
-	Score    int    `json:"score"`
-	Active   bool   `json:"active"`
+	PlayerID  string `json:"playerId"`
+	Deck      []Card `json:"deck"`
+	FaceUp    []Card `json:"faceUp"`
+	Score     int    `json:"score"`
+	Active    bool   `json:"active"`
+	Forfeited bool   `json:"forfeited"`
 }
 
 type State struct {
@@ -107,7 +108,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if index < 0 {
 			return errors.New("player not found")
 		}
-		if !current.Players[index].Active || totalCards(current.Players[index]) == 0 {
+		if current.Players[index].Forfeited || !current.Players[index].Active || totalCards(current.Players[index]) == 0 {
 			return errors.New("player cannot ring")
 		}
 		return nil
@@ -145,6 +146,7 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 
 	current.Players[index].Deck = []Card{}
 	current.Players[index].Active = false
+	current.Players[index].Forfeited = true
 	current.Log = append(current.Log, string(playerID)+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
 	if current.CurrentPlayerIndex == index {
 		current.CurrentPlayerIndex = nextActiveIndex(current, current.CurrentPlayerIndex)
@@ -229,6 +231,10 @@ func ring(state State, playerID string) State {
 func refresh(state State) State {
 	active := 0
 	for index := range state.Players {
+		if state.Players[index].Forfeited {
+			state.Players[index].Active = false
+			continue
+		}
 		state.Players[index].Active = totalCards(state.Players[index]) > 0
 		if state.Players[index].Active {
 			active++

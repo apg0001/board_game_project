@@ -90,6 +90,74 @@ func TestGoDecisionAdvancesTurn(t *testing.T) {
 	}
 }
 
+func TestCaptureMonthTakesAllMatchingFieldCards(t *testing.T) {
+	player := &PlayerState{PlayerID: "p1"}
+	field := []Card{
+		{ID: "5-junk-a", Month: 5, Kind: "junk"},
+		{ID: "5-junk-b", Month: 5, Kind: "junk"},
+		{ID: "9-junk", Month: 9, Kind: "junk"},
+	}
+	captureMonth(player, &field, Card{ID: "5-bright", Month: 5, Kind: "bright"})
+
+	if len(player.Captured) != 3 {
+		t.Fatalf("expected all three month-5 cards captured, got %+v", player.Captured)
+	}
+	if len(field) != 1 || field[0].ID != "9-junk" {
+		t.Fatalf("expected only the unrelated month-9 card left on the field, got %+v", field)
+	}
+}
+
+func TestApplyTimeoutSkipsCurrentPlayerWithoutEndingGameForOthers(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 1,
+		Players: []PlayerState{
+			{PlayerID: "p1", Active: true},
+			{PlayerID: "p2", Active: true},
+			{PlayerID: "p3", Active: true},
+		},
+	}
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p2", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Finished {
+		t.Fatal("game should continue while two or more players remain active")
+	}
+	if next.CurrentPlayerIndex != 2 {
+		t.Fatalf("expected turn to skip the timed-out current player, got index %d", next.CurrentPlayerIndex)
+	}
+	if next.Players[1].Active {
+		t.Fatal("timed-out player should be marked inactive")
+	}
+}
+
+func TestApplyTimeoutDoesNotEndGameForNonCurrentPlayer(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Active: true},
+			{PlayerID: "p2", Active: true},
+			{PlayerID: "p3", Active: true},
+		},
+	}
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p3", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Finished {
+		t.Fatal("a non-current player timing out should not end the game for everyone else")
+	}
+	if next.CurrentPlayerIndex != 0 {
+		t.Fatal("turn should not move when the timed-out player was not holding the turn")
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		GameID: "gostop",

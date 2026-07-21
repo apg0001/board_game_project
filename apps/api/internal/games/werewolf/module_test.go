@@ -89,6 +89,73 @@ func TestFinishNightRequiresRequiredRoleActions(t *testing.T) {
 	}
 }
 
+func TestFinishVoteExecutesAllOnEvenSplitTie(t *testing.T) {
+	state := fixedState()
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p2", "p2": "p3", "p3": "p1"}
+
+	result := finishVote(state)
+	if len(result.Executed) != 3 {
+		t.Fatalf("expected all three tied players executed, got %+v", result.Executed)
+	}
+}
+
+func TestFinishVoteVillageWinsWhenNoWerewolves(t *testing.T) {
+	state := fixedState()
+	state.Players[1].CurrentRole = RoleVillager
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p3", "p2": "p3", "p3": "p1"}
+
+	result := finishVote(state)
+	if result.WinningTeam != "village" {
+		t.Fatalf("expected village to win when no werewolves exist, got %q", result.WinningTeam)
+	}
+}
+
+func TestPublicStateHidesVotesBeforeAllSubmitted(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p2"}
+	state.Players[0].VotedFor = "p2"
+
+	public := module.PublicState(state, "p3").(State)
+	if len(public.Votes) != 0 {
+		t.Fatalf("bystander should not see votes before all submitted, got %+v", public.Votes)
+	}
+	if public.Players[0].VotedFor != "" {
+		t.Fatal("bystander should not see another player's vote target")
+	}
+
+	own := module.PublicState(state, "p1").(State)
+	if own.Votes["p1"] != "p2" {
+		t.Fatal("voter should see their own submitted vote")
+	}
+}
+
+func TestApplyTimeoutOnlySkipsTimedOutRoleDuringNight(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+
+	result, err := module.ApplyTimeout(context.Background(), state, "p2", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Phase != PhaseNight {
+		t.Fatal("night should stay open while the robber has not acted yet")
+	}
+
+	result, err = module.ApplyTimeout(context.Background(), next, "p1", testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next = result.State.(State)
+	if next.Phase != PhaseDiscussion {
+		t.Fatal("night should end once the last required role times out")
+	}
+}
+
 func TestCenterIndexesAcceptIntegerPayload(t *testing.T) {
 	indexes, err := centerIndexes(map[string]any{"centerIndexes": []any{0, 1}}, 2)
 	if err != nil {

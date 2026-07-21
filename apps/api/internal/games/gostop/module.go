@@ -195,12 +195,41 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 
 func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.PlayerID, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
-	if index := findPlayer(current, string(playerID)); index >= 0 && !current.Finished {
-		current.Players[index].Active = false
+	index := findPlayer(current, string(playerID))
+	if index < 0 || current.Finished {
+		return gamecore.ActionResult{State: current}, nil
+	}
+	current.Players[index].Active = false
+	current.Log = append(current.Log, current.Players[index].PlayerID+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
+
+	if activePlayers(current) <= 1 {
 		current.WinnerID = bestPlayer(current).PlayerID
 		current.Finished = true
+		return gamecore.ActionResult{State: current}, nil
+	}
+
+	if current.CurrentPlayerIndex == index {
+		if current.AwaitingDecision {
+			current.AwaitingDecision = false
+			current.WinnerID = current.Players[index].PlayerID
+			current.Finished = true
+			current.Log = append(current.Log, current.Players[index].PlayerID+" 님이 시간 초과로 자동 스톱 처리되었습니다.")
+		} else {
+			current.CurrentPlayerIndex = nextActiveIndex(current, index)
+			current.Round++
+		}
 	}
 	return gamecore.ActionResult{State: current}, nil
+}
+
+func activePlayers(state State) int {
+	count := 0
+	for _, player := range state.Players {
+		if player.Active {
+			count++
+		}
+	}
+	return count
 }
 
 func (m Module) IsFinished(state any, _ gamecore.Context) bool {
@@ -231,8 +260,8 @@ func captureMonth(player *PlayerState, field *[]Card, card Card) {
 		}
 	}
 	if len(matches) > 0 {
-		player.Captured = append(player.Captured, card, matches[0])
-		rest = append(rest, matches[1:]...)
+		player.Captured = append(player.Captured, card)
+		player.Captured = append(player.Captured, matches...)
 		*field = rest
 		return
 	}

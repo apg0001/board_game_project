@@ -119,6 +119,7 @@ export function App() {
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [selectedGemColors, setSelectedGemColors] = useState<string[]>([]);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [lobbyFlow, setLobbyFlow] = useState<LobbyFlow>("home");
@@ -466,6 +467,11 @@ export function App() {
   const currentTurnPlayer = davinciPlayers[currentSession?.state.currentPlayerIndex ?? 0];
   const isSessionFinished = currentSession?.status === "FINISHED" || Boolean(currentSession?.state.finished);
   const isMyTurn = Boolean(!isSessionFinished && currentTurnPlayer?.playerId === playerID);
+  useEffect(() => {
+    if (!isMyTurn) {
+      setSelectedGemColors([]);
+    }
+  }, [isMyTurn]);
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[4];
   const selectedRoomGame = games.find((game) => game.id === currentRoom?.gameId) ?? selectedGame;
   const setupGame = currentRoom ? selectedRoomGame : selectedGame;
@@ -1226,26 +1232,52 @@ export function App() {
                     ) : currentSession.gameId === "splendor" ? (
                       <div className="room-actions">
                         <div className="splendor-bank" aria-label="보석 은행">
-                          {splendorColors.map((color) => (
-                            <button
-                              className={`gem-button ${color}`}
-                              key={color}
-                              onClick={() =>
-                                sendGameAction(
-                                  currentSession.id,
-                                  currentRoom?.id,
-                                  "splendor.take_token",
-                                  setCurrentSession,
-                                  setRoomMessage,
-                                  { color }
-                                )
-                              }
-                              disabled={!isMyTurn || (currentSession.state.bank?.[color] ?? 0) <= 0}
-                            >
-                              <span>{gemLabel(color)}</span>
-                              <strong>{currentSession.state.bank?.[color] ?? 0}</strong>
-                            </button>
-                          ))}
+                          {splendorColors.map((color) => {
+                            const selectedCount = selectedGemColors.filter((selected) => selected === color).length;
+                            return (
+                              <button
+                                className={`gem-button ${color} ${selectedCount > 0 ? "selected" : ""}`}
+                                key={color}
+                                onClick={() => setSelectedGemColors((previous) => toggleGemColor(previous, color))}
+                                disabled={!isMyTurn || (currentSession.state.bank?.[color] ?? 0) <= 0}
+                              >
+                                <span>{gemLabel(color)}</span>
+                                <strong>
+                                  {currentSession.state.bank?.[color] ?? 0}
+                                  {selectedCount > 0 ? ` · 선택 ${selectedCount}` : ""}
+                                </strong>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="room-actions">
+                          <button
+                            className="wide-button"
+                            onClick={() =>
+                              sendGameAction(
+                                currentSession.id,
+                                currentRoom?.id,
+                                "splendor.take_token",
+                                (session) => {
+                                  setCurrentSession(session);
+                                  setSelectedGemColors([]);
+                                },
+                                setRoomMessage,
+                                { colors: selectedGemColors }
+                              )
+                            }
+                            disabled={!isMyTurn || !isValidGemSelection(selectedGemColors)}
+                          >
+                            보석 가져가기 (다른 색 3개 또는 같은 색 2개)
+                            <ChevronRight size={18} />
+                          </button>
+                          <button
+                            className="wide-button dark"
+                            onClick={() => setSelectedGemColors([])}
+                            disabled={selectedGemColors.length === 0}
+                          >
+                            선택 취소
+                          </button>
                         </div>
                         <div className="splendor-market" aria-label="시장 카드">
                           {(currentSession.state.market ?? []).map((card, index) => (
@@ -2653,4 +2685,27 @@ function toggleSelected(values: string[], target: string) {
     return values.filter((value) => value !== target);
   }
   return [...values, target];
+}
+
+function toggleGemColor(selected: string[], color: string): string[] {
+  if (selected.length === 0) {
+    return [color];
+  }
+  if (selected.length === 1) {
+    return selected[0] === color ? [color, color] : [...selected, color];
+  }
+  if (selected.length === 2 && selected[0] !== selected[1] && !selected.includes(color)) {
+    return [...selected, color];
+  }
+  return selected;
+}
+
+function isValidGemSelection(selected: string[]): boolean {
+  if (selected.length === 3) {
+    return new Set(selected).size === 3;
+  }
+  if (selected.length === 2) {
+    return selected[0] === selected[1];
+  }
+  return false;
 }

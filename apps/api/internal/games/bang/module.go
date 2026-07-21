@@ -239,6 +239,9 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 		current.Players[index].HP = 0
 		current.Players[index].Alive = false
 		current.Players[index].Active = false
+		current.Discard = append(current.Discard, current.Players[index].Hand...)
+		current.Players[index].Hand = []Card{}
+		current.Players[index].HandSize = 0
 		current = checkEnd(current)
 		if current.CurrentPlayerIndex == index && !current.Finished {
 			current.CurrentPlayerIndex = nextAliveIndex(current, index)
@@ -289,6 +292,9 @@ func damageTarget(state State, targetPlayerID string, amount int) State {
 		target.HP = 0
 		target.Alive = false
 		target.Active = false
+		state.Discard = append(state.Discard, target.Hand...)
+		target.Hand = []Card{}
+		target.HandSize = 0
 		state.Log = append(state.Log, target.PlayerID+" 님이 탈락했습니다.")
 	}
 	return state

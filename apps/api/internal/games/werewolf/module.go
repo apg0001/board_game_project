@@ -119,6 +119,18 @@ func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
 	if !revealed {
 		current.Center = []string{"hidden", "hidden", "hidden"}
 	}
+	if !revealed {
+		votes := map[string]string{}
+		if viewerVote, ok := current.Votes[string(viewerID)]; ok {
+			votes[string(viewerID)] = viewerVote
+		}
+		current.Votes = votes
+		for index := range current.Players {
+			if current.Players[index].PlayerID != string(viewerID) {
+				current.Players[index].VotedFor = ""
+			}
+		}
+	}
 	return current
 }
 
@@ -262,7 +274,16 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.PlayerID, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
 	if current.Phase == PhaseNight {
-		current.Phase = PhaseDiscussion
+		index := findPlayer(current, string(playerID))
+		if index >= 0 && isRequiredNightRole(current.Players[index].OriginalRole) {
+			current.CompletedActions[current.Players[index].PlayerID] = true
+			current.Log = append(current.Log, current.Players[index].PlayerID+" 님의 밤 행동이 시간 초과로 건너뛰어졌습니다.")
+		}
+		if requiredNightActionsComplete(current) {
+			current.Phase = PhaseDiscussion
+			current.Log = append(current.Log, "낮 토론과 투표 단계가 시작되었습니다.")
+		}
+		return gamecore.ActionResult{State: current}, nil
 	}
 	if current.Phase == PhaseDiscussion {
 		index := findPlayer(current, string(playerID))
@@ -346,7 +367,7 @@ func finishVote(state State) State {
 		}
 	}
 	executed := []string{}
-	if highest >= 2 {
+	if highest > 0 {
 		for playerID, count := range counts {
 			if count == highest {
 				executed = append(executed, playerID)
@@ -363,11 +384,7 @@ func finishVote(state State) State {
 		}
 	}
 	if len(werewolves) == 0 {
-		if len(executed) == 0 {
-			state.WinningTeam = "village"
-		} else {
-			state.WinningTeam = "werewolf"
-		}
+		state.WinningTeam = "village"
 	} else if werewolfKilled {
 		state.WinningTeam = "village"
 	} else {

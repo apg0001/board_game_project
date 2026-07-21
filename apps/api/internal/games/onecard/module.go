@@ -128,10 +128,14 @@ func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.Ru
 func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	rules := ruleConfigFromOptions(ctx.Options)
 	deck := shuffledDeck(ctx.RandomSeed)
+	handSize := 5
+	if len(ctx.Players) == 2 {
+		handSize = 7
+	}
 	players := make([]PlayerState, 0, len(ctx.Players))
 	for _, player := range ctx.Players {
-		hand := append([]Card(nil), deck[:7]...)
-		deck = deck[7:]
+		hand := append([]Card(nil), deck[:handSize]...)
+		deck = deck[handSize:]
 		players = append(players, PlayerState{PlayerID: string(player.ID), Hand: hand, HandSize: len(hand), Active: true})
 	}
 	firstCardIndex := firstDiscardIndex(deck)
@@ -191,6 +195,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
 	player := &current.Players[current.CurrentPlayerIndex]
+	advance := true
 	switch action.Type {
 	case ActionDraw:
 		drawCount := current.PendingDraw
@@ -219,20 +224,18 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Round++
 			current.Log = append(current.Log, "다음 순서를 건너뜁니다.")
 		}
+		if card.Rank == "K" {
+			advance = false
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 추가 턴을 얻었습니다.", player.PlayerID))
+		}
 		if amount := attackAmount(card, current.Rules); amount > 0 {
 			if current.Rules.Stacking {
 				current.PendingDraw += amount
-				current.PendingAttackRank = card.Rank
-				current.Log = append(current.Log, fmt.Sprintf("공격이 %d장으로 누적되었습니다.", current.PendingDraw))
 			} else {
-				next := nextActiveIndex(current, current.CurrentPlayerIndex)
-				drawn := drawCards(&current, amount)
-				current.Players[next].Hand = append(current.Players[next].Hand, drawn...)
-				current.Players[next].HandSize = len(current.Players[next].Hand)
-				current.CurrentPlayerIndex = next
-				current.Round++
-				current.Log = append(current.Log, fmt.Sprintf("%s 님이 공격으로 카드 %d장을 받았습니다.", current.Players[next].PlayerID, len(drawn)))
+				current.PendingDraw = amount
 			}
+			current.PendingAttackRank = card.Rank
+			current.Log = append(current.Log, fmt.Sprintf("공격 카드로 다음 차례에 %d장의 페널티가 걸렸습니다.", current.PendingDraw))
 		} else {
 			current.PendingDraw = 0
 			current.PendingAttackRank = ""
@@ -243,7 +246,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Log = append(current.Log, "원카드가 종료되었습니다.")
 		}
 	}
-	if !current.Finished {
+	if !current.Finished && advance {
 		current.CurrentPlayerIndex = nextActiveIndex(current, current.CurrentPlayerIndex)
 		current.Round++
 	}
@@ -260,6 +263,14 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.PlayerID, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
 	if index := findPlayer(current, string(playerID)); index >= 0 && !current.Finished {
+		if current.CurrentPlayerIndex == index && current.PendingDraw > 0 {
+			drawn := drawCards(&current, current.PendingDraw)
+			current.Players[index].Hand = append(current.Players[index].Hand, drawn...)
+			current.Players[index].HandSize = len(current.Players[index].Hand)
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 시간 초과로 공격 카드 %d장을 받았습니다.", current.Players[index].PlayerID, len(drawn)))
+			current.PendingDraw = 0
+			current.PendingAttackRank = ""
+		}
 		current.Players[index].Active = false
 		if activeCount(current) <= 1 {
 			current.WinnerID = current.Players[nextActiveIndex(current, index)].PlayerID

@@ -314,6 +314,27 @@ func TestTimeoutForfeitsPlayer(t *testing.T) {
 	}
 }
 
+func TestCalculateResultDeclaresSoleRemainingPlayerWinner(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Tiles: []Tile{{Value: 3, Revealed: false}, {Value: 5, Revealed: true}}},
+			{PlayerID: "p2", Tiles: []Tile{{Value: 2, Revealed: true}, {Value: 4, Revealed: true}}},
+		},
+		Finished: true,
+	}
+
+	results := module.CalculateResult(state, testContext())
+	for _, result := range results {
+		if result.PlayerID == "p1" && result.Outcome != gamecore.OutcomeWin {
+			t.Fatalf("expected p1 to win as the sole player with hidden tiles, got %+v", result)
+		}
+		if result.PlayerID == "p2" && result.Outcome != gamecore.OutcomeLose {
+			t.Fatalf("expected p2 to lose, got %+v", result)
+		}
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		SessionID: "s1",
