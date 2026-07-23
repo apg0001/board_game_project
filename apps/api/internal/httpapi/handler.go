@@ -536,7 +536,12 @@ func (h Handler) leaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.rooms.Leave(r.PathValue("roomID"), user.ID)
+	roomID := r.PathValue("roomID")
+	if foundRoom, err := h.rooms.FindByID(roomID); err == nil && foundRoom.ActiveSessionID != "" {
+		h.forfeitFromSession(r.Context(), foundRoom, user.ID)
+	}
+
+	updated, err := h.rooms.Leave(roomID, user.ID)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "room not found"})
 		return
@@ -544,6 +549,30 @@ func (h Handler) leaveRoom(w http.ResponseWriter, r *http.Request) {
 
 	h.publishRoomUpdated(updated)
 	writeJSON(w, http.StatusOK, map[string]any{"room": updated})
+}
+
+// forfeitFromSession applies the same forced-forfeit path used for expired
+// presence to a player who explicitly left an in-progress game, so leaving
+// mid-game behaves exactly like a timeout instead of leaving a zombie seat.
+func (h Handler) forfeitFromSession(ctx context.Context, foundRoom room.Room, userID string) {
+	updated, events, err := h.sessions.ApplyTimeout(ctx, foundRoom, foundRoom.ActiveSessionID, gamecore.PlayerID(userID))
+	if err != nil {
+		return
+	}
+	if updated.Status == session.StatusFinished {
+		h.records.RecordSession(updated)
+		if finishedRoom, statusErr := h.rooms.SetStatus(foundRoom.ID, room.StatusFinished); statusErr == nil {
+			h.publishRoomUpdated(finishedRoom)
+		}
+	}
+	h.publishGameUpdated(updated)
+	for _, event := range events {
+		h.hub.Broadcast(realtime.Message{
+			Room:    "game:" + updated.ID,
+			Type:    event.Type,
+			Payload: event.Payload,
+		})
+	}
 }
 
 func (h Handler) recentChat(w http.ResponseWriter, r *http.Request) {
@@ -627,24 +656,7 @@ func (h Handler) SweepExpiredPresence(ctx context.Context) {
 		if err != nil || foundRoom.ActiveSessionID != expired.SessionID {
 			continue
 		}
-		updated, events, err := h.sessions.ApplyTimeout(ctx, foundRoom, expired.SessionID, gamecore.PlayerID(expired.UserID))
-		if err != nil {
-			continue
-		}
-		if updated.Status == session.StatusFinished {
-			h.records.RecordSession(updated)
-			if finishedRoom, statusErr := h.rooms.SetStatus(foundRoom.ID, room.StatusFinished); statusErr == nil {
-				h.publishRoomUpdated(finishedRoom)
-			}
-		}
-		h.publishGameUpdated(updated)
-		for _, event := range events {
-			h.hub.Broadcast(realtime.Message{
-				Room:    "game:" + updated.ID,
-				Type:    event.Type,
-				Payload: event.Payload,
-			})
-		}
+		h.forfeitFromSession(ctx, foundRoom, expired.UserID)
 	}
 }
 
