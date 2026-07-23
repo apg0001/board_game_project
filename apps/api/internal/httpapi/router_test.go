@@ -367,6 +367,53 @@ func TestReturnLobbyAndLeaveRoom(t *testing.T) {
 	}
 }
 
+func TestLeavingRoomMidGameForfeitsPlayerInSession(t *testing.T) {
+	handler := testRouter()
+	hostToken := createGuestToken(t, handler)
+	guestToken := createGuestToken(t, handler)
+
+	room := createReadyRoom(t, handler, hostToken, guestToken)
+
+	startRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/start", nil)
+	startRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	startResponse := httptest.NewRecorder()
+	handler.ServeHTTP(startResponse, startRequest)
+	if startResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", startResponse.Code)
+	}
+	var startBody struct {
+		Session session.Session `json:"session"`
+	}
+	if err := json.NewDecoder(startResponse.Body).Decode(&startBody); err != nil {
+		t.Fatal(err)
+	}
+
+	leaveRequest := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/leave", nil)
+	leaveRequest.Header.Set("Authorization", "Bearer "+hostToken)
+	leaveResponse := httptest.NewRecorder()
+	handler.ServeHTTP(leaveResponse, leaveRequest)
+	if leaveResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", leaveResponse.Code)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/sessions/"+startBody.Session.ID, nil)
+	getRequest.Header.Set("Authorization", "Bearer "+guestToken)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", getResponse.Code)
+	}
+	var sessionBody struct {
+		Session session.Session `json:"session"`
+	}
+	if err := json.NewDecoder(getResponse.Body).Decode(&sessionBody); err != nil {
+		t.Fatal(err)
+	}
+	if sessionBody.Session.Status != session.StatusFinished {
+		t.Fatalf("expected leaving a 2-player game to forfeit and finish the session, got status %q", sessionBody.Session.Status)
+	}
+}
+
 func TestSpectateAndUpdateRoomOptions(t *testing.T) {
 	handler := testRouter()
 	hostToken := createGuestToken(t, handler)
