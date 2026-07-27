@@ -159,6 +159,7 @@ export interface RummikubTile {
 
 export interface SplendorCard {
   id: string;
+  tier?: number;
   color: string;
   points: number;
   cost: Record<string, number>;
@@ -198,6 +199,8 @@ export interface GameSession {
     players?: DavinciPlayer[];
     bank?: Record<string, number>;
     market?: SplendorCard[];
+    markets?: Record<string, SplendorCard[]>;
+    decks?: Record<string, SplendorCard[]>;
     nobles?: SplendorNoble[];
     currentTrick?: {
       rank?: number;

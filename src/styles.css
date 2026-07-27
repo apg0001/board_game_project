@@ -1480,6 +1480,33 @@ button.davinci-tile {
   gap: 8px;
 }
 
+.splendor-market-board,
+.splendor-tier-row {
+  display: grid;
+  gap: 8px;
+}
+
+.splendor-tier-row {
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.splendor-tier-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #17212b;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.splendor-tier-header span {
+  color: #66727f;
+  font-size: 0.78rem;
+}
+
 .splendor-nobles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
