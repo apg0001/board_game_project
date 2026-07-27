@@ -1671,6 +1671,28 @@ button.davinci-tile {
   display: grid;
 }
 
+.rummikub-pending-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.rummikub-pending-group {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.rummikub-pending-group span {
+  overflow-wrap: anywhere;
+  color: #66727f;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
 .rummikub-tile {
   display: grid;
   width: 38px;
@@ -1684,6 +1706,11 @@ button.davinci-tile {
 
 button.rummikub-tile {
   cursor: pointer;
+}
+
+button.rummikub-tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .rummikub-tile.black {

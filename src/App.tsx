@@ -46,6 +46,7 @@ import type {
   OneCardRules,
   Presence,
   Room,
+  RummikubTile,
   TutorialGuide
 } from "./domain/types";
 import {
@@ -134,6 +135,7 @@ export function App() {
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
+  const [pendingRummikubGroups, setPendingRummikubGroups] = useState<string[][]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [selectedGemColors, setSelectedGemColors] = useState<string[]>([]);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
@@ -549,6 +551,8 @@ export function App() {
   const werewolfMe = davinciPlayers.find((player) => player.playerId === playerID);
   const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== playerID);
   const rummikubMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const rummikubPendingTileIds = new Set(pendingRummikubGroups.flat());
+  const rummikubSubmitGroups = [...pendingRummikubGroups, ...(selectedTileIds.length >= 3 ? [selectedTileIds] : [])];
   const bangMe = davinciPlayers.find((player) => player.playerId === playerID);
   const bangTargets = davinciPlayers.filter((player) => player.playerId !== playerID && player.alive !== false);
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1656,6 +1660,7 @@ export function App() {
                               }`}
                               key={tile.id}
                               onClick={() => setSelectedTileIds((previous) => toggleSelected(previous, tile.id))}
+                              disabled={rummikubPendingTileIds.has(tile.id)}
                             >
                               {tile.joker ? "J" : tile.number}
                             </button>
@@ -1672,6 +1677,26 @@ export function App() {
                             </div>
                           ))}
                         </div>
+                        {pendingRummikubGroups.length > 0 ? (
+                          <div className="rummikub-pending-groups" aria-label="등록 대기 조합">
+                            {pendingRummikubGroups.map((group, groupIndex) => (
+                              <div className="rummikub-pending-group" key={`pending-${groupIndex}`}>
+                                <strong>묶음 {groupIndex + 1}</strong>
+                                <span>{group.map((id) => rummikubTileLabel(rummikubMe?.rack ?? [], id)).join(" · ")}</span>
+                                <button
+                                  className="mini-action-button"
+                                  onClick={() =>
+                                    setPendingRummikubGroups((previous) =>
+                                      previous.filter((_, index) => index !== groupIndex)
+                                    )
+                                  }
+                                >
+                                  제거
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="splendor-players">
                           {davinciPlayers.map((player) => (
                             <div className="halli-player" key={player.playerId}>
@@ -1685,6 +1710,17 @@ export function App() {
                         </div>
                         <button
                           className="wide-button"
+                          onClick={() => {
+                            setPendingRummikubGroups((previous) => [...previous, selectedTileIds]);
+                            setSelectedTileIds([]);
+                          }}
+                          disabled={!isMyTurn || selectedTileIds.length < 3}
+                        >
+                          선택 묶음 추가
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button"
                           onClick={() =>
                             sendGameAction(
                               currentSession.id,
@@ -1693,14 +1729,15 @@ export function App() {
                               (session) => {
                                 setCurrentSession(session);
                                 setSelectedTileIds([]);
+                                setPendingRummikubGroups([]);
                               },
                               setRoomMessage,
-                              { tileIds: selectedTileIds }
+                              rummikubSubmitPayload(rummikubSubmitGroups)
                             )
                           }
-                          disabled={!isMyTurn || selectedTileIds.length < 3}
+                          disabled={!isMyTurn || rummikubSubmitGroups.length === 0}
                         >
-                          선택 조합 등록
+                          {rummikubSubmitGroups.length > 1 ? `${rummikubSubmitGroups.length}개 조합 등록` : "선택 조합 등록"}
                           <ChevronRight size={18} />
                         </button>
                         <button
@@ -1710,7 +1747,11 @@ export function App() {
                               currentSession.id,
                               currentRoom?.id,
                               "rummikub.draw",
-                              setCurrentSession,
+                              (session) => {
+                                setCurrentSession(session);
+                                setSelectedTileIds([]);
+                                setPendingRummikubGroups([]);
+                              },
                               setRoomMessage
                             )
                           }
@@ -2945,6 +2986,19 @@ function groupDalmutiHand(hand: HandCard[]) {
   return Array.from(counts.entries())
     .map(([rank, count]) => ({ rank, count }))
     .sort((left, right) => left.rank - right.rank);
+}
+
+function rummikubSubmitPayload(groups: string[][]) {
+  if (groups.length === 1) {
+    return { tileIds: groups[0] };
+  }
+  return { groups };
+}
+
+function rummikubTileLabel(rack: RummikubTile[], id: string) {
+  const tile = rack.find((item) => item.id === id);
+  if (!tile) return id;
+  return tile.joker ? "J" : `${tile.color} ${tile.number}`;
 }
 
 function dalmutiRankLabel(rank: number) {
