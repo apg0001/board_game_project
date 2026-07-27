@@ -242,6 +242,7 @@ export interface GameSession {
     winnerId?: string;
     winnerIds?: string[];
     draw?: boolean;
+    rematch?: boolean;
     awaitingDecision?: boolean;
     loserId?: string;
     field?: HandCard[];

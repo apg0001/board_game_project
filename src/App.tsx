@@ -2247,9 +2247,11 @@ export function App() {
                           </span>
                           {currentSession.state.finished ? (
                             <small>
-                              {currentSession.state.draw
-                                ? `무승부 ${currentSession.state.winnerIds?.map((id) => participantName(currentRoom, id)).join(", ") || ""}`
-                                : `승자 ${participantName(currentRoom, currentSession.state.winnerId ?? "")}`}
+                              {currentSession.state.rematch
+                                ? `구사 재경기 ${currentSession.state.winnerIds?.map((id) => participantName(currentRoom, id)).join(", ") || ""}`
+                                : currentSession.state.draw
+                                  ? `무승부 ${currentSession.state.winnerIds?.map((id) => participantName(currentRoom, id)).join(", ") || ""}`
+                                  : `승자 ${participantName(currentRoom, currentSession.state.winnerId ?? "")}`}
                             </small>
                           ) : null}
                         </div>

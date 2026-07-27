@@ -21,6 +21,10 @@ func TestEvaluateRanks(t *testing.T) {
 	if name != "갑오" || rank != 609 {
 		t.Fatalf("expected gap-o, got %s %d", name, rank)
 	}
+	rank, name = evaluate([]Card{{Month: 4}, {Month: 9}})
+	if name != "구사" || rank != 499 {
+		t.Fatalf("expected gusa, got %s %d", name, rank)
+	}
 }
 
 func TestCompareHands(t *testing.T) {
@@ -87,6 +91,56 @@ func TestFinishMarksShowdownDrawWhenBestHandsTie(t *testing.T) {
 		if result.PlayerID == "p3" && result.Outcome != gamecore.OutcomeLose {
 			t.Fatalf("expected lower hand to lose, got %+v", result)
 		}
+	}
+}
+
+func TestGusaForcesRematchWhenBestHandIsAliOrLower(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "p1-1", Month: 4}, {ID: "p1-2", Month: 9}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "p2-1", Month: 1}, {ID: "p2-2", Month: 2}}, Active: true},
+			{PlayerID: "p3", Hand: []Card{{ID: "p3-1", Month: 3}, {ID: "p3-2", Month: 6}}, Active: true},
+		},
+	}
+
+	done := finish(state)
+	if !done.Rematch || !done.Draw || done.WinnerID != "" || len(done.WinnerIDs) != 3 {
+		t.Fatalf("expected active players to rematch on gusa, got %+v", done)
+	}
+	results := module.CalculateResult(done, testContext())
+	for _, result := range results {
+		if result.Outcome != gamecore.OutcomeDraw || result.Rank != 1 {
+			t.Fatalf("expected rematch player to receive draw result, got %+v", result)
+		}
+	}
+}
+
+func TestGusaDoesNotCancelHandAboveAli(t *testing.T) {
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "p1-1", Month: 4}, {ID: "p1-2", Month: 9}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "p2-1", Month: 10}, {ID: "p2-2", Month: 10}}, Active: true},
+		},
+	}
+
+	done := finish(state)
+	if done.Rematch || done.Draw || done.WinnerID != "p2" {
+		t.Fatalf("expected jang-ttaeng to win without rematch, got %+v", done)
+	}
+}
+
+func TestGusaDoesNotRematchWhenOnlyOneActivePlayerRemains(t *testing.T) {
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "p1-1", Month: 4}, {ID: "p1-2", Month: 9}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "p2-1", Month: 1}, {ID: "p2-2", Month: 2}}, Folded: true},
+		},
+	}
+
+	done := finish(state)
+	if done.Rematch || done.Draw || done.WinnerID != "p1" {
+		t.Fatalf("expected last active gusa player to win by fold, got %+v", done)
 	}
 }
 
