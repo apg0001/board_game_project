@@ -350,6 +350,44 @@ func TestPpeokLeavesThreeCardsOnField(t *testing.T) {
 	}
 }
 
+func TestCapturingPpeokStackStealsJunk(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "5-ribbon", Month: 5, Kind: "ribbon"}, {ID: "9-junk", Month: 9, Kind: "junk"}}, Active: true},
+			{PlayerID: "p2", Captured: []Card{{ID: "p2-pi", Month: 1, Kind: "junk"}}, Active: true},
+			{PlayerID: "p3", Captured: []Card{{ID: "p3-pi", Month: 2, Kind: "junk"}}, Active: true},
+		},
+		Field: []Card{
+			{ID: "5-junk-a", Month: 5, Kind: "junk"},
+			{ID: "5-junk-b", Month: 5, Kind: "junk"},
+			{ID: "5-animal", Month: 5, Kind: "animal"},
+			{ID: "8-junk", Month: 8, Kind: "junk"},
+		},
+		Deck: []Card{{ID: "12-junk", Month: 12, Kind: "junk"}},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "5-ribbon"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	for _, id := range []string{"5-ribbon", "5-junk-a", "5-junk-b", "5-animal", "p2-pi", "p3-pi"} {
+		if !hasCaptured(next.Players[0], id) {
+			t.Fatalf("expected ppeok stack capture to include %s, got %+v", id, next.Players[0].Captured)
+		}
+	}
+	if len(next.Players[1].Captured) != 0 || len(next.Players[2].Captured) != 0 {
+		t.Fatalf("expected opponents to pay one junk each, got p2=%+v p3=%+v", next.Players[1].Captured, next.Players[2].Captured)
+	}
+}
+
 func TestSweepStealsOneJunkFromEachOpponent(t *testing.T) {
 	module := NewModule()
 	state := State{
