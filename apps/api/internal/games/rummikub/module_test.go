@@ -37,6 +37,82 @@ func TestInitialMeldRequiresThirtyPoints(t *testing.T) {
 	}
 }
 
+func TestInitialMeldCanUseMultipleGroupsTotalingThirty(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{
+				PlayerID: "p1",
+				Rack: []Tile{
+					{ID: "black-8", Color: "black", Number: 8},
+					{ID: "blue-8", Color: "blue", Number: 8},
+					{ID: "red-8", Color: "red", Number: 8},
+					{ID: "blue-1", Color: "blue", Number: 1},
+					{ID: "blue-2", Color: "blue", Number: 2},
+					{ID: "blue-3", Color: "blue", Number: 3},
+				},
+				Active: true,
+			},
+			{PlayerID: "p2", Rack: []Tile{}, Active: true},
+		},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionMeld,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"groups": []any{
+				[]any{"black-8", "blue-8", "red-8"},
+				[]any{"blue-1", "blue-2", "blue-3"},
+			},
+		},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if !next.Players[0].InitialMelded || len(next.Table) != 2 {
+		t.Fatalf("expected two groups to be registered as first meld, got player=%+v table=%+v", next.Players[0], next.Table)
+	}
+	if len(next.Players[0].Rack) != 0 || !next.Finished {
+		t.Fatalf("expected all rack tiles used and game finished, got rack=%+v finished=%v", next.Players[0].Rack, next.Finished)
+	}
+}
+
+func TestMeldRejectsTileUsedTwiceAcrossGroups(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{
+				PlayerID: "p1",
+				Rack: []Tile{
+					{ID: "black-8", Color: "black", Number: 8},
+					{ID: "blue-8", Color: "blue", Number: 8},
+					{ID: "red-8", Color: "red", Number: 8},
+					{ID: "orange-8", Color: "orange", Number: 8},
+				},
+				Active: true,
+			},
+			{PlayerID: "p2", Rack: []Tile{}, Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionMeld,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"groups": []any{
+				[]any{"black-8", "blue-8", "red-8"},
+				[]any{"black-8", "blue-8", "orange-8"},
+			},
+		},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected duplicate tile usage across groups to be rejected")
+	}
+}
+
 func TestRunAllowsJokerToFillGapAfterOne(t *testing.T) {
 	run := []Tile{{Color: "blue", Number: 1}, {Color: "blue", Number: 3}, {ID: "joker", Joker: true}}
 	if !validSet(run) {

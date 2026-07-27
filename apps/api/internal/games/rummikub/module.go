@@ -44,7 +44,8 @@ type State struct {
 }
 
 type MeldPayload struct {
-	TileIDs []string `json:"tileIds"`
+	TileIDs []string   `json:"tileIds"`
+	Groups  [][]string `json:"groups"`
 }
 
 type Module struct{}
@@ -125,14 +126,16 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if err != nil {
 			return err
 		}
-		tiles, err := selectTiles(current.Players[current.CurrentPlayerIndex].Rack, payload.TileIDs)
+		groups, err := selectTileGroups(current.Players[current.CurrentPlayerIndex].Rack, payload.Groups)
 		if err != nil {
 			return err
 		}
-		if !validSet(tiles) {
-			return errors.New("tiles must form a valid group or run")
+		for _, tiles := range groups {
+			if !validSet(tiles) {
+				return errors.New("tiles must form a valid group or run")
+			}
 		}
-		if !current.Players[current.CurrentPlayerIndex].InitialMelded && meldValue(tiles) < 30 {
+		if !current.Players[current.CurrentPlayerIndex].InitialMelded && meldGroupsValue(groups) < 30 {
 			return errors.New("initial meld must be at least 30 points")
 		}
 	default:
@@ -157,13 +160,16 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
-		tiles, err := removeTiles(player, payload.TileIDs)
+		groups, err := selectTileGroups(player.Rack, payload.Groups)
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
+		if _, err := removeTiles(player, flattenIDs(payload.Groups)); err != nil {
+			return gamecore.ActionResult{}, err
+		}
 		player.InitialMelded = true
-		current.Table = append(current.Table, tiles)
-		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d개 타일 조합을 등록했습니다.", player.PlayerID, len(tiles)))
+		current.Table = append(current.Table, groups...)
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d개 조합을 등록했습니다.", player.PlayerID, len(groups)))
 		if len(player.Rack) == 0 {
 			current.Finished = true
 			current.Log = append(current.Log, "루미큐브가 종료되었습니다.")
@@ -297,6 +303,14 @@ func meldValue(tiles []Tile) int {
 	return total
 }
 
+func meldGroupsValue(groups [][]Tile) int {
+	total := 0
+	for _, group := range groups {
+		total += meldValue(group)
+	}
+	return total
+}
+
 func rackPenalty(tiles []Tile) int {
 	total := 0
 	for _, tile := range tiles {
@@ -307,6 +321,31 @@ func rackPenalty(tiles []Tile) int {
 		}
 	}
 	return total
+}
+
+func selectTileGroups(rack []Tile, groups [][]string) ([][]Tile, error) {
+	if len(groups) == 0 {
+		return nil, errors.New("at least one tile group is required")
+	}
+	seen := map[string]bool{}
+	selectedGroups := make([][]Tile, 0, len(groups))
+	for _, ids := range groups {
+		if len(ids) < 3 {
+			return nil, errors.New("at least three tiles are required")
+		}
+		for _, id := range ids {
+			if seen[id] {
+				return nil, errors.New("tile cannot be used twice")
+			}
+			seen[id] = true
+		}
+		tiles, err := selectTiles(rack, ids)
+		if err != nil {
+			return nil, err
+		}
+		selectedGroups = append(selectedGroups, tiles)
+	}
+	return selectedGroups, nil
 }
 
 func selectTiles(rack []Tile, ids []string) ([]Tile, error) {
@@ -323,6 +362,14 @@ func selectTiles(rack []Tile, ids []string) ([]Tile, error) {
 		tiles = append(tiles, tile)
 	}
 	return tiles, nil
+}
+
+func flattenIDs(groups [][]string) []string {
+	ids := []string{}
+	for _, group := range groups {
+		ids = append(ids, group...)
+	}
+	return ids
 }
 
 func removeTiles(player *PlayerState, ids []string) ([]Tile, error) {
@@ -352,19 +399,57 @@ func meldPayload(payload any) (MeldPayload, error) {
 	if !ok {
 		return MeldPayload{}, errors.New("invalid meld payload")
 	}
+	if rawGroups, ok := raw["groups"]; ok {
+		groups, err := tileIDGroupsFromAny(rawGroups)
+		if err != nil {
+			return MeldPayload{}, err
+		}
+		return MeldPayload{Groups: groups}, nil
+	}
 	values, ok := raw["tileIds"].([]any)
-	if !ok || len(values) < 3 {
+	if !ok {
 		return MeldPayload{}, errors.New("at least three tiles are required")
+	}
+	ids, err := tileIDsFromAny(values)
+	if err != nil {
+		return MeldPayload{}, err
+	}
+	return MeldPayload{TileIDs: ids, Groups: [][]string{ids}}, nil
+}
+
+func tileIDGroupsFromAny(value any) ([][]string, error) {
+	values, ok := value.([]any)
+	if !ok || len(values) == 0 {
+		return nil, errors.New("at least one tile group is required")
+	}
+	groups := make([][]string, 0, len(values))
+	for _, item := range values {
+		rawIDs, ok := item.([]any)
+		if !ok {
+			return nil, errors.New("invalid tile group")
+		}
+		ids, err := tileIDsFromAny(rawIDs)
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, ids)
+	}
+	return groups, nil
+}
+
+func tileIDsFromAny(values []any) ([]string, error) {
+	if len(values) < 3 {
+		return nil, errors.New("at least three tiles are required")
 	}
 	ids := make([]string, 0, len(values))
 	for _, value := range values {
 		id, ok := value.(string)
 		if !ok || id == "" {
-			return MeldPayload{}, errors.New("invalid tile id")
+			return nil, errors.New("invalid tile id")
 		}
 		ids = append(ids, id)
 	}
-	return MeldPayload{TileIDs: ids}, nil
+	return ids, nil
 }
 
 func activePlayers(state State) int {
