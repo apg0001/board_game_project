@@ -597,6 +597,7 @@ export function App() {
   );
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
   const sutdaCurrentBet = currentSession?.gameId === "sutda" ? (currentSession.state.currentBet ?? 1) : 1;
+  const sutdaCanAct = Boolean(sutdaMe) && !sutdaMe?.folded && sutdaMe?.active !== false;
   const sutdaBetsMatched = davinciPlayers.every(
     (player) => player.folded || player.active === false || (player.ready === true && (player.bet ?? 0) >= sutdaCurrentBet)
   );
@@ -2279,7 +2280,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn || !sutdaBetsMatched}
+                          disabled={!isMyTurn || !sutdaCanAct}
                         >
                           콜
                           <ChevronRight size={18} />
@@ -2296,7 +2297,7 @@ export function App() {
                               { amount: 1 }
                             )
                           }
-                          disabled={!isMyTurn || (currentSession.state.raisesThisRound ?? 0) >= 3}
+                          disabled={!isMyTurn || !sutdaCanAct || (currentSession.state.raisesThisRound ?? 0) >= 3}
                         >
                           레이즈
                           <ChevronRight size={18} />
@@ -2312,7 +2313,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn}
+                          disabled={!isMyTurn || !sutdaCanAct}
                         >
                           다이
                           <ChevronRight size={18} />
@@ -2328,7 +2329,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn || !sutdaBetsMatched}
+                          disabled={!isMyTurn || !sutdaCanAct || !sutdaBetsMatched}
                         >
                           쇼다운
                           <ChevronRight size={18} />
