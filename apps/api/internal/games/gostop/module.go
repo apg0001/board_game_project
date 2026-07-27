@@ -25,13 +25,15 @@ type Card struct {
 }
 
 type PlayerState struct {
-	PlayerID string `json:"playerId"`
-	Hand     []Card `json:"hand"`
-	HandSize int    `json:"handSize"`
-	Captured []Card `json:"captured"`
-	Score    int    `json:"score"`
-	GoCount  int    `json:"goCount"`
-	Active   bool   `json:"active"`
+	PlayerID    string   `json:"playerId"`
+	Hand        []Card   `json:"hand"`
+	HandSize    int      `json:"handSize"`
+	Captured    []Card   `json:"captured"`
+	Score       int      `json:"score"`
+	FinalScore  int      `json:"finalScore,omitempty"`
+	PenaltyTags []string `json:"penaltyTags,omitempty"`
+	GoCount     int      `json:"goCount"`
+	Active      bool     `json:"active"`
 }
 
 type State struct {
@@ -165,8 +167,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		player.Score = score(player.Captured)
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 패를 냈습니다.", player.PlayerID))
 		if len(player.Hand) == 0 || len(current.Deck) == 0 {
-			current.WinnerID = bestPlayer(current).PlayerID
-			current.Finished = true
+			current = finishWithWinner(current, bestPlayer(current).PlayerID)
 		} else if player.Score >= 3 && player.Score > previousScore {
 			current.AwaitingDecision = true
 			current.Log = append(current.Log, player.PlayerID+" 님이 고/스톱을 선택해야 합니다.")
@@ -177,8 +178,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		current.Log = append(current.Log, player.PlayerID+" 님이 고를 외쳤습니다.")
 	case ActionStop:
 		current.AwaitingDecision = false
-		current.WinnerID = player.PlayerID
-		current.Finished = true
+		current = finishWithWinner(current, player.PlayerID)
 		current.Log = append(current.Log, player.PlayerID+" 님이 스톱했습니다.")
 	}
 	if !current.Finished && !current.AwaitingDecision {
@@ -205,16 +205,14 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	current.Log = append(current.Log, current.Players[index].PlayerID+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
 
 	if activePlayers(current) <= 1 {
-		current.WinnerID = bestPlayer(current).PlayerID
-		current.Finished = true
+		current = finishWithWinner(current, bestPlayer(current).PlayerID)
 		return gamecore.ActionResult{State: current}, nil
 	}
 
 	if current.CurrentPlayerIndex == index {
 		if current.AwaitingDecision {
 			current.AwaitingDecision = false
-			current.WinnerID = current.Players[index].PlayerID
-			current.Finished = true
+			current = finishWithWinner(current, current.Players[index].PlayerID)
 			current.Log = append(current.Log, current.Players[index].PlayerID+" 님이 시간 초과로 자동 스톱 처리되었습니다.")
 		} else {
 			current.CurrentPlayerIndex = nextActiveIndex(current, index)
@@ -243,12 +241,87 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 	results := make([]gamecore.Result, 0, len(current.Players))
 	for _, player := range current.Players {
 		outcome := gamecore.OutcomeLose
+		resultScore := player.Score
 		if player.PlayerID == current.WinnerID {
 			outcome = gamecore.OutcomeWin
+			if player.FinalScore > 0 {
+				resultScore = player.FinalScore
+			}
 		}
-		results = append(results, gamecore.Result{PlayerID: gamecore.PlayerID(player.PlayerID), Rank: rankForOutcome(outcome), Score: player.Score, Outcome: outcome})
+		results = append(results, gamecore.Result{PlayerID: gamecore.PlayerID(player.PlayerID), Rank: rankForOutcome(outcome), Score: resultScore, Outcome: outcome})
 	}
 	return results
+}
+
+func finishWithWinner(state State, winnerID string) State {
+	state.WinnerID = winnerID
+	state.Finished = true
+	winnerIndex := findPlayer(state, winnerID)
+	if winnerIndex < 0 {
+		return state
+	}
+	finalScore, tags := finalScore(state, winnerIndex)
+	state.Players[winnerIndex].FinalScore = finalScore
+	state.Players[winnerIndex].PenaltyTags = tags
+	if len(tags) > 0 {
+		state.Log = append(state.Log, fmt.Sprintf("%s 님에게 최종 배율 %s 이 적용되었습니다.", winnerID, joinTags(tags)))
+	}
+	return state
+}
+
+func finalScore(state State, winnerIndex int) (int, []string) {
+	winner := state.Players[winnerIndex]
+	base := winner.Score + goBonus(winner.GoCount)
+	if base < 1 {
+		base = winner.Score
+	}
+	multiplier := goMultiplier(winner.GoCount)
+	tags := []string{}
+	if multiplier > 1 {
+		tags = append(tags, fmt.Sprintf("%d고", winner.GoCount))
+	}
+	for index, loser := range state.Players {
+		if index == winnerIndex {
+			continue
+		}
+		if junkScore(winner.Captured) > 0 && junkCount(loser.Captured) < 6 {
+			multiplier *= 2
+			tags = append(tags, "피박")
+		}
+		if brightCount(winner.Captured) >= 3 && brightCount(loser.Captured) == 0 {
+			multiplier *= 2
+			tags = append(tags, "광박")
+		}
+		if loser.GoCount > 0 {
+			multiplier *= 2
+			tags = append(tags, "고박")
+		}
+	}
+	if multiplier < 1 {
+		multiplier = 1
+	}
+	return base * multiplier, tags
+}
+
+func goBonus(goCount int) int {
+	if goCount <= 0 {
+		return 0
+	}
+	if goCount == 1 {
+		return 1
+	}
+	return 2
+}
+
+func goMultiplier(goCount int) int {
+	if goCount < 3 {
+		return 1
+	}
+	multiplier := 1
+	for count := 3; count <= goCount; count++ {
+		multiplier *= 2
+	}
+	return multiplier
 }
 
 func captureMonth(player *PlayerState, field *[]Card, card Card) {
@@ -336,6 +409,39 @@ func score(cards []Card) int {
 	return total
 }
 
+func brightCount(cards []Card) int {
+	count := 0
+	for _, card := range cards {
+		if card.Kind == "bright" {
+			count++
+		}
+	}
+	return count
+}
+
+func junkCount(cards []Card) int {
+	count := 0
+	for _, card := range cards {
+		if card.Kind != "junk" {
+			continue
+		}
+		if card.JunkValue > 0 {
+			count += card.JunkValue
+		} else {
+			count++
+		}
+	}
+	return count
+}
+
+func junkScore(cards []Card) int {
+	count := junkCount(cards)
+	if count < 10 {
+		return 0
+	}
+	return count - 9
+}
+
 func bestPlayer(state State) PlayerState {
 	best := state.Players[0]
 	for _, player := range state.Players[1:] {
@@ -344,6 +450,17 @@ func bestPlayer(state State) PlayerState {
 		}
 	}
 	return best
+}
+
+func joinTags(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	result := tags[0]
+	for _, tag := range tags[1:] {
+		result += "/" + tag
+	}
+	return result
 }
 
 func nextActiveIndex(state State, current int) int {

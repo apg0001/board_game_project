@@ -147,6 +147,47 @@ func TestGoDecisionAdvancesTurn(t *testing.T) {
 	}
 }
 
+func TestFinalScoreAppliesGoAndPenaltyMultipliers(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{
+				PlayerID: "p1",
+				Score:    3,
+				GoCount:  3,
+				Captured: append(
+					[]Card{{Kind: "bright"}, {Kind: "bright"}, {Kind: "bright"}},
+					[]Card{
+						{Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"},
+						{Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"},
+					}...,
+				),
+				Active: true,
+			},
+			{
+				PlayerID: "p2",
+				GoCount:  1,
+				Captured: []Card{{Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}},
+				Active:   true,
+			},
+		},
+	}
+
+	done := finishWithWinner(state, "p1")
+	if done.Players[0].FinalScore != 80 {
+		t.Fatalf("expected (3+2) * 3go/pibak/gwangbak/gobak multipliers = 80, got %+v", done.Players[0])
+	}
+	for _, tag := range []string{"3고", "피박", "광박", "고박"} {
+		if !hasPenaltyTag(done.Players[0].PenaltyTags, tag) {
+			t.Fatalf("expected penalty tag %s in %+v", tag, done.Players[0].PenaltyTags)
+		}
+	}
+	results := module.CalculateResult(done, testContext())
+	if results[0].Score != 80 || results[0].Outcome != gamecore.OutcomeWin {
+		t.Fatalf("expected final score to be recorded in result, got %+v", results[0])
+	}
+}
+
 func TestCaptureMonthTakesAllMatchingFieldCards(t *testing.T) {
 	player := &PlayerState{PlayerID: "p1"}
 	field := []Card{
@@ -213,6 +254,15 @@ func TestApplyTimeoutDoesNotEndGameForNonCurrentPlayer(t *testing.T) {
 	if next.CurrentPlayerIndex != 0 {
 		t.Fatal("turn should not move when the timed-out player was not holding the turn")
 	}
+}
+
+func hasPenaltyTag(tags []string, expected string) bool {
+	for _, tag := range tags {
+		if tag == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func testContext() gamecore.Context {
