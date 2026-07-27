@@ -379,6 +379,178 @@ func TestGatlingProcessesPendingResponsesInOrder(t *testing.T) {
 	}
 }
 
+func TestIndiansRequiresBangResponsesInOrder(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "indians-1", Type: CardIndians}}
+	state.Players[1].Hand = []Card{{ID: "bang-2", Type: CardBang}}
+	state.Players[2].Hand = []Card{}
+	state.Players[3].Hand = []Card{{ID: "bang-4", Type: CardBang}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "indians-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := result.State.(State)
+	if first.PendingAttack == nil || first.PendingAttack.TargetPlayerID != "p2" {
+		t.Fatalf("expected p2 bang response, got %+v", first.PendingAttack)
+	}
+
+	result, err = module.ApplyAction(context.Background(), first, gamecore.Action{
+		Type:     ActionUseBang,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := result.State.(State)
+	if second.Players[2].HP != 3 {
+		t.Fatalf("expected p3 without bang to take damage, got %+v", second.Players[2])
+	}
+	if second.PendingAttack == nil || second.PendingAttack.TargetPlayerID != "p4" {
+		t.Fatalf("expected p4 bang response, got %+v", second.PendingAttack)
+	}
+
+	result, err = module.ApplyAction(context.Background(), second, gamecore.Action{
+		Type:     ActionTakeHit,
+		PlayerID: "p4",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := result.State.(State)
+	if done.PendingAttack != nil || done.Players[3].HP != 3 || len(done.Players[3].Hand) != 1 {
+		t.Fatalf("expected p4 to take damage and keep bang, got pending=%+v player=%+v", done.PendingAttack, done.Players[3])
+	}
+	if len(done.Discard) != 2 || done.Discard[0].Type != CardIndians || done.Discard[1].Type != CardBang {
+		t.Fatalf("expected indians and p2 bang in discard, got %+v", done.Discard)
+	}
+}
+
+func TestDuelAlternatesBangResponsesUntilFailure(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "duel-1", Type: CardDuel}, {ID: "bang-1", Type: CardBang}}
+	state.Players[1].Hand = []Card{{ID: "bang-2", Type: CardBang}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "duel-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := result.State.(State)
+	if first.PendingAttack == nil || first.PendingAttack.TargetPlayerID != "p2" {
+		t.Fatalf("expected challenged player to answer first, got %+v", first.PendingAttack)
+	}
+
+	result, err = module.ApplyAction(context.Background(), first, gamecore.Action{
+		Type:     ActionUseBang,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := result.State.(State)
+	if second.PendingAttack == nil || second.PendingAttack.TargetPlayerID != "p1" {
+		t.Fatalf("expected challenger to answer after target bang, got %+v", second.PendingAttack)
+	}
+
+	result, err = module.ApplyAction(context.Background(), second, gamecore.Action{
+		Type:     ActionUseBang,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := result.State.(State)
+	if done.PendingAttack != nil || done.Players[1].HP != 3 {
+		t.Fatalf("expected p2 to lose duel after running out of bang cards, got pending=%+v player=%+v", done.PendingAttack, done.Players[1])
+	}
+	if len(done.Discard) != 3 {
+		t.Fatalf("expected duel and two bang cards discarded, got %+v", done.Discard)
+	}
+}
+
+func TestGeneralStoreRevealsCardsAndChoosesInSeatOrder(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "store-1", Type: CardGeneralStore}}
+	state.Deck = []Card{
+		{ID: "offer-1", Type: CardBang},
+		{ID: "offer-2", Type: CardBeer},
+		{ID: "offer-3", Type: CardMissed},
+		{ID: "offer-4", Type: CardPanic},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "store-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingGeneralStore == nil || next.PendingGeneralStore.CurrentChooserID != "p1" || len(next.PendingGeneralStore.Offer) != 4 {
+		t.Fatalf("expected p1 to choose from four offers, got %+v", next.PendingGeneralStore)
+	}
+
+	err = module.ValidateAction(context.Background(), next, gamecore.Action{
+		Type:     ActionChoose,
+		PlayerID: "p2",
+		Payload:  map[string]any{"cardId": "offer-1"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected non-current chooser to be rejected")
+	}
+
+	for _, choice := range []struct {
+		playerID string
+		cardID   string
+		nextID   string
+	}{
+		{playerID: "p1", cardID: "offer-2", nextID: "p2"},
+		{playerID: "p2", cardID: "offer-1", nextID: "p3"},
+		{playerID: "p3", cardID: "offer-3", nextID: "p4"},
+		{playerID: "p4", cardID: "offer-4", nextID: ""},
+	} {
+		result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+			Type:     ActionChoose,
+			PlayerID: gamecore.PlayerID(choice.playerID),
+			Payload:  map[string]any{"cardId": choice.cardID},
+		}, testContext())
+		if err != nil {
+			t.Fatal(err)
+		}
+		next = result.State.(State)
+		if choice.nextID == "" {
+			if next.PendingGeneralStore != nil {
+				t.Fatalf("expected general store to finish, got %+v", next.PendingGeneralStore)
+			}
+			continue
+		}
+		if next.PendingGeneralStore == nil || next.PendingGeneralStore.CurrentChooserID != choice.nextID {
+			t.Fatalf("expected next chooser %s, got %+v", choice.nextID, next.PendingGeneralStore)
+		}
+	}
+	if len(next.Players[0].Hand) != 1 || next.Players[0].Hand[0].ID != "offer-2" {
+		t.Fatalf("expected p1 to receive selected offer, got %+v", next.Players[0].Hand)
+	}
+	if len(next.Deck) != 0 {
+		t.Fatalf("expected offers to leave deck, got %d", len(next.Deck))
+	}
+}
+
 func TestEndTurnRequiresDiscardDownToCurrentHP(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
@@ -742,30 +914,33 @@ func TestImplementedDeckUsesOfficialCoreActionCounts(t *testing.T) {
 		counts[card.Type]++
 	}
 	expected := map[string]int{
-		CardBang:       25,
-		CardMissed:     12,
-		CardBeer:       6,
-		CardGatling:    1,
-		CardStagecoach: 2,
-		CardWellsFargo: 1,
-		CardSaloon:     1,
-		CardCatBalou:   4,
-		CardPanic:      4,
-		CardMustang:    2,
-		CardScope:      1,
-		CardVolcanic:   2,
-		CardSchofield:  3,
-		CardRemington:  1,
-		CardCarabine:   1,
-		CardWinchester: 1,
+		CardBang:         25,
+		CardMissed:       12,
+		CardBeer:         6,
+		CardGatling:      1,
+		CardStagecoach:   2,
+		CardWellsFargo:   1,
+		CardSaloon:       1,
+		CardCatBalou:     4,
+		CardPanic:        4,
+		CardDuel:         3,
+		CardIndians:      2,
+		CardGeneralStore: 2,
+		CardMustang:      2,
+		CardScope:        1,
+		CardVolcanic:     2,
+		CardSchofield:    3,
+		CardRemington:    1,
+		CardCarabine:     1,
+		CardWinchester:   1,
 	}
 	for cardType, want := range expected {
 		if counts[cardType] != want {
 			t.Fatalf("expected %s count %d, got %d in %+v", cardType, want, counts[cardType], counts)
 		}
 	}
-	if len(shuffledDeck("counts")) != 67 {
-		t.Fatalf("expected 67 implemented base cards, got %d", len(shuffledDeck("counts")))
+	if len(shuffledDeck("counts")) != 74 {
+		t.Fatalf("expected 74 implemented base cards, got %d", len(shuffledDeck("counts")))
 	}
 }
 
