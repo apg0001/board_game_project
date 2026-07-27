@@ -247,6 +247,7 @@ export interface GameSession {
       characterId: string;
       choiceType: string;
       cards: HandCard[];
+      targetPlayerIds?: string[];
       requiredCount?: number;
     };
     pendingDiscardPlayerId?: string;

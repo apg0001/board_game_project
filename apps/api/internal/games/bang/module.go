@@ -69,6 +69,7 @@ const (
 	SuitClub              = "club"
 	ChoiceKitDraw         = "kit_draw"
 	ChoicePedroDraw       = "pedro_draw"
+	ChoiceJesseDraw       = "jesse_draw"
 )
 
 type Card struct {
@@ -110,11 +111,12 @@ type PendingGeneralStore struct {
 }
 
 type PendingCharacterChoice struct {
-	PlayerID      string `json:"playerId"`
-	CharacterID   string `json:"characterId"`
-	ChoiceType    string `json:"choiceType"`
-	Cards         []Card `json:"cards"`
-	RequiredCount int    `json:"requiredCount,omitempty"`
+	PlayerID        string   `json:"playerId"`
+	CharacterID     string   `json:"characterId"`
+	ChoiceType      string   `json:"choiceType"`
+	Cards           []Card   `json:"cards"`
+	TargetPlayerIDs []string `json:"targetPlayerIds,omitempty"`
+	RequiredCount   int      `json:"requiredCount,omitempty"`
 }
 
 type State struct {
@@ -144,9 +146,10 @@ type DiscardPayload struct {
 }
 
 type CharacterChoicePayload struct {
-	CardID     string
-	CardIDs    []string
-	UseDiscard bool
+	CardID         string
+	CardIDs        []string
+	TargetPlayerID string
+	UseDiscard     bool
 }
 
 type Module struct{}
@@ -211,6 +214,7 @@ func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
 	if current.PendingCharacterChoice != nil {
 		choice := *current.PendingCharacterChoice
 		choice.Cards = append([]Card(nil), current.PendingCharacterChoice.Cards...)
+		choice.TargetPlayerIDs = append([]string(nil), current.PendingCharacterChoice.TargetPlayerIDs...)
 		if choice.PlayerID != string(viewerID) {
 			choice.Cards = maskedCards(len(choice.Cards))
 		}
@@ -481,6 +485,20 @@ func validateCharacterChoiceAction(state State, action gamecore.Action) error {
 		}
 		if len(state.PendingCharacterChoice.Cards) == 0 || state.PendingCharacterChoice.Cards[0].ID != payload.CardID {
 			return errors.New("pedro discard card not found")
+		}
+	case ChoiceJesseDraw:
+		if payload.TargetPlayerID == "" {
+			return nil
+		}
+		if payload.TargetPlayerID == string(action.PlayerID) {
+			return errors.New("jesse cannot target self")
+		}
+		if !containsString(state.PendingCharacterChoice.TargetPlayerIDs, payload.TargetPlayerID) {
+			return errors.New("jesse target not available")
+		}
+		targetIndex := findPlayer(state, payload.TargetPlayerID)
+		if targetIndex < 0 || !state.Players[targetIndex].Alive || len(state.Players[targetIndex].Hand) == 0 {
+			return errors.New("jesse target has no hand cards")
 		}
 	default:
 		return errors.New("unsupported character choice")
@@ -807,6 +825,20 @@ func applyDrawPhase(state State) State {
 		current.Log = append(current.Log, player.PlayerID+" 님이 Pedro Ramirez 능력 사용 여부를 선택해야 합니다.")
 		return current
 	}
+	if hasCharacter(*player, CharacterJesse) {
+		targetIDs := jesseDrawTargets(current, player.PlayerID)
+		if len(targetIDs) > 0 {
+			current.PendingCharacterChoice = &PendingCharacterChoice{
+				PlayerID:        player.PlayerID,
+				CharacterID:     player.CharacterID,
+				ChoiceType:      ChoiceJesseDraw,
+				TargetPlayerIDs: targetIDs,
+				RequiredCount:   1,
+			}
+			current.Log = append(current.Log, player.PlayerID+" 님이 Jesse Jones 능력 사용 여부를 선택해야 합니다.")
+			return current
+		}
+	}
 	return applyStandardDraw(current, playerIndex)
 }
 
@@ -834,6 +866,8 @@ func applyCharacterChoice(state State, playerID string, payload CharacterChoiceP
 		return applyKitDrawChoice(state, playerID, payload.CardIDs)
 	case ChoicePedroDraw:
 		return applyPedroDrawChoice(state, playerID, payload.CardID)
+	case ChoiceJesseDraw:
+		return applyJesseDrawChoice(state, playerID, payload.TargetPlayerID)
 	default:
 		return state
 	}
@@ -890,6 +924,33 @@ func applyPedroDrawChoice(state State, playerID string, cardID string) State {
 	return state
 }
 
+func applyJesseDrawChoice(state State, playerID string, targetPlayerID string) State {
+	playerIndex := findPlayer(state, playerID)
+	if playerIndex < 0 || state.PendingCharacterChoice == nil {
+		return state
+	}
+	player := &state.Players[playerIndex]
+	drawn := []Card{}
+	if targetPlayerID != "" {
+		targetIndex := findPlayer(state, targetPlayerID)
+		if targetIndex >= 0 && len(state.Players[targetIndex].Hand) > 0 {
+			stolen, _ := removeCard(&state.Players[targetIndex], state.Players[targetIndex].Hand[0].ID)
+			drawn = append(drawn, stolen)
+			triggerSuzyIfEmpty(&state, targetIndex)
+			state.Log = append(state.Log, playerID+" 님이 Jesse Jones 능력으로 다른 플레이어 손패에서 첫 카드를 뽑았습니다.")
+		}
+	} else {
+		state.Log = append(state.Log, playerID+" 님이 Jesse Jones 능력을 사용하지 않았습니다.")
+	}
+	drawn = append(drawn, drawCards(&state, 2-len(drawn))...)
+	player.Hand = append(player.Hand, drawn...)
+	player.HandSize = len(player.Hand)
+	player.Drawn = true
+	state.PendingCharacterChoice = nil
+	state.Log = append(state.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", playerID, len(drawn)))
+	return state
+}
+
 func applySidHeal(state State, playerID string, cardIDs []string) State {
 	playerIndex := findPlayer(state, playerID)
 	if playerIndex < 0 {
@@ -919,6 +980,16 @@ func cancelPendingCharacterChoice(state State) State {
 	state.PendingCharacterChoice = nil
 	state.Log = append(state.Log, "캐릭터 선택 대기를 취소했습니다.")
 	return state
+}
+
+func jesseDrawTargets(state State, playerID string) []string {
+	targetIDs := []string{}
+	for _, player := range state.Players {
+		if player.PlayerID != playerID && player.Alive && len(player.Hand) > 0 {
+			targetIDs = append(targetIDs, player.PlayerID)
+		}
+	}
+	return targetIDs
 }
 
 func generalStoreChooserOrder(state State, startIndex int) []string {
@@ -1746,6 +1817,7 @@ func characterChoicePayload(payload any) (CharacterChoicePayload, error) {
 		return CharacterChoicePayload{}, errors.New("invalid character choice payload")
 	}
 	cardID, _ := raw["cardId"].(string)
+	targetPlayerID, _ := raw["targetPlayerId"].(string)
 	useDiscard, _ := raw["useDiscard"].(bool)
 	cardIDs := []string{}
 	switch typed := raw["cardIds"].(type) {
@@ -1764,9 +1836,9 @@ func characterChoicePayload(payload any) (CharacterChoicePayload, error) {
 		return CharacterChoicePayload{}, errors.New("invalid character choice cards")
 	}
 	if !useDiscard && cardID == "" {
-		return CharacterChoicePayload{UseDiscard: false, CardIDs: cardIDs}, nil
+		return CharacterChoicePayload{TargetPlayerID: targetPlayerID, UseDiscard: false, CardIDs: cardIDs}, nil
 	}
-	return CharacterChoicePayload{CardID: cardID, CardIDs: cardIDs, UseDiscard: useDiscard || cardID != ""}, nil
+	return CharacterChoicePayload{CardID: cardID, CardIDs: cardIDs, TargetPlayerID: targetPlayerID, UseDiscard: useDiscard || cardID != ""}, nil
 }
 
 func discardPayload(payload any) (DiscardPayload, error) {
@@ -1909,6 +1981,15 @@ func findPlayer(state State, playerID string) int {
 		}
 	}
 	return -1
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func attackTargets(state State, sourcePlayerID string) []string {
