@@ -1912,7 +1912,8 @@ export function App() {
                               <strong>{participantName(currentRoom, player.playerId)}</strong>
                               <span>
                                 {player.role ? bangRoleLabel(player.role) : "비공개"} · HP {player.hp ?? 0}/
-                                {player.maxHp ?? 0} · 손패 {player.handSize ?? player.hand?.length ?? 0}
+                                {player.maxHp ?? 0} · 손패 {player.handSize ?? player.hand?.length ?? 0} · 장비{" "}
+                                {player.equipment?.map((card) => bangCardLabel(card.type ?? "")).join(", ") || "없음"}
                               </span>
                             </div>
                           ))}
@@ -3209,9 +3210,23 @@ function bangCardLabel(cardType: string) {
     bang: "BANG!",
     gatling: "개틀링",
     missed: "빗맞음",
-    beer: "맥주"
+    beer: "맥주",
+    scope: "Scope",
+    mustang: "Mustang",
+    volcanic: "Volcanic",
+    schofield: "Schofield",
+    remington: "Remington",
+    carabine: "Carabine",
+    winchester: "Winchester"
   };
   return labels[cardType] ?? cardType;
+}
+
+function isBangEquipmentCard(cardType?: string) {
+  return Boolean(
+    cardType &&
+      ["scope", "mustang", "volcanic", "schofield", "remington", "carabine", "winchester"].includes(cardType)
+  );
 }
 
 function bangPlayPayload(card: HandCard, targetPlayerId: string) {
@@ -3232,9 +3247,13 @@ function bangCardPlayable(
 ) {
   if (hasPendingAttack) return false;
   if (!isMyTurn || !player?.drawn) return false;
-  if (card.type === "bang") return Boolean(targetPlayerId) && !player.bangUsed;
+  if (card.type === "bang") {
+    const hasVolcanic = Boolean(player.equipment?.some((equipment) => equipment.type === "volcanic"));
+    return Boolean(targetPlayerId) && (!player.bangUsed || hasVolcanic);
+  }
   if (card.type === "gatling") return true;
   if (card.type === "beer") return (player.hp ?? 0) < (player.maxHp ?? 0) && aliveCount > 2;
+  if (isBangEquipmentCard(card.type)) return true;
   return false;
 }
 

@@ -21,6 +21,13 @@ const (
 	CardMissed      = "missed"
 	CardBeer        = "beer"
 	CardGatling     = "gatling"
+	CardScope       = "scope"
+	CardMustang     = "mustang"
+	CardVolcanic    = "volcanic"
+	CardSchofield   = "schofield"
+	CardRemington   = "remington"
+	CardCarabine    = "carabine"
+	CardWinchester  = "winchester"
 	RoleSheriff     = "sheriff"
 	RoleDeputy      = "deputy"
 	RoleOutlaw      = "outlaw"
@@ -33,16 +40,17 @@ type Card struct {
 }
 
 type PlayerState struct {
-	PlayerID string `json:"playerId"`
-	Role     string `json:"role,omitempty"`
-	HP       int    `json:"hp"`
-	MaxHP    int    `json:"maxHp"`
-	Hand     []Card `json:"hand"`
-	HandSize int    `json:"handSize"`
-	Alive    bool   `json:"alive"`
-	Drawn    bool   `json:"drawn"`
-	BangUsed bool   `json:"bangUsed"`
-	Active   bool   `json:"active"`
+	PlayerID  string `json:"playerId"`
+	Role      string `json:"role,omitempty"`
+	HP        int    `json:"hp"`
+	MaxHP     int    `json:"maxHp"`
+	Hand      []Card `json:"hand"`
+	Equipment []Card `json:"equipment"`
+	HandSize  int    `json:"handSize"`
+	Alive     bool   `json:"alive"`
+	Drawn     bool   `json:"drawn"`
+	BangUsed  bool   `json:"bangUsed"`
+	Active    bool   `json:"active"`
 }
 
 type PendingAttack struct {
@@ -194,7 +202,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if !ok {
 			return errors.New("card not found")
 		}
-		if card.Type == CardBang && player.BangUsed {
+		if card.Type == CardBang && player.BangUsed && !hasEquipment(player, CardVolcanic) {
 			return errors.New("only one bang per turn")
 		}
 		switch card.Type {
@@ -210,7 +218,12 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
 				return errors.New("invalid target")
 			}
+			if attackDistance(current, current.CurrentPlayerIndex, targetIndex) > attackRange(player) {
+				return errors.New("target is out of range")
+			}
 		case CardGatling:
+			return nil
+		case CardScope, CardMustang, CardVolcanic, CardSchofield, CardRemington, CardCarabine, CardWinchester:
 			return nil
 		default:
 			return errors.New("unsupported card")
@@ -292,20 +305,26 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, err
 		}
 		card, _ := removeCard(player, payload.CardID)
-		current.Discard = append(current.Discard, card)
 		switch card.Type {
 		case CardBeer:
+			current.Discard = append(current.Discard, card)
 			if player.HP < player.MaxHP {
 				player.HP++
 			}
 			current.Log = append(current.Log, player.PlayerID+" 님이 맥주로 회복했습니다.")
 		case CardBang:
-			player.BangUsed = true
+			current.Discard = append(current.Discard, card)
+			if !hasEquipment(*player, CardVolcanic) {
+				player.BangUsed = true
+			}
 			current.Log = append(current.Log, player.PlayerID+" 님이 BANG!을 사용했습니다.")
 			current = startPendingAttack(current, player.PlayerID, card.Type, []string{payload.TargetPlayerID}, 1)
 		case CardGatling:
+			current.Discard = append(current.Discard, card)
 			current.Log = append(current.Log, player.PlayerID+" 님이 개틀링을 사용했습니다.")
 			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1)
+		case CardScope, CardMustang, CardVolcanic, CardSchofield, CardRemington, CardCarabine, CardWinchester:
+			current = equipCard(current, current.CurrentPlayerIndex, card)
 		}
 		current = checkEnd(current)
 	case ActionUseMissed:
@@ -346,7 +365,9 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 		current.Players[index].Alive = false
 		current.Players[index].Active = false
 		current.Discard = append(current.Discard, current.Players[index].Hand...)
+		current.Discard = append(current.Discard, current.Players[index].Equipment...)
 		current.Players[index].Hand = []Card{}
+		current.Players[index].Equipment = []Card{}
 		current.Players[index].HandSize = 0
 		if current.PendingDiscardID == string(playerID) {
 			current.PendingDiscardID = ""
@@ -407,6 +428,112 @@ func applyPendingDiscard(state State, playerID string, cardIDs []string) State {
 	state.PendingDiscardCount = 0
 	state.Log = append(state.Log, player.PlayerID+" 님이 손패 제한을 맞췄습니다.")
 	return finishTurn(state)
+}
+
+func equipCard(state State, playerIndex int, card Card) State {
+	player := &state.Players[playerIndex]
+	if isWeapon(card.Type) {
+		kept := make([]Card, 0, len(player.Equipment))
+		for _, equipment := range player.Equipment {
+			if isWeapon(equipment.Type) {
+				state.Discard = append(state.Discard, equipment)
+				continue
+			}
+			kept = append(kept, equipment)
+		}
+		player.Equipment = append(kept, card)
+		state.Log = append(state.Log, player.PlayerID+" 님이 무기를 장착했습니다.")
+		return state
+	}
+	kept := make([]Card, 0, len(player.Equipment))
+	for _, equipment := range player.Equipment {
+		if equipment.Type == card.Type {
+			state.Discard = append(state.Discard, equipment)
+			continue
+		}
+		kept = append(kept, equipment)
+	}
+	player.Equipment = append(kept, card)
+	state.Log = append(state.Log, player.PlayerID+" 님이 장비를 장착했습니다.")
+	return state
+}
+
+func attackRange(player PlayerState) int {
+	for _, equipment := range player.Equipment {
+		if rangeValue := weaponRange(equipment.Type); rangeValue > 0 {
+			return rangeValue
+		}
+	}
+	return 1
+}
+
+func attackDistance(state State, sourceIndex int, targetIndex int) int {
+	distance := seatDistance(state, sourceIndex, targetIndex)
+	if hasEquipment(state.Players[sourceIndex], CardScope) {
+		distance--
+	}
+	if hasEquipment(state.Players[targetIndex], CardMustang) {
+		distance++
+	}
+	if distance < 1 {
+		return 1
+	}
+	return distance
+}
+
+func seatDistance(state State, sourceIndex int, targetIndex int) int {
+	clockwise := aliveDistance(state, sourceIndex, targetIndex, 1)
+	counterClockwise := aliveDistance(state, sourceIndex, targetIndex, -1)
+	if clockwise < counterClockwise {
+		return clockwise
+	}
+	return counterClockwise
+}
+
+func aliveDistance(state State, sourceIndex int, targetIndex int, step int) int {
+	if sourceIndex == targetIndex {
+		return 0
+	}
+	distance := 0
+	for offset := step; ; offset += step {
+		index := (sourceIndex + offset + len(state.Players)*len(state.Players)) % len(state.Players)
+		if state.Players[index].Alive {
+			distance++
+		}
+		if index == targetIndex {
+			return distance
+		}
+	}
+}
+
+func hasEquipment(player PlayerState, cardType string) bool {
+	for _, equipment := range player.Equipment {
+		if equipment.Type == cardType {
+			return true
+		}
+	}
+	return false
+}
+
+func isWeapon(cardType string) bool {
+	return weaponRange(cardType) > 0
+}
+
+func weaponRange(cardType string) int {
+	switch cardType {
+	case CardVolcanic:
+		return 1
+	case CardSchofield:
+		return 2
+	case CardRemington:
+		return 3
+	case CardCarabine:
+		return 4
+	case CardWinchester:
+		return 5
+	default:
+		return 0
+	}
 }
 
 func finishTurn(state State) State {
@@ -552,7 +679,9 @@ func damageTargetInternal(state State, targetPlayerID string, amount int, source
 		target.Alive = false
 		target.Active = false
 		state.Discard = append(state.Discard, target.Hand...)
+		state.Discard = append(state.Discard, target.Equipment...)
 		target.Hand = []Card{}
+		target.Equipment = []Card{}
 		target.HandSize = 0
 		state.Log = append(state.Log, target.PlayerID+" 님이 탈락했습니다.")
 		state = applyEliminationReward(state, sourcePlayerID, targetRole)
@@ -580,7 +709,9 @@ func applyEliminationReward(state State, sourcePlayerID string, eliminatedRole s
 	}
 	if source.Role == RoleSheriff && eliminatedRole == RoleDeputy {
 		state.Discard = append(state.Discard, source.Hand...)
+		state.Discard = append(state.Discard, source.Equipment...)
 		source.Hand = []Card{}
+		source.Equipment = []Card{}
 		source.HandSize = 0
 		state.Log = append(state.Log, source.PlayerID+" 보안관이 부관을 제거해 손패를 모두 버렸습니다.")
 	}
@@ -823,6 +954,10 @@ func shuffledDeck(seed string) []Card {
 	for range 4 {
 		cardTypes = append(cardTypes, CardGatling)
 	}
+	for range 2 {
+		cardTypes = append(cardTypes, CardScope, CardMustang, CardVolcanic, CardSchofield)
+	}
+	cardTypes = append(cardTypes, CardRemington, CardCarabine, CardWinchester)
 	deck := make([]Card, 0, len(cardTypes))
 	for index, cardType := range cardTypes {
 		deck = append(deck, Card{ID: fmt.Sprintf("%s-%d", cardType, index), Type: cardType})

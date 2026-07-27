@@ -114,6 +114,7 @@ export interface DavinciPlayer {
   reserved?: SplendorCard[];
   nobles?: SplendorNoble[];
   hand?: HandCard[];
+  equipment?: HandCard[];
   handSize?: number;
   rack?: RummikubTile[];
   rackSize?: number;
