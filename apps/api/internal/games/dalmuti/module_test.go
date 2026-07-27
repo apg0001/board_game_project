@@ -20,7 +20,7 @@ func TestCreateInitialStateDealsWholeDeck(t *testing.T) {
 	}
 }
 
-func TestOpeningTaxExchangesPeonBestCardsForDalmutiWorstCards(t *testing.T) {
+func TestOpeningTaxExchangesPeonBestCardsForDalmutiSelectedCards(t *testing.T) {
 	state := applyOpeningTaxAndRevolution(State{
 		Players: []PlayerState{
 			{PlayerID: "greater-dalmuti", Hand: []Card{{ID: "9-1", Rank: 9}, {ID: "12-1", Rank: 12}, {ID: "jester-1", Rank: 13}}, Active: true},
@@ -30,17 +30,57 @@ func TestOpeningTaxExchangesPeonBestCardsForDalmutiWorstCards(t *testing.T) {
 		},
 	})
 
-	if !state.TaxApplied || state.Revolution {
-		t.Fatalf("expected taxation without revolution, got %+v", state)
+	if state.PendingTax == nil || state.PendingTax.CurrentChooserID != "greater-dalmuti" || state.TaxApplied || state.Revolution {
+		t.Fatalf("expected pending taxation without revolution, got %+v", state)
 	}
-	if !hasRank(state.Players[0].Hand, 1) || !hasRank(state.Players[0].Hand, 3) {
-		t.Fatalf("greater dalmuti should receive greater peon's best two cards, got %+v", state.Players[0].Hand)
+	afterGreater := applyTaxChoice(state, "greater-dalmuti", []string{"12-1", "jester-1"})
+	if afterGreater.PendingTax == nil || afterGreater.PendingTax.CurrentChooserID != "lesser-dalmuti" {
+		t.Fatalf("expected lesser dalmuti tax choice next, got %+v", afterGreater.PendingTax)
 	}
-	if !hasRank(state.Players[3].Hand, 12) || !hasRank(state.Players[3].Hand, 13) {
-		t.Fatalf("greater peon should receive greater dalmuti's worst two cards, got %+v", state.Players[3].Hand)
+	done := applyTaxChoice(afterGreater, "lesser-dalmuti", []string{"11-1"})
+	if !done.TaxApplied || done.PendingTax != nil || done.Revolution {
+		t.Fatalf("expected taxation to complete without revolution, got %+v", done)
 	}
-	if !hasRank(state.Players[1].Hand, 2) || !hasRank(state.Players[2].Hand, 11) {
-		t.Fatalf("lesser tax exchange was not applied correctly, players=%+v", state.Players)
+	if !hasRank(done.Players[0].Hand, 1) || !hasRank(done.Players[0].Hand, 3) {
+		t.Fatalf("greater dalmuti should receive greater peon's best two cards, got %+v", done.Players[0].Hand)
+	}
+	if !hasRank(done.Players[3].Hand, 12) || !hasRank(done.Players[3].Hand, 13) {
+		t.Fatalf("greater peon should receive greater dalmuti's selected cards, got %+v", done.Players[3].Hand)
+	}
+	if !hasRank(done.Players[1].Hand, 2) || !hasRank(done.Players[2].Hand, 11) {
+		t.Fatalf("lesser tax exchange was not applied correctly, players=%+v", done.Players)
+	}
+}
+
+func TestPendingTaxBlocksPlayAndValidatesChooserCards(t *testing.T) {
+	module := NewModule()
+	state := applyOpeningTaxAndRevolution(fixedState())
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"rank": 10, "count": 1},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected play to be blocked during tax selection")
+	}
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionTax,
+		PlayerID: "p2",
+		Payload:  map[string]any{"cardIds": []any{"9-1", "jester-1"}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected non-current tax chooser to be rejected")
+	}
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionTax,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardIds": []any{"10-1", "10-1"}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected duplicate tax card to be rejected")
 	}
 }
 

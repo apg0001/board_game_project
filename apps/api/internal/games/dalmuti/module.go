@@ -15,6 +15,7 @@ import (
 const (
 	ActionPlay = "dalmuti.play"
 	ActionPass = "dalmuti.pass"
+	ActionTax  = "dalmuti.tax"
 )
 
 type Card struct {
@@ -37,12 +38,24 @@ type Trick struct {
 	PlayerID string `json:"playerId,omitempty"`
 }
 
+type TaxExchange struct {
+	DalmutiPlayerID string `json:"dalmutiPlayerId"`
+	PeonPlayerID    string `json:"peonPlayerId"`
+	Count           int    `json:"count"`
+}
+
+type PendingTax struct {
+	Exchanges        []TaxExchange `json:"exchanges"`
+	CurrentChooserID string        `json:"currentChooserId"`
+}
+
 type State struct {
 	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
 	Round              int           `json:"round"`
 	Players            []PlayerState `json:"players"`
 	CurrentTrick       Trick         `json:"currentTrick"`
 	FinishOrder        []string      `json:"finishOrder"`
+	PendingTax         *PendingTax   `json:"pendingTax,omitempty"`
 	TaxApplied         bool          `json:"taxApplied"`
 	Revolution         bool          `json:"revolution"`
 	GreaterRevolution  bool          `json:"greaterRevolution"`
@@ -53,6 +66,10 @@ type State struct {
 type PlayPayload struct {
 	Rank  int `json:"rank"`
 	Count int `json:"count"`
+}
+
+type TaxPayload struct {
+	CardIDs []string `json:"cardIds"`
 }
 
 type Module struct{}
@@ -118,6 +135,12 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if current.Finished {
 		return errors.New("game is already finished")
 	}
+	if current.PendingTax != nil {
+		if action.Type != ActionTax {
+			return errors.New("pending tax selection")
+		}
+		return validateTaxAction(current, action)
+	}
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
@@ -126,6 +149,8 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	}
 
 	switch action.Type {
+	case ActionTax:
+		return validateTaxAction(current, action)
 	case ActionPass:
 		if current.CurrentTrick.Count == 0 {
 			return errors.New("leader cannot pass")
@@ -146,6 +171,14 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 
 func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
+	if action.Type == ActionTax {
+		payload, err := taxPayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		current = applyTaxChoice(current, string(action.PlayerID), payload.CardIDs)
+		return m.result(current)
+	}
 	player := &current.Players[current.CurrentPlayerIndex]
 
 	switch action.Type {
@@ -194,6 +227,22 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	index := findPlayer(current, string(playerID))
 	if index < 0 || current.Finished {
 		return gamecore.ActionResult{State: current}, nil
+	}
+	if current.PendingTax != nil && current.PendingTax.CurrentChooserID == string(playerID) && len(current.PendingTax.Exchanges) > 0 {
+		cardIDs := autoTaxCardIDs(current.Players[index], current.PendingTax.Exchanges[0].Count)
+		current = applyTaxChoice(current, string(playerID), cardIDs)
+		current.Log = append(current.Log, string(playerID)+" 님의 세금 선택 시간이 만료되어 자동 선택되었습니다.")
+		return gamecore.ActionResult{
+			State: current,
+			Events: []gamecore.Event{{
+				Type:       "game.player_timed_out",
+				Visibility: gamecore.VisibilityPublic,
+				Payload: map[string]any{
+					"playerId": string(playerID),
+					"policy":   "auto_tax",
+				},
+			}},
+		}, nil
 	}
 	current.Players[index].Out = true
 	current.Players[index].Active = false
@@ -329,25 +378,104 @@ func applyOpeningTaxAndRevolution(state State) State {
 		return state
 	}
 
-	exchangeTax(&state, len(state.Players)-1, 0, 2)
-	exchangeTax(&state, len(state.Players)-2, 1, 1)
-	state.TaxApplied = true
-	state.Log = append(state.Log, "세금 교환이 적용되었습니다.")
+	exchanges := openingTaxExchanges(state)
+	if len(exchanges) > 0 {
+		state.PendingTax = &PendingTax{
+			Exchanges:        exchanges,
+			CurrentChooserID: exchanges[0].DalmutiPlayerID,
+		}
+		state.Log = append(state.Log, "세금 교환 카드 선택이 필요합니다.")
+	}
 	return state
 }
 
-func exchangeTax(state *State, peonIndex int, dalmutiIndex int, count int) {
-	if peonIndex < 0 || peonIndex >= len(state.Players) || dalmutiIndex < 0 || dalmutiIndex >= len(state.Players) {
-		return
+func openingTaxExchanges(state State) []TaxExchange {
+	if len(state.Players) < 4 {
+		return nil
 	}
-	fromPeon := takeBestCards(&state.Players[peonIndex], count)
-	fromDalmuti := takeWorstCards(&state.Players[dalmutiIndex], count)
+	return []TaxExchange{
+		{
+			DalmutiPlayerID: state.Players[0].PlayerID,
+			PeonPlayerID:    state.Players[len(state.Players)-1].PlayerID,
+			Count:           2,
+		},
+		{
+			DalmutiPlayerID: state.Players[1].PlayerID,
+			PeonPlayerID:    state.Players[len(state.Players)-2].PlayerID,
+			Count:           1,
+		},
+	}
+}
+
+func validateTaxAction(state State, action gamecore.Action) error {
+	if state.PendingTax == nil || len(state.PendingTax.Exchanges) == 0 {
+		return errors.New("no pending tax")
+	}
+	if state.PendingTax.CurrentChooserID != string(action.PlayerID) {
+		return errors.New("not your tax choice")
+	}
+	payload, err := taxPayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	exchange := state.PendingTax.Exchanges[0]
+	if len(payload.CardIDs) != exchange.Count {
+		return fmt.Errorf("must choose %d tax cards", exchange.Count)
+	}
+	playerIndex := findPlayer(state, string(action.PlayerID))
+	if playerIndex < 0 {
+		return errors.New("tax chooser not found")
+	}
+	seen := map[string]bool{}
+	for _, cardID := range payload.CardIDs {
+		if seen[cardID] {
+			return errors.New("duplicate tax card")
+		}
+		seen[cardID] = true
+		if !hasCardID(state.Players[playerIndex].Hand, cardID) {
+			return errors.New("tax card not found")
+		}
+	}
+	return nil
+}
+
+func applyTaxChoice(state State, dalmutiPlayerID string, cardIDs []string) State {
+	if state.PendingTax == nil || len(state.PendingTax.Exchanges) == 0 {
+		return state
+	}
+	exchange := state.PendingTax.Exchanges[0]
+	if exchange.DalmutiPlayerID != dalmutiPlayerID {
+		return state
+	}
+	dalmutiIndex := findPlayer(state, exchange.DalmutiPlayerID)
+	peonIndex := findPlayer(state, exchange.PeonPlayerID)
+	if dalmutiIndex < 0 || peonIndex < 0 {
+		state.PendingTax.Exchanges = state.PendingTax.Exchanges[1:]
+		return advancePendingTax(state)
+	}
+	fromPeon := takeBestCards(&state.Players[peonIndex], exchange.Count)
+	fromDalmuti := takeSpecificCards(&state.Players[dalmutiIndex], cardIDs)
 	state.Players[peonIndex].Hand = append(state.Players[peonIndex].Hand, fromDalmuti...)
 	state.Players[dalmutiIndex].Hand = append(state.Players[dalmutiIndex].Hand, fromPeon...)
 	sortHand(state.Players[peonIndex].Hand)
 	sortHand(state.Players[dalmutiIndex].Hand)
 	state.Players[peonIndex].HandSize = len(state.Players[peonIndex].Hand)
 	state.Players[dalmutiIndex].HandSize = len(state.Players[dalmutiIndex].Hand)
+	state.Log = append(state.Log, fmt.Sprintf("%s 님과 %s 님의 세금 교환이 적용되었습니다.", exchange.DalmutiPlayerID, exchange.PeonPlayerID))
+	state.PendingTax.Exchanges = state.PendingTax.Exchanges[1:]
+	return advancePendingTax(state)
+}
+
+func advancePendingTax(state State) State {
+	if state.PendingTax == nil || len(state.PendingTax.Exchanges) == 0 {
+		state.PendingTax = nil
+		state.TaxApplied = true
+		state.Log = append(state.Log, "세금 교환이 모두 완료되었습니다.")
+		return state
+	}
+	state.PendingTax.CurrentChooserID = state.PendingTax.Exchanges[0].DalmutiPlayerID
+	state.Log = append(state.Log, state.PendingTax.CurrentChooserID+" 님이 다음 세금 카드를 선택해야 합니다.")
+	return state
 }
 
 func takeBestCards(player *PlayerState, count int) []Card {
@@ -355,9 +483,24 @@ func takeBestCards(player *PlayerState, count int) []Card {
 	return takeCardsAt(player, count, func(index int) int { return index })
 }
 
-func takeWorstCards(player *PlayerState, count int) []Card {
-	sortHand(player.Hand)
-	return takeCardsAt(player, count, func(index int) int { return len(player.Hand) - 1 - index })
+func takeSpecificCards(player *PlayerState, cardIDs []string) []Card {
+	selected := make([]Card, 0, len(cardIDs))
+	remove := map[string]bool{}
+	for _, cardID := range cardIDs {
+		remove[cardID] = true
+	}
+	next := make([]Card, 0, len(player.Hand)-len(remove))
+	for _, card := range player.Hand {
+		if remove[card.ID] {
+			selected = append(selected, card)
+			delete(remove, card.ID)
+			continue
+		}
+		next = append(next, card)
+	}
+	player.Hand = next
+	player.HandSize = len(next)
+	return selected
 }
 
 func takeCardsAt(player *PlayerState, count int, pickIndex func(int) int) []Card {
@@ -472,6 +615,15 @@ func contains(values []string, target string) bool {
 	return false
 }
 
+func hasCardID(hand []Card, cardID string) bool {
+	for _, card := range hand {
+		if card.ID == cardID {
+			return true
+		}
+	}
+	return false
+}
+
 func countRank(hand []Card, rank int) int {
 	count := 0
 	for _, card := range hand {
@@ -480,6 +632,16 @@ func countRank(hand []Card, rank int) int {
 		}
 	}
 	return count
+}
+
+func autoTaxCardIDs(player PlayerState, count int) []string {
+	hand := append([]Card(nil), player.Hand...)
+	sortHand(hand)
+	selected := make([]string, 0, count)
+	for index := len(hand) - 1; index >= 0 && len(selected) < count; index-- {
+		selected = append(selected, hand[index].ID)
+	}
+	return selected
 }
 
 func playPayload(payload any) (PlayPayload, error) {
@@ -498,12 +660,44 @@ func playPayload(payload any) (PlayPayload, error) {
 	return PlayPayload{Rank: payloadRank, Count: payloadCount}, nil
 }
 
+func taxPayload(payload any) (TaxPayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return TaxPayload{}, errors.New("invalid tax payload")
+	}
+	value, ok := raw["cardIds"]
+	if !ok {
+		return TaxPayload{}, errors.New("tax cards are required")
+	}
+	cardIDs := []string{}
+	switch typed := value.(type) {
+	case []string:
+		cardIDs = append(cardIDs, typed...)
+	case []any:
+		for _, item := range typed {
+			cardID, _ := item.(string)
+			if cardID == "" {
+				return TaxPayload{}, errors.New("invalid tax card")
+			}
+			cardIDs = append(cardIDs, cardID)
+		}
+	default:
+		return TaxPayload{}, errors.New("invalid tax cards")
+	}
+	return TaxPayload{CardIDs: cardIDs}, nil
+}
+
 func cloneState(state State) State {
 	clone := state
 	clone.Players = make([]PlayerState, len(state.Players))
 	for index := range state.Players {
 		clone.Players[index] = state.Players[index]
 		clone.Players[index].Hand = append([]Card(nil), state.Players[index].Hand...)
+	}
+	if state.PendingTax != nil {
+		pending := *state.PendingTax
+		pending.Exchanges = append([]TaxExchange(nil), state.PendingTax.Exchanges...)
+		clone.PendingTax = &pending
 	}
 	clone.FinishOrder = append([]string(nil), state.FinishOrder...)
 	clone.Log = append([]string(nil), state.Log...)

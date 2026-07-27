@@ -1614,6 +1614,41 @@ button.davinci-tile {
   font-weight: 850;
 }
 
+.dalmuti-tax-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(140, 63, 42, 0.24);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff0df;
+}
+
+.dalmuti-tax-panel span {
+  color: #68727e;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.dalmuti-tax-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.dalmuti-tax-card {
+  min-height: 42px;
+  border: 2px solid rgba(23, 33, 43, 0.12);
+  border-radius: 10px;
+  color: #17212b;
+  background: #fff8e8;
+  font-weight: 950;
+}
+
+.dalmuti-tax-card.selected {
+  border-color: #8c3f2a;
+  background: #ffe1bd;
+}
+
 .dalmuti-hand {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
