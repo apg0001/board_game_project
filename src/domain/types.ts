@@ -233,6 +233,8 @@ export interface GameSession {
     winner?: string;
     pot?: number;
     winnerId?: string;
+    winnerIds?: string[];
+    draw?: boolean;
     awaitingDecision?: boolean;
     loserId?: string;
     field?: HandCard[];

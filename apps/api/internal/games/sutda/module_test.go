@@ -63,6 +63,33 @@ func TestTtaengJabiBeatsOrdinaryTtaengOnly(t *testing.T) {
 	}
 }
 
+func TestFinishMarksShowdownDrawWhenBestHandsTie(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "p1-1", Month: 1}, {ID: "p1-2", Month: 2}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "p2-1", Month: 1}, {ID: "p2-2", Month: 2}}, Active: true},
+			{PlayerID: "p3", Hand: []Card{{ID: "p3-1", Month: 4}, {ID: "p3-2", Month: 5}}, Active: true},
+		},
+	}
+
+	done := finish(state)
+	if !done.Draw || done.WinnerID != "" || len(done.WinnerIDs) != 2 || done.WinnerIDs[0] != "p1" || done.WinnerIDs[1] != "p2" {
+		t.Fatalf("expected p1/p2 draw, got %+v", done)
+	}
+	results := module.CalculateResult(done, testContext())
+	for _, result := range results {
+		if result.PlayerID == "p1" || result.PlayerID == "p2" {
+			if result.Outcome != gamecore.OutcomeDraw || result.Rank != 1 {
+				t.Fatalf("expected tied winners to be draw rank 1, got %+v", result)
+			}
+		}
+		if result.PlayerID == "p3" && result.Outcome != gamecore.OutcomeLose {
+			t.Fatalf("expected lower hand to lose, got %+v", result)
+		}
+	}
+}
+
 func TestTimeoutCurrentPlayerAdvancesTurn(t *testing.T) {
 	module := NewModule()
 	state := State{

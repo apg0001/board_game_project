@@ -39,6 +39,8 @@ type State struct {
 	Players            []PlayerState `json:"players"`
 	Pot                int           `json:"pot"`
 	WinnerID           string        `json:"winnerId,omitempty"`
+	WinnerIDs          []string      `json:"winnerIds,omitempty"`
+	Draw               bool          `json:"draw,omitempty"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
 }
@@ -172,9 +174,15 @@ func (m Module) IsFinished(state any, _ gamecore.Context) bool {
 func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result {
 	current := asState(state)
 	results := make([]gamecore.Result, 0, len(current.Players))
+	winners := map[string]bool{}
+	for _, playerID := range current.WinnerIDs {
+		winners[playerID] = true
+	}
 	for _, player := range current.Players {
 		outcome := gamecore.OutcomeLose
-		if player.PlayerID == current.WinnerID {
+		if current.Draw && winners[player.PlayerID] {
+			outcome = gamecore.OutcomeDraw
+		} else if winners[player.PlayerID] || player.PlayerID == current.WinnerID {
 			outcome = gamecore.OutcomeWin
 		}
 		results = append(results, gamecore.Result{
@@ -188,20 +196,39 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 }
 
 func finish(state State) State {
-	bestIndex := -1
+	bestIndexes := []int{}
 	for index, player := range state.Players {
 		if player.Folded {
 			continue
 		}
-		if bestIndex < 0 || compare(player.Hand, state.Players[bestIndex].Hand) > 0 {
-			bestIndex = index
+		if len(bestIndexes) == 0 {
+			bestIndexes = append(bestIndexes, index)
+			continue
+		}
+		comparison := compare(player.Hand, state.Players[bestIndexes[0]].Hand)
+		if comparison > 0 {
+			bestIndexes = []int{index}
+		} else if comparison == 0 {
+			bestIndexes = append(bestIndexes, index)
 		}
 	}
-	if bestIndex >= 0 {
-		state.WinnerID = state.Players[bestIndex].PlayerID
+	state.WinnerIDs = []string{}
+	for _, index := range bestIndexes {
+		state.WinnerIDs = append(state.WinnerIDs, state.Players[index].PlayerID)
+	}
+	if len(bestIndexes) == 1 {
+		state.WinnerID = state.Players[bestIndexes[0]].PlayerID
+		state.Draw = false
+	} else if len(bestIndexes) > 1 {
+		state.WinnerID = ""
+		state.Draw = true
 	}
 	state.Finished = true
-	state.Log = append(state.Log, "섯다 승부가 종료되었습니다.")
+	if state.Draw {
+		state.Log = append(state.Log, "섯다 승부가 무승부로 종료되었습니다.")
+	} else {
+		state.Log = append(state.Log, "섯다 승부가 종료되었습니다.")
+	}
 	return state
 }
 
@@ -339,7 +366,7 @@ func findPlayer(state State, playerID string) int {
 }
 
 func rankForOutcome(outcome gamecore.Outcome) int {
-	if outcome == gamecore.OutcomeWin {
+	if outcome == gamecore.OutcomeWin || outcome == gamecore.OutcomeDraw {
 		return 1
 	}
 	return 2
