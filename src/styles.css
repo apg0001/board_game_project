@@ -2008,6 +2008,11 @@ button.rummikub-tile:disabled {
   background: #17212b;
 }
 
+.bang-card.selected {
+  outline: 3px solid #f4c95d;
+  outline-offset: 2px;
+}
+
 .bang-card:disabled {
   cursor: not-allowed;
   filter: saturate(0.7);

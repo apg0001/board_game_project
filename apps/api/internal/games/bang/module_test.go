@@ -379,6 +379,115 @@ func TestGatlingProcessesPendingResponsesInOrder(t *testing.T) {
 	}
 }
 
+func TestEndTurnRequiresDiscardDownToCurrentHP(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].HP = 3
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{
+		{ID: "c1", Type: CardBang},
+		{ID: "c2", Type: CardBeer},
+		{ID: "c3", Type: CardMissed},
+		{ID: "c4", Type: CardBang},
+		{ID: "c5", Type: CardBeer},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionEndTurn,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingDiscardID != "p1" || next.PendingDiscardCount != 2 {
+		t.Fatalf("expected pending discard of two cards, got id=%s count=%d", next.PendingDiscardID, next.PendingDiscardCount)
+	}
+	if next.CurrentPlayerIndex != 0 {
+		t.Fatalf("expected turn to wait for discard, got index %d", next.CurrentPlayerIndex)
+	}
+}
+
+func TestPendingDiscardBlocksOtherActions(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.PendingDiscardID = "p1"
+	state.PendingDiscardCount = 1
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "c1", Type: CardBang}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected normal action to be blocked during pending discard")
+	}
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDiscard,
+		PlayerID: "p2",
+		Payload:  map[string]any{"cardIds": []any{"c1"}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected other player discard to be rejected")
+	}
+}
+
+func TestPendingDiscardAdvancesTurnAfterSelectedCards(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.PendingDiscardID = "p1"
+	state.PendingDiscardCount = 2
+	state.Players[0].HP = 1
+	state.Players[0].Drawn = true
+	state.Players[0].BangUsed = true
+	state.Players[0].Hand = []Card{
+		{ID: "c1", Type: CardBang},
+		{ID: "c2", Type: CardBeer},
+		{ID: "c3", Type: CardMissed},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDiscard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardIds": []any{"c1", "c2"}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingDiscardID != "" || next.PendingDiscardCount != 0 {
+		t.Fatalf("expected pending discard to clear, got id=%s count=%d", next.PendingDiscardID, next.PendingDiscardCount)
+	}
+	if next.CurrentPlayerIndex == 0 || next.Round != 1 {
+		t.Fatalf("expected turn to advance, got index=%d round=%d", next.CurrentPlayerIndex, next.Round)
+	}
+	if next.Players[0].Drawn || next.Players[0].BangUsed {
+		t.Fatalf("expected turn flags to reset, got %+v", next.Players[0])
+	}
+	if len(next.Players[0].Hand) != 1 || len(next.Discard) != 2 {
+		t.Fatalf("expected two discarded cards and one remaining card, got hand=%v discard=%v", next.Players[0].Hand, next.Discard)
+	}
+}
+
+func TestPendingDiscardRejectsWrongCardCount(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.PendingDiscardID = "p1"
+	state.PendingDiscardCount = 2
+	state.Players[0].Hand = []Card{{ID: "c1", Type: CardBang}, {ID: "c2", Type: CardBeer}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDiscard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardIds": []any{"c1"}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected wrong discard count to be rejected")
+	}
+}
+
 func fixedState() State {
 	return State{
 		Players: []PlayerState{

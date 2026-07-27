@@ -233,6 +233,8 @@ export interface GameSession {
       damage: number;
       remainingTargetIds?: string[];
     };
+    pendingDiscardPlayerId?: string;
+    pendingDiscardCount?: number;
     deck?: DavinciTile[];
     pendingTile?: DavinciTile;
     pendingOwnerId?: string;
@@ -334,6 +336,7 @@ export type GameActionType =
   | "bang.play"
   | "bang.use_missed"
   | "bang.take_hit"
+  | "bang.discard"
   | "bang.end_turn"
   | "sutda.call"
   | "sutda.fold"

@@ -161,6 +161,14 @@ func playBangTurn(t *testing.T, service *Service, testRoom room.Room, started Se
 
 	updated = applyGameplayAction(t, service, testRoom, updated, actor.PlayerID, bang.ActionEndTurn, nil)
 	next = updated.State.(bang.State)
+	if next.PendingDiscardID == actor.PlayerID {
+		cardIDs := make([]any, 0, next.PendingDiscardCount)
+		for _, card := range next.Players[state.CurrentPlayerIndex].Hand[:next.PendingDiscardCount] {
+			cardIDs = append(cardIDs, card.ID)
+		}
+		updated = applyGameplayAction(t, service, testRoom, updated, actor.PlayerID, bang.ActionDiscard, map[string]any{"cardIds": cardIDs})
+		next = updated.State.(bang.State)
+	}
 	if next.CurrentPlayerIndex == state.CurrentPlayerIndex {
 		t.Fatalf("expected bang turn to advance, got %+v", next)
 	}

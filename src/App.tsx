@@ -139,6 +139,7 @@ export function App() {
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [selectedGemColors, setSelectedGemColors] = useState<string[]>([]);
   const [selectedBangTargetId, setSelectedBangTargetId] = useState("");
+  const [selectedBangDiscardIds, setSelectedBangDiscardIds] = useState<string[]>([]);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [lobbyFlow, setLobbyFlow] = useState<LobbyFlow>("home");
@@ -563,6 +564,11 @@ export function App() {
   const bangPendingAttack = currentSession?.gameId === "bang" ? currentSession.state.pendingAttack : undefined;
   const bangMustRespond = Boolean(bangPendingAttack?.targetPlayerId === playerID);
   const bangHasMissed = Boolean((bangMe?.hand ?? []).some((card) => card.type === "missed"));
+  const bangPendingDiscardPlayerId = currentSession?.gameId === "bang" ? currentSession.state.pendingDiscardPlayerId : undefined;
+  const bangPendingDiscardCount = currentSession?.gameId === "bang" ? (currentSession.state.pendingDiscardCount ?? 0) : 0;
+  const bangMustDiscard = Boolean(bangPendingDiscardPlayerId === playerID && bangPendingDiscardCount > 0);
+  const bangDiscardSelectedIds = selectedBangDiscardIds.filter((id) => (bangMe?.hand ?? []).some((card) => card.id === id));
+  const bangActionBlocked = Boolean(bangPendingAttack || bangPendingDiscardPlayerId);
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
   const gostopMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1815,12 +1821,47 @@ export function App() {
                             )}
                           </div>
                         ) : null}
+                        {bangPendingDiscardPlayerId ? (
+                          <div className="bang-reaction-panel" aria-label="손패 제한">
+                            <strong>손패 제한</strong>
+                            <span>
+                              {participantName(currentRoom, bangPendingDiscardPlayerId)} 님이 카드 {bangPendingDiscardCount}장을 버려야 합니다.
+                            </span>
+                            {bangMustDiscard ? (
+                              <button
+                                className="mini-action-button dark-mini-action"
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "bang.discard",
+                                    (session) => {
+                                      setCurrentSession(session);
+                                      setSelectedBangDiscardIds([]);
+                                    },
+                                    setRoomMessage,
+                                    { cardIds: bangDiscardSelectedIds }
+                                  )
+                                }
+                                disabled={bangDiscardSelectedIds.length !== bangPendingDiscardCount}
+                              >
+                                선택 카드 버리기
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="bang-hand" aria-label="내 카드">
                           {(bangMe?.hand ?? []).map((card) => (
                             <button
-                              className={`bang-card ${card.type}`}
+                              className={`bang-card ${card.type} ${bangDiscardSelectedIds.includes(card.id) ? "selected" : ""}`}
                               key={card.id}
-                              onClick={() =>
+                              onClick={() => {
+                                if (bangMustDiscard) {
+                                  setSelectedBangDiscardIds((previous) =>
+                                    toggleLimitedSelected(previous, card.id, bangPendingDiscardCount)
+                                  );
+                                  return;
+                                }
                                 sendGameAction(
                                   currentSession.id,
                                   currentRoom?.id,
@@ -1828,17 +1869,19 @@ export function App() {
                                   setCurrentSession,
                                   setRoomMessage,
                                   bangPlayPayload(card, bangSelectedTargetId)
-                                )
-                              }
+                                );
+                              }}
                               disabled={
-                                !bangCardPlayable(
-                                  card,
-                                  isMyTurn,
-                                  bangMe,
-                                  bangSelectedTargetId,
-                                  bangAliveCount,
-                                  Boolean(bangPendingAttack)
-                                )
+                                bangMustDiscard
+                                  ? false
+                                  : !bangCardPlayable(
+                                      card,
+                                      isMyTurn,
+                                      bangMe,
+                                      bangSelectedTargetId,
+                                      bangAliveCount,
+                                      bangActionBlocked
+                                    )
                               }
                             >
                               <BangCardFace card={card} />
@@ -1853,7 +1896,7 @@ export function App() {
                                 className={`bang-target-chip ${bangSelectedTargetId === player.playerId ? "selected" : ""}`}
                                 key={player.playerId}
                                 onClick={() => setSelectedBangTargetId(player.playerId)}
-                                disabled={!isMyTurn || Boolean(bangPendingAttack)}
+                                disabled={!isMyTurn || bangActionBlocked}
                               >
                                 {participantName(currentRoom, player.playerId)}
                                 <span>
@@ -1885,7 +1928,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn || Boolean(bangMe?.drawn)}
+                          disabled={!isMyTurn || Boolean(bangMe?.drawn) || bangActionBlocked}
                         >
                           카드 2장 뽑기
                           <ChevronRight size={18} />
@@ -1901,15 +1944,15 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn || !bangMe?.drawn}
+                          disabled={!isMyTurn || !bangMe?.drawn || bangActionBlocked}
                         >
                           턴 종료
                           <ChevronRight size={18} />
                         </button>
-	                        {currentSession.state.finished ? (
-	                          <p className="helper-copy">승리 진영 {bangWinnerLabel(currentSession.state.winner ?? "")}</p>
-	                        ) : null}
-	                      </div>
+                        {currentSession.state.finished ? (
+                          <p className="helper-copy">승리 진영 {bangWinnerLabel(currentSession.state.winner ?? "")}</p>
+                        ) : null}
+                      </div>
                     ) : currentSession.gameId === "sutda" ? (
                       <div className="room-actions">
                         <div className="hwatu-hand" aria-label="내 섯다 패">
@@ -3220,6 +3263,16 @@ function standardSuitLabel(suit?: string) {
 function toggleSelected(values: string[], target: string) {
   if (values.includes(target)) {
     return values.filter((value) => value !== target);
+  }
+  return [...values, target];
+}
+
+function toggleLimitedSelected(values: string[], target: string, limit: number) {
+  if (values.includes(target)) {
+    return values.filter((value) => value !== target);
+  }
+  if (values.length >= limit) {
+    return values;
   }
   return [...values, target];
 }
