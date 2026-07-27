@@ -864,6 +864,147 @@ func TestBlackJackDrawsExtraOnRedSecondCard(t *testing.T) {
 	}
 }
 
+func TestKitCarlsonChoosesTwoOfThreeDrawCards(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterKit
+	state.Deck = []Card{
+		{ID: "kit-1", Type: CardBang},
+		{ID: "kit-2", Type: CardBeer},
+		{ID: "kit-3", Type: CardMissed},
+		{ID: "after-1", Type: CardPanic},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingCharacterChoice == nil || next.PendingCharacterChoice.ChoiceType != ChoiceKitDraw {
+		t.Fatalf("expected kit draw choice, got %+v", next.PendingCharacterChoice)
+	}
+	if next.Players[0].Drawn || len(next.Players[0].Hand) != 0 {
+		t.Fatalf("expected draw phase to wait for kit choice, got %+v", next.Players[0])
+	}
+
+	publicForOther := module.PublicState(next, "p2").(State)
+	if len(publicForOther.PendingCharacterChoice.Cards) != 3 || publicForOther.PendingCharacterChoice.Cards[0].Type != "hidden" {
+		t.Fatalf("expected kit choices masked for other player, got %+v", publicForOther.PendingCharacterChoice.Cards)
+	}
+	publicForKit := module.PublicState(next, "p1").(State)
+	if publicForKit.PendingCharacterChoice.Cards[0].ID != "kit-1" {
+		t.Fatalf("expected kit player to see choices, got %+v", publicForKit.PendingCharacterChoice.Cards)
+	}
+
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionChooseCharacter,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardIds": []any{"kit-2", "kit-3"}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := result.State.(State)
+	if done.PendingCharacterChoice != nil || !done.Players[0].Drawn || len(done.Players[0].Hand) != 2 {
+		t.Fatalf("expected kit choice to complete draw, got pending=%+v player=%+v", done.PendingCharacterChoice, done.Players[0])
+	}
+	if len(done.Deck) != 2 || done.Deck[0].ID != "kit-1" || done.Deck[1].ID != "after-1" {
+		t.Fatalf("expected unchosen card on top of deck, got %+v", done.Deck)
+	}
+}
+
+func TestPedroRamirezMayDrawFirstCardFromDiscard(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterPedro
+	state.Discard = []Card{{ID: "old-1", Type: CardBang}, {ID: "top-discard", Type: CardBeer}}
+	state.Deck = []Card{{ID: "deck-1", Type: CardMissed}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingCharacterChoice == nil || next.PendingCharacterChoice.ChoiceType != ChoicePedroDraw {
+		t.Fatalf("expected pedro choice, got %+v", next.PendingCharacterChoice)
+	}
+
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionChooseCharacter,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "top-discard", "useDiscard": true},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := result.State.(State)
+	if done.PendingCharacterChoice != nil || !done.Players[0].Drawn || len(done.Players[0].Hand) != 2 {
+		t.Fatalf("expected pedro draw to complete, got pending=%+v player=%+v", done.PendingCharacterChoice, done.Players[0])
+	}
+	if done.Players[0].Hand[0].ID != "top-discard" || done.Players[0].Hand[1].ID != "deck-1" {
+		t.Fatalf("expected discard then deck draw, got %+v", done.Players[0].Hand)
+	}
+	if len(done.Discard) != 1 || done.Discard[0].ID != "old-1" {
+		t.Fatalf("expected top discard removed only, got %+v", done.Discard)
+	}
+}
+
+func TestPedroRamirezMaySkipDiscardDraw(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterPedro
+	state.Discard = []Card{{ID: "top-discard", Type: CardBeer}}
+	state.Deck = []Card{{ID: "deck-1", Type: CardMissed}, {ID: "deck-2", Type: CardBang}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionChooseCharacter,
+		PlayerID: "p1",
+		Payload:  map[string]any{"useDiscard": false},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := result.State.(State)
+	if len(done.Players[0].Hand) != 2 || done.Players[0].Hand[0].ID != "deck-1" || len(done.Discard) != 1 {
+		t.Fatalf("expected pedro to draw from deck and keep discard pile, got hand=%+v discard=%+v", done.Players[0].Hand, done.Discard)
+	}
+}
+
+func TestSidKetchumDiscardsTwoCardsToHeal(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[1].CharacterID = CharacterSid
+	state.Players[1].HP = 2
+	state.Players[1].Hand = []Card{{ID: "sid-1", Type: CardBang}, {ID: "sid-2", Type: CardBeer}, {ID: "sid-3", Type: CardMissed}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSidHeal,
+		PlayerID: "p2",
+		Payload:  map[string]any{"cardIds": []any{"sid-1", "sid-3"}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Players[1].HP != 3 || len(next.Players[1].Hand) != 1 || len(next.Discard) != 2 {
+		t.Fatalf("expected sid to heal by discarding two cards, got player=%+v discard=%+v", next.Players[1], next.Discard)
+	}
+}
+
 func TestBartCassidyDrawsWhenLosingHP(t *testing.T) {
 	state := fixedState()
 	state.Players[1].CharacterID = CharacterBart

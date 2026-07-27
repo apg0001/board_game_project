@@ -140,6 +140,7 @@ export function App() {
   const [selectedGemColors, setSelectedGemColors] = useState<string[]>([]);
   const [selectedBangTargetId, setSelectedBangTargetId] = useState("");
   const [selectedBangDiscardIds, setSelectedBangDiscardIds] = useState<string[]>([]);
+  const [selectedBangChoiceIds, setSelectedBangChoiceIds] = useState<string[]>([]);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [lobbyFlow, setLobbyFlow] = useState<LobbyFlow>("home");
@@ -571,11 +572,18 @@ export function App() {
   );
   const bangPendingGeneralStore = currentSession?.gameId === "bang" ? currentSession.state.pendingGeneralStore : undefined;
   const bangMustChooseGeneralStore = Boolean(bangPendingGeneralStore?.currentChooserId === playerID);
+  const bangPendingCharacterChoice = currentSession?.gameId === "bang" ? currentSession.state.pendingCharacterChoice : undefined;
+  const bangMustChooseCharacter = Boolean(bangPendingCharacterChoice?.playerId === playerID);
+  const bangChoiceSelectedIds = selectedBangChoiceIds.filter((id) =>
+    (bangPendingCharacterChoice?.cards ?? []).some((card) => card.id === id)
+  );
   const bangPendingDiscardPlayerId = currentSession?.gameId === "bang" ? currentSession.state.pendingDiscardPlayerId : undefined;
   const bangPendingDiscardCount = currentSession?.gameId === "bang" ? (currentSession.state.pendingDiscardCount ?? 0) : 0;
   const bangMustDiscard = Boolean(bangPendingDiscardPlayerId === playerID && bangPendingDiscardCount > 0);
   const bangDiscardSelectedIds = selectedBangDiscardIds.filter((id) => (bangMe?.hand ?? []).some((card) => card.id === id));
-  const bangActionBlocked = Boolean(bangPendingAttack || bangPendingGeneralStore || bangPendingDiscardPlayerId);
+  const bangActionBlocked = Boolean(
+    bangPendingAttack || bangPendingGeneralStore || bangPendingCharacterChoice || bangPendingDiscardPlayerId
+  );
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
   const gostopMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1866,6 +1874,89 @@ export function App() {
                             </div>
                           </div>
                         ) : null}
+                        {bangPendingCharacterChoice ? (
+                          <div className="bang-reaction-panel" aria-label="캐릭터 선택">
+                            <strong>{bangCharacterChoiceLabel(bangPendingCharacterChoice.choiceType)}</strong>
+                            <span>{participantName(currentRoom, bangPendingCharacterChoice.playerId)} 님 선택 대기</span>
+                            {bangPendingCharacterChoice.choiceType === "kit_draw" ? (
+                              <>
+                                <div className="bang-hand bang-offer-hand" aria-label="Kit Carlson 선택 카드">
+                                  {(bangPendingCharacterChoice.cards ?? []).map((card) => (
+                                    <button
+                                      className={`bang-card ${card.type} ${bangChoiceSelectedIds.includes(card.id) ? "selected" : ""}`}
+                                      key={card.id}
+                                      onClick={() =>
+                                        setSelectedBangChoiceIds((previous) =>
+                                          toggleLimitedSelected(previous, card.id, bangPendingCharacterChoice.requiredCount ?? 2)
+                                        )
+                                      }
+                                      disabled={!bangMustChooseCharacter}
+                                    >
+                                      <BangCardFace card={card} />
+                                    </button>
+                                  ))}
+                                </div>
+                                <button
+                                  className="mini-action-button"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "bang.choose_character_card",
+                                      (session) => {
+                                        setCurrentSession(session);
+                                        setSelectedBangChoiceIds([]);
+                                      },
+                                      setRoomMessage,
+                                      { cardIds: bangChoiceSelectedIds }
+                                    )
+                                  }
+                                  disabled={
+                                    !bangMustChooseCharacter ||
+                                    bangChoiceSelectedIds.length !== (bangPendingCharacterChoice.requiredCount ?? 2)
+                                  }
+                                >
+                                  선택 카드 받기
+                                </button>
+                              </>
+                            ) : (
+                              <div className="bang-reaction-actions">
+                                <button
+                                  className="mini-action-button"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "bang.choose_character_card",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { cardId: bangPendingCharacterChoice.cards?.[0]?.id ?? "", useDiscard: true }
+                                    )
+                                  }
+                                  disabled={!bangMustChooseCharacter || !bangPendingCharacterChoice.cards?.[0]}
+                                >
+                                  버림 더미에서 뽑기
+                                </button>
+                                <button
+                                  className="mini-action-button dark-mini-action"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "bang.choose_character_card",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { useDiscard: false }
+                                    )
+                                  }
+                                  disabled={!bangMustChooseCharacter}
+                                >
+                                  덱에서 뽑기
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                         {bangPendingDiscardPlayerId ? (
                           <div className="bang-reaction-panel" aria-label="손패 제한">
                             <strong>손패 제한</strong>
@@ -1893,6 +1984,46 @@ export function App() {
                                 선택 카드 버리기
                               </button>
                             ) : null}
+                          </div>
+                        ) : null}
+                        {bangMe?.characterId === "sid_ketchum" && (bangMe.hp ?? 0) < (bangMe.maxHp ?? 0) ? (
+                          <div className="bang-reaction-panel" aria-label="Sid Ketchum 회복">
+                            <strong>Sid Ketchum</strong>
+                            <span>손패 2장을 버리고 생명력 1을 회복합니다.</span>
+                            <div className="bang-targets">
+                              {(bangMe.hand ?? []).map((card) => (
+                                <button
+                                  className={`bang-target-chip ${bangDiscardSelectedIds.includes(card.id) ? "selected" : ""}`}
+                                  key={`sid-${card.id}`}
+                                  onClick={() =>
+                                    setSelectedBangDiscardIds((previous) => toggleLimitedSelected(previous, card.id, 2))
+                                  }
+                                  disabled={bangMustDiscard}
+                                >
+                                  {bangCardLabel(card.type ?? "")}
+                                  <span>{standardCardLabel(card)}</span>
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              className="mini-action-button"
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "bang.sid_heal",
+                                  (session) => {
+                                    setCurrentSession(session);
+                                    setSelectedBangDiscardIds([]);
+                                  },
+                                  setRoomMessage,
+                                  { cardIds: bangDiscardSelectedIds }
+                                )
+                              }
+                              disabled={bangDiscardSelectedIds.length !== 2}
+                            >
+                              회복
+                            </button>
                           </div>
                         ) : null}
                         <div className="bang-hand" aria-label="내 카드">
@@ -3314,6 +3445,14 @@ function bangResponseAction(cardType: string) {
   return cardType === "duel" || cardType === "indians" ? "bang.use_bang" : "bang.use_missed";
 }
 
+function bangCharacterChoiceLabel(choiceType: string) {
+  const labels: Record<string, string> = {
+    kit_draw: "Kit Carlson",
+    pedro_draw: "Pedro Ramirez"
+  };
+  return labels[choiceType] ?? "캐릭터 능력";
+}
+
 function bangCardPlayable(
   card: HandCard,
   isMyTurn: boolean,
@@ -3349,7 +3488,8 @@ function standardCardLabel(card: HandCard) {
     1: "A",
     11: "J",
     12: "Q",
-    13: "K"
+    13: "K",
+    14: "A"
   };
   const rank = card.rank ? rankLabels[card.rank] ?? String(card.rank) : "?";
   return `${standardSuitLabel(card.suit)} ${rank}`.trim();

@@ -242,6 +242,13 @@ export interface GameSession {
       currentChooserId: string;
       remainingChooserIds?: string[];
     };
+    pendingCharacterChoice?: {
+      playerId: string;
+      characterId: string;
+      choiceType: string;
+      cards: HandCard[];
+      requiredCount?: number;
+    };
     pendingDiscardPlayerId?: string;
     pendingDiscardCount?: number;
     deck?: DavinciTile[];
@@ -348,6 +355,8 @@ export type GameActionType =
   | "bang.use_missed"
   | "bang.take_hit"
   | "bang.choose_general_store"
+  | "bang.choose_character_card"
+  | "bang.sid_heal"
   | "bang.discard"
   | "bang.end_turn"
   | "sutda.call"
