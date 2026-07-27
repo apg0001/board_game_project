@@ -2008,6 +2008,19 @@ button.rummikub-tile:disabled {
   background: #17212b;
 }
 
+.bang-card.scope,
+.bang-card.mustang {
+  background: #2f5f8e;
+}
+
+.bang-card.volcanic,
+.bang-card.schofield,
+.bang-card.remington,
+.bang-card.carabine,
+.bang-card.winchester {
+  background: #5e4b37;
+}
+
 .bang-card.selected {
   outline: 3px solid #f4c95d;
   outline-offset: 2px;

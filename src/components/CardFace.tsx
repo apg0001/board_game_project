@@ -28,8 +28,17 @@ const bangLabel: Record<string, string> = {
   bang: "BANG!",
   missed: "빗나감",
   beer: "맥주",
-  gatling: "개틀링"
+  gatling: "개틀링",
+  scope: "Scope",
+  mustang: "Mustang",
+  volcanic: "Volcanic",
+  schofield: "Schofield",
+  remington: "Remington",
+  carabine: "Carabine",
+  winchester: "Winchester"
 };
+
+const bangEquipmentTypes = new Set(["scope", "mustang", "volcanic", "schofield", "remington", "carabine", "winchester"]);
 
 const gemLabel: Record<string, string> = {
   white: "흰색",
@@ -116,7 +125,7 @@ export function BangCardFace({ card }: CardFaceProps) {
     <span className={`card-face bang-card-face type-${type}`}>
       <span className="bang-card-kicker">BANG!</span>
       <strong>{bangLabel[type] ?? type}</strong>
-      <small>{type === "bang" ? "공격" : type === "missed" ? "반응" : "액션"}</small>
+      <small>{type === "bang" ? "공격" : type === "missed" ? "반응" : bangEquipmentTypes.has(type) ? "장비" : "액션"}</small>
     </span>
   );
 }

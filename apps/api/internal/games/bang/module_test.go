@@ -488,6 +488,130 @@ func TestPendingDiscardRejectsWrongCardCount(t *testing.T) {
 	}
 }
 
+func TestBangRequiresTargetWithinRange(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p3"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected default range one to reject distance two target")
+	}
+}
+
+func TestWeaponExtendsBangRange(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[0].Equipment = []Card{{ID: "schofield-1", Type: CardSchofield}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p3"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected range two weapon to allow p3 target, got %v", err)
+	}
+}
+
+func TestScopeAndMustangAdjustDistance(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[0].Equipment = []Card{{ID: "scope-1", Type: CardScope}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p3"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected scope to bring p3 into default range, got %v", err)
+	}
+
+	state.Players[2].Equipment = []Card{{ID: "mustang-1", Type: CardMustang}}
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p3"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected target mustang to push p3 out of default range")
+	}
+}
+
+func TestPlayingWeaponEquipsAndReplacesOldWeapon(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "remington-1", Type: CardRemington}}
+	state.Players[0].Equipment = []Card{{ID: "schofield-1", Type: CardSchofield}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "remington-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.Players[0].Equipment) != 1 || next.Players[0].Equipment[0].Type != CardRemington {
+		t.Fatalf("expected remington equipped, got %+v", next.Players[0].Equipment)
+	}
+	if len(next.Discard) != 1 || next.Discard[0].Type != CardSchofield {
+		t.Fatalf("expected old weapon discarded, got %+v", next.Discard)
+	}
+}
+
+func TestVolcanicAllowsMultipleBangCardsInOneTurn(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}, {ID: "bang-2", Type: CardBang}}
+	state.Players[0].Equipment = []Card{{ID: "volcanic-1", Type: CardVolcanic}}
+	state.Players[1].Hand = []Card{}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	err = module.ValidateAction(context.Background(), next, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-2", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected volcanic to allow another bang, got %v", err)
+	}
+
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-2", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next = result.State.(State)
+	if next.Players[1].HP != 2 {
+		t.Fatalf("expected two bang damage, got %+v", next.Players[1])
+	}
+}
+
 func fixedState() State {
 	return State{
 		Players: []PlayerState{
