@@ -167,11 +167,23 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if card.Type == CardBang && player.BangUsed {
 			return errors.New("only one bang per turn")
 		}
-		if card.Type != CardBeer {
+		switch card.Type {
+		case CardBeer:
+			if player.HP >= player.MaxHP {
+				return errors.New("beer can only heal missing hp")
+			}
+			if alivePlayerCount(current) <= 2 {
+				return errors.New("beer has no effect with two players left")
+			}
+		case CardBang:
 			targetIndex := findPlayer(current, payload.TargetPlayerID)
 			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
 				return errors.New("invalid target")
 			}
+		case CardGatling:
+			return nil
+		default:
+			return errors.New("unsupported card")
 		}
 	default:
 		return errors.New("unsupported action")
@@ -204,12 +216,12 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Log = append(current.Log, player.PlayerID+" 님이 맥주로 회복했습니다.")
 		case CardBang:
 			player.BangUsed = true
-			current = damageTarget(current, payload.TargetPlayerID, 1)
+			current = damageTargetBy(current, payload.TargetPlayerID, 1, player.PlayerID)
 			current.Log = append(current.Log, player.PlayerID+" 님이 BANG!을 사용했습니다.")
 		case CardGatling:
 			for _, target := range current.Players {
 				if target.Alive && target.PlayerID != player.PlayerID {
-					current = damageTarget(current, target.PlayerID, 1)
+					current = damageTargetBy(current, target.PlayerID, 1, player.PlayerID)
 				}
 			}
 			current.Log = append(current.Log, player.PlayerID+" 님이 개틀링을 사용했습니다.")
@@ -273,22 +285,31 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 }
 
 func damageTarget(state State, targetPlayerID string, amount int) State {
+	return damageTargetBy(state, targetPlayerID, amount, "")
+}
+
+func damageTargetBy(state State, targetPlayerID string, amount int, sourcePlayerID string) State {
 	targetIndex := findPlayer(state, targetPlayerID)
 	if targetIndex < 0 {
 		return state
 	}
 	target := &state.Players[targetIndex]
-	if removeFirstType(target, CardMissed) {
+	if missed, ok := removeFirstType(target, CardMissed); ok {
+		state.Discard = append(state.Discard, missed)
 		state.Log = append(state.Log, target.PlayerID+" 님이 빗맞음으로 피했습니다.")
 		return state
 	}
 	target.HP -= amount
 	if target.HP <= 0 {
-		if removeFirstType(target, CardBeer) {
-			target.HP = 1
-			state.Log = append(state.Log, target.PlayerID+" 님이 맥주로 버텼습니다.")
-			return state
+		if alivePlayerCount(state) > 2 {
+			if beer, ok := removeFirstType(target, CardBeer); ok {
+				state.Discard = append(state.Discard, beer)
+				target.HP = 1
+				state.Log = append(state.Log, target.PlayerID+" 님이 맥주로 버텼습니다.")
+				return state
+			}
 		}
+		targetRole := target.Role
 		target.HP = 0
 		target.Alive = false
 		target.Active = false
@@ -296,6 +317,34 @@ func damageTarget(state State, targetPlayerID string, amount int) State {
 		target.Hand = []Card{}
 		target.HandSize = 0
 		state.Log = append(state.Log, target.PlayerID+" 님이 탈락했습니다.")
+		state = applyEliminationReward(state, sourcePlayerID, targetRole)
+	}
+	return state
+}
+
+func applyEliminationReward(state State, sourcePlayerID string, eliminatedRole string) State {
+	if sourcePlayerID == "" {
+		return state
+	}
+	sourceIndex := findPlayer(state, sourcePlayerID)
+	if sourceIndex < 0 {
+		return state
+	}
+	source := &state.Players[sourceIndex]
+	if !source.Alive {
+		return state
+	}
+	if eliminatedRole == RoleOutlaw {
+		drawn := drawCards(&state, 3)
+		source.Hand = append(source.Hand, drawn...)
+		source.HandSize = len(source.Hand)
+		state.Log = append(state.Log, fmt.Sprintf("%s 님이 무법자 처치 보상으로 카드 %d장을 뽑았습니다.", source.PlayerID, len(drawn)))
+	}
+	if source.Role == RoleSheriff && eliminatedRole == RoleDeputy {
+		state.Discard = append(state.Discard, source.Hand...)
+		source.Hand = []Card{}
+		source.HandSize = 0
+		state.Log = append(state.Log, source.PlayerID+" 보안관이 부관을 제거해 손패를 모두 버렸습니다.")
 	}
 	return state
 }
@@ -430,14 +479,14 @@ func removeCard(player *PlayerState, cardID string) (Card, bool) {
 	return removed, found
 }
 
-func removeFirstType(player *PlayerState, cardType string) bool {
+func removeFirstType(player *PlayerState, cardType string) (Card, bool) {
 	for _, card := range player.Hand {
 		if card.Type == cardType {
 			removeCard(player, card.ID)
-			return true
+			return card, true
 		}
 	}
-	return false
+	return Card{}, false
 }
 
 func nextAliveIndex(state State, current int) int {
@@ -457,6 +506,16 @@ func findPlayer(state State, playerID string) int {
 		}
 	}
 	return -1
+}
+
+func alivePlayerCount(state State) int {
+	count := 0
+	for _, player := range state.Players {
+		if player.Alive {
+			count++
+		}
+	}
+	return count
 }
 
 func rankForOutcome(outcome gamecore.Outcome) int {

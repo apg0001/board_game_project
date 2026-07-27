@@ -138,6 +138,7 @@ export function App() {
   const [pendingRummikubGroups, setPendingRummikubGroups] = useState<string[][]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [selectedGemColors, setSelectedGemColors] = useState<string[]>([]);
+  const [selectedBangTargetId, setSelectedBangTargetId] = useState("");
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [lobbyFlow, setLobbyFlow] = useState<LobbyFlow>("home");
@@ -555,6 +556,10 @@ export function App() {
   const rummikubSubmitGroups = [...pendingRummikubGroups, ...(selectedTileIds.length >= 3 ? [selectedTileIds] : [])];
   const bangMe = davinciPlayers.find((player) => player.playerId === playerID);
   const bangTargets = davinciPlayers.filter((player) => player.playerId !== playerID && player.alive !== false);
+  const bangSelectedTargetId = bangTargets.some((player) => player.playerId === selectedBangTargetId)
+    ? selectedBangTargetId
+    : (bangTargets[0]?.playerId ?? "");
+  const bangAliveCount = davinciPlayers.filter((player) => player.alive !== false).length;
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
   const gostopMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1775,17 +1780,32 @@ export function App() {
                                   "bang.play",
                                   setCurrentSession,
                                   setRoomMessage,
-                                  {
-                                    cardId: card.id,
-                                    targetPlayerId: bangTargets[0]?.playerId ?? ""
-                                  }
+                                  bangPlayPayload(card, bangSelectedTargetId)
                                 )
                               }
-                              disabled={!isMyTurn || !bangMe?.drawn}
+                              disabled={!bangCardPlayable(card, isMyTurn, bangMe, bangSelectedTargetId, bangAliveCount)}
                             >
                               <BangCardFace card={card} />
                             </button>
                           ))}
+                        </div>
+                        <div className="bang-target-panel" aria-label="공격 대상">
+                          <strong>공격 대상</strong>
+                          <div className="bang-targets">
+                            {bangTargets.map((player) => (
+                              <button
+                                className={`bang-target-chip ${bangSelectedTargetId === player.playerId ? "selected" : ""}`}
+                                key={player.playerId}
+                                onClick={() => setSelectedBangTargetId(player.playerId)}
+                                disabled={!isMyTurn}
+                              >
+                                {participantName(currentRoom, player.playerId)}
+                                <span>
+                                  HP {player.hp ?? 0}/{player.maxHp ?? 0}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
                         </div>
                         <div className="splendor-players">
                           {davinciPlayers.map((player) => (
@@ -3083,6 +3103,28 @@ function bangWinnerLabel(winner: string) {
     renegade: "배신자"
   };
   return labels[winner] ?? "미정";
+}
+
+function bangPlayPayload(card: HandCard, targetPlayerId: string) {
+  const payload: Record<string, string> = { cardId: card.id };
+  if (card.type === "bang") {
+    payload.targetPlayerId = targetPlayerId;
+  }
+  return payload;
+}
+
+function bangCardPlayable(
+  card: HandCard,
+  isMyTurn: boolean,
+  player: DavinciPlayer | undefined,
+  targetPlayerId: string,
+  aliveCount: number
+) {
+  if (!isMyTurn || !player?.drawn) return false;
+  if (card.type === "bang") return Boolean(targetPlayerId) && !player.bangUsed;
+  if (card.type === "gatling") return true;
+  if (card.type === "beer") return (player.hp ?? 0) < (player.maxHp ?? 0) && aliveCount > 2;
+  return false;
 }
 
 function standardCardLabel(card: HandCard) {
