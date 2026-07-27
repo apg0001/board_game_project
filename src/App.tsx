@@ -2338,6 +2338,11 @@ export function App() {
                               <span>
                                 {player.score ?? 0}점 · 획득 {player.captured?.length ?? 0}장 · {player.goCount ?? 0}고
                               </span>
+                              {currentSession.state.finished && player.finalScore ? (
+                                <small>
+                                  최종 {player.finalScore}점 {player.penaltyTags?.length ? `· ${player.penaltyTags.join("/")}` : ""}
+                                </small>
+                              ) : null}
                             </div>
                           ))}
                         </div>

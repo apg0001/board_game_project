@@ -131,6 +131,8 @@ export interface DavinciPlayer {
   folded?: boolean;
   ready?: boolean;
   captured?: HandCard[];
+  finalScore?: number;
+  penaltyTags?: string[];
   goCount?: number;
   passed?: boolean;
   out?: boolean;
