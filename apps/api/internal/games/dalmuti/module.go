@@ -154,7 +154,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, err
 		}
 		playCards(player, payload)
-		player.Passed = false
+		resetPasses(&current)
 		current.CurrentTrick = Trick{Rank: payload.Rank, Count: payload.Count, PlayerID: player.PlayerID}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d 계급 %d장을 냈습니다.", player.PlayerID, payload.Rank, payload.Count))
 		if len(player.Hand) == 0 {
@@ -336,6 +336,12 @@ func resetTrick(state State) State {
 	state.Round++
 	state.Log = append(state.Log, "새 트릭이 시작되었습니다.")
 	return state
+}
+
+func resetPasses(state *State) {
+	for index := range state.Players {
+		state.Players[index].Passed = false
+	}
 }
 
 func remainingPlayers(state State) int {

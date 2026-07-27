@@ -105,12 +105,85 @@ func TestBuyCardUsesTokens(t *testing.T) {
 }
 
 func TestBuyPayloadAcceptsIntegerMarketIndex(t *testing.T) {
-	index, err := buyPayload(map[string]any{"marketIndex": 0})
+	payload, err := buyPayload(map[string]any{"marketIndex": 0})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if index != 0 {
-		t.Fatalf("expected market index 0, got %d", index)
+	if payload.MarketIndex != 0 || payload.ReservedIndex != -1 {
+		t.Fatalf("expected market index 0, got %+v", payload)
+	}
+}
+
+func TestReserveCardTakesGoldAndRefillsMarket(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	reserved := state.Market[0]
+	nextDeckID := state.Deck[0].ID
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionReserveCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"marketIndex": 0},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Reserved) != 1 || next.Players[0].Reserved[0].ID != reserved.ID {
+		t.Fatalf("expected reserved card %+v, got %+v", reserved, next.Players[0].Reserved)
+	}
+	if next.Players[0].Tokens["gold"] != 1 || next.Bank["gold"] != 4 {
+		t.Fatalf("expected one gold token taken, got player=%d bank=%d", next.Players[0].Tokens["gold"], next.Bank["gold"])
+	}
+	if len(next.Market) != 4 || next.Market[3].ID != nextDeckID {
+		t.Fatalf("expected market refill with next deck card %s, got %+v", nextDeckID, next.Market)
+	}
+}
+
+func TestReserveCardLimitIsThree(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Players[0].Reserved = []Card{{ID: "r1"}, {ID: "r2"}, {ID: "r3"}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionReserveCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"marketIndex": 0},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected fourth reserved card to be rejected")
+	}
+}
+
+func TestBuyReservedCardCanSpendGold(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	card := Card{ID: "reserved", Color: "white", Points: 2, Cost: map[string]int{"blue": 2, "red": 1}}
+	state.Players[0].Reserved = []Card{card}
+	state.Players[0].Tokens["blue"] = 1
+	state.Players[0].Tokens["gold"] = 2
+	state.Bank["blue"]--
+	state.Bank["gold"] -= 2
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionBuyCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"reservedIndex": 0},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Reserved) != 0 || len(next.Players[0].Cards) != 1 {
+		t.Fatalf("expected reserved card to move to purchased cards, got reserved=%+v cards=%+v", next.Players[0].Reserved, next.Players[0].Cards)
+	}
+	if next.Players[0].Tokens["gold"] != 0 || next.Bank["gold"] != 5 {
+		t.Fatalf("expected gold to be spent and returned, got player=%d bank=%d", next.Players[0].Tokens["gold"], next.Bank["gold"])
+	}
+	if next.Players[0].Score != 2 || next.Players[0].Bonuses["white"] != 1 {
+		t.Fatalf("expected score and bonus from reserved purchase, got %+v", next.Players[0])
 	}
 }
 

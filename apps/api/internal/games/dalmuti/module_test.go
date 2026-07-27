@@ -55,6 +55,48 @@ func TestJesterCanCompleteSetAsWild(t *testing.T) {
 	}
 }
 
+func TestNewPlayClearsPreviousPasses(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 3,
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "8-1", Rank: 8}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "7-1", Rank: 7}}, Passed: true, Active: true},
+			{PlayerID: "p3", Hand: []Card{{ID: "6-1", Rank: 6}}, Passed: true, Active: true},
+			{PlayerID: "p4", Hand: []Card{{ID: "9-1", Rank: 9}}, Active: true},
+		},
+		CurrentTrick: Trick{Rank: 10, Count: 1, PlayerID: "p1"},
+	}
+
+	updated, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p4",
+		Payload:  map[string]any{"rank": 9, "count": 1},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterPlay := updated.State.(State)
+	if afterPlay.Players[1].Passed || afterPlay.Players[2].Passed {
+		t.Fatalf("previous passes must be cleared after a stronger play, got %+v", afterPlay.Players)
+	}
+
+	updated, err = module.ApplyAction(context.Background(), afterPlay, gamecore.Action{
+		Type:     ActionPass,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterPass := updated.State.(State)
+	if afterPass.CurrentPlayerIndex != 1 {
+		t.Fatalf("expected play to continue to p2 instead of ending the trick, got index %d state %+v", afterPass.CurrentPlayerIndex, afterPass)
+	}
+	if afterPass.CurrentTrick.PlayerID != "p4" {
+		t.Fatalf("expected p4 to remain latest trick leader, got %+v", afterPass.CurrentTrick)
+	}
+}
+
 func TestPlayPayloadAcceptsIntegerNumbers(t *testing.T) {
 	module := NewModule()
 	err := module.ValidateAction(context.Background(), fixedState(), gamecore.Action{

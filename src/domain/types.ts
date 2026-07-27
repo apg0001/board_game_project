@@ -111,6 +111,7 @@ export interface DavinciPlayer {
   tokens?: Record<string, number>;
   bonuses?: Record<string, number>;
   cards?: SplendorCard[];
+  reserved?: SplendorCard[];
   hand?: HandCard[];
   handSize?: number;
   rack?: RummikubTile[];
@@ -168,6 +169,9 @@ export interface OneCardRules {
   jokerDrawCount?: number;
   twoDrawCount?: number;
   stacking?: boolean;
+  changeSuitCards?: string[];
+  oneCardPenalty?: boolean;
+  oneCardPenaltyDraw?: number;
 }
 
 export interface GameSession {
@@ -212,6 +216,8 @@ export interface GameSession {
     ruleMessages?: string[];
     pendingDraw?: number;
     pendingAttackRank?: string;
+    declaredSuit?: string;
+    declaredOne?: Record<string, boolean>;
   };
   results?: Array<{
     playerId: string;
@@ -283,6 +289,7 @@ export type GameActionType =
   | "halli-galli.ring"
   | "splendor.take_token"
   | "splendor.buy_card"
+  | "splendor.reserve_card"
   | "dalmuti.play"
   | "dalmuti.pass"
   | "werewolf.see_player"
@@ -305,4 +312,6 @@ export type GameActionType =
   | "gostop.stop"
   | "onecard.play"
   | "onecard.draw"
+  | "onecard.declare_one"
+  | "onecard.callout_one"
   | "jokerdraw.draw";

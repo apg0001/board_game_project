@@ -79,7 +79,7 @@ func (m Module) MaxPlayers() int {
 }
 
 func (m Module) CreateInitialState(ctx gamecore.Context) any {
-	deck := shuffledDeck(ctx.RandomSeed)
+	deck := shuffledDeck(ctx.RandomSeed, dashTilesEnabled(ctx.Options))
 	handSize := 4
 	if len(ctx.Players) == 4 {
 		handSize = 3
@@ -446,13 +446,19 @@ func findPlayerIndex(state State, playerID string) int {
 	return -1
 }
 
-func shuffledDeck(seed string) []Tile {
-	deck := make([]Tile, 0, 26)
+func shuffledDeck(seed string, includeDashTiles bool) []Tile {
+	deckSize := 24
+	if includeDashTiles {
+		deckSize = 26
+	}
+	deck := make([]Tile, 0, deckSize)
 	for _, color := range []string{"black", "white"} {
 		for value := 0; value <= 11; value++ {
 			deck = append(deck, Tile{Color: color, Value: value})
 		}
-		deck = append(deck, Tile{Color: color, Value: -1, Joker: true})
+		if includeDashTiles {
+			deck = append(deck, Tile{Color: color, Value: -1, Joker: true})
+		}
 	}
 
 	random := rand.New(rand.NewSource(seedToInt(seed)))
@@ -460,6 +466,21 @@ func shuffledDeck(seed string) []Tile {
 		deck[i], deck[j] = deck[j], deck[i]
 	})
 	return deck
+}
+
+func dashTilesEnabled(options map[string]any) bool {
+	if len(options) == 0 {
+		return false
+	}
+	for _, key := range []string{"advancedDashTiles", "includeDashTiles"} {
+		value, ok := options[key]
+		if !ok {
+			continue
+		}
+		enabled, ok := value.(bool)
+		return ok && enabled
+	}
+	return false
 }
 
 func sortTiles(tiles []Tile) {
