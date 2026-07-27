@@ -90,6 +90,92 @@ func TestFinishMarksShowdownDrawWhenBestHandsTie(t *testing.T) {
 	}
 }
 
+func TestRaiseResetsOtherReadyAndCallsMatchCurrentBet(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Pot:                3,
+		CurrentBet:         1,
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{Month: 1}, {Month: 2}}, Bet: 1, Active: true},
+			{PlayerID: "p2", Hand: []Card{{Month: 3}, {Month: 4}}, Bet: 1, Ready: true, Active: true},
+			{PlayerID: "p3", Hand: []Card{{Month: 5}, {Month: 6}}, Bet: 1, Ready: true, Active: true},
+		},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRaise,
+		PlayerID: "p1",
+		Payload:  map[string]any{"amount": 2},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raised := result.State.(State)
+	if raised.CurrentBet != 3 || raised.Pot != 5 || raised.Players[0].Bet != 3 || !raised.Players[0].Ready {
+		t.Fatalf("expected p1 raise to set bet/pot/current bet, got %+v", raised)
+	}
+	if raised.Players[1].Ready || raised.Players[2].Ready || raised.CurrentPlayerIndex != 1 {
+		t.Fatalf("expected other players to respond to raise, got %+v", raised.Players)
+	}
+
+	result, err = module.ApplyAction(context.Background(), raised, gamecore.Action{
+		Type:     ActionCall,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := result.State.(State)
+	if called.Pot != 7 || called.Players[1].Bet != 3 || !called.Players[1].Ready || called.Finished {
+		t.Fatalf("expected p2 call to match current bet without finishing yet, got %+v", called)
+	}
+
+	result, err = module.ApplyAction(context.Background(), called, gamecore.Action{
+		Type:     ActionCall,
+		PlayerID: "p3",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := result.State.(State)
+	if !finished.Finished || finished.Pot != 9 || finished.Players[2].Bet != 3 {
+		t.Fatalf("expected all calls to finish showdown with matched bets, got %+v", finished)
+	}
+}
+
+func TestRaiseLimitAndAmountValidation(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		CurrentBet:         1,
+		RaisesThisRound:    maxRaisesRound,
+		Players: []PlayerState{
+			{PlayerID: "p1", Bet: 1, Active: true},
+			{PlayerID: "p2", Bet: 1, Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRaise,
+		PlayerID: "p1",
+		Payload:  map[string]any{"amount": 1},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected raise limit to be enforced")
+	}
+
+	state.RaisesThisRound = 0
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRaise,
+		PlayerID: "p1",
+		Payload:  map[string]any{"amount": maxRaiseAmount + 1},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected raise amount limit to be enforced")
+	}
+}
+
 func TestTimeoutCurrentPlayerAdvancesTurn(t *testing.T) {
 	module := NewModule()
 	state := State{

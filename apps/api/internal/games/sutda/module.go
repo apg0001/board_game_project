@@ -14,7 +14,10 @@ import (
 const (
 	ActionCall     = "sutda.call"
 	ActionFold     = "sutda.fold"
+	ActionRaise    = "sutda.raise"
 	ActionShowdown = "sutda.showdown"
+	maxRaiseAmount = 3
+	maxRaisesRound = 3
 )
 
 type Card struct {
@@ -28,6 +31,7 @@ type PlayerState struct {
 	Hand     []Card `json:"hand"`
 	RankName string `json:"rankName,omitempty"`
 	Rank     int    `json:"rank,omitempty"`
+	Bet      int    `json:"bet"`
 	Folded   bool   `json:"folded"`
 	Ready    bool   `json:"ready"`
 	Active   bool   `json:"active"`
@@ -38,11 +42,17 @@ type State struct {
 	Round              int           `json:"round"`
 	Players            []PlayerState `json:"players"`
 	Pot                int           `json:"pot"`
+	CurrentBet         int           `json:"currentBet"`
+	RaisesThisRound    int           `json:"raisesThisRound"`
 	WinnerID           string        `json:"winnerId,omitempty"`
 	WinnerIDs          []string      `json:"winnerIds,omitempty"`
 	Draw               bool          `json:"draw,omitempty"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
+}
+
+type RaisePayload struct {
+	Amount int `json:"amount"`
 }
 
 type Module struct{}
@@ -79,10 +89,11 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 			Hand:     hand,
 			Rank:     rank,
 			RankName: name,
+			Bet:      1,
 			Active:   true,
 		})
 	}
-	return State{Players: players, Pot: len(players), Log: []string{"섯다 한 판이 시작되었습니다."}}
+	return State{Players: players, Pot: len(players), CurrentBet: 1, Log: []string{"섯다 한 판이 시작되었습니다."}}
 }
 
 func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
@@ -113,6 +124,18 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	switch action.Type {
 	case ActionCall, ActionFold, ActionShowdown:
 		return nil
+	case ActionRaise:
+		payload, err := raisePayload(action.Payload)
+		if err != nil {
+			return err
+		}
+		if payload.Amount < 1 || payload.Amount > maxRaiseAmount {
+			return fmt.Errorf("raise amount must be between 1 and %d", maxRaiseAmount)
+		}
+		if current.RaisesThisRound >= maxRaisesRound {
+			return errors.New("raise limit reached")
+		}
+		return nil
 	default:
 		return errors.New("unsupported action")
 	}
@@ -123,9 +146,28 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionCall:
+		payment := current.CurrentBet - player.Bet
+		if payment < 0 {
+			payment = 0
+		}
+		player.Bet += payment
 		player.Ready = true
-		current.Pot++
-		current.Log = append(current.Log, player.PlayerID+" 님이 콜했습니다.")
+		current.Pot += payment
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 콜했습니다.", player.PlayerID))
+	case ActionRaise:
+		payload, err := raisePayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		nextBet := current.CurrentBet + payload.Amount
+		payment := nextBet - player.Bet
+		player.Bet = nextBet
+		player.Ready = true
+		current.Pot += payment
+		current.CurrentBet = nextBet
+		current.RaisesThisRound++
+		resetOtherReady(&current, current.CurrentPlayerIndex)
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d만큼 레이즈했습니다.", player.PlayerID, payload.Amount))
 	case ActionFold:
 		player.Folded = true
 		player.Active = false
@@ -330,7 +372,7 @@ func hasMonths(hand []Card, first int, second int) bool {
 func activeCount(state State) int {
 	count := 0
 	for _, player := range state.Players {
-		if !player.Folded {
+		if !player.Folded && player.Active {
 			count++
 		}
 	}
@@ -339,17 +381,26 @@ func activeCount(state State) int {
 
 func allActiveReady(state State) bool {
 	for _, player := range state.Players {
-		if !player.Folded && !player.Ready {
+		if !player.Folded && player.Active && (!player.Ready || player.Bet < state.CurrentBet) {
 			return false
 		}
 	}
 	return true
 }
 
+func resetOtherReady(state *State, raiserIndex int) {
+	for index := range state.Players {
+		if index == raiserIndex || state.Players[index].Folded || !state.Players[index].Active {
+			continue
+		}
+		state.Players[index].Ready = false
+	}
+}
+
 func nextActiveIndex(state State, current int) int {
 	for step := 1; step <= len(state.Players); step++ {
 		next := (current + step) % len(state.Players)
-		if !state.Players[next].Folded {
+		if !state.Players[next].Folded && state.Players[next].Active {
 			return next
 		}
 	}
@@ -370,6 +421,36 @@ func rankForOutcome(outcome gamecore.Outcome) int {
 		return 1
 	}
 	return 2
+}
+
+func raisePayload(payload any) (RaisePayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return RaisePayload{}, errors.New("invalid raise payload")
+	}
+	amount, ok := intFromAny(raw["amount"])
+	if !ok {
+		return RaisePayload{}, errors.New("raise amount is required")
+	}
+	return RaisePayload{Amount: amount}, nil
+}
+
+func intFromAny(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int32:
+		return int(typed), true
+	case int64:
+		return int(typed), true
+	case float64:
+		if typed != float64(int(typed)) {
+			return 0, false
+		}
+		return int(typed), true
+	default:
+		return 0, false
+	}
 }
 
 func shuffledDeck(seed string) []Card {

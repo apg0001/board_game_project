@@ -128,6 +128,7 @@ export interface DavinciPlayer {
   drawn?: boolean;
   bangUsed?: boolean;
   rankName?: string;
+  bet?: number;
   folded?: boolean;
   ready?: boolean;
   captured?: HandCard[];
@@ -236,6 +237,8 @@ export interface GameSession {
     pool?: RummikubTile[];
     winner?: string;
     pot?: number;
+    currentBet?: number;
+    raisesThisRound?: number;
     winnerId?: string;
     winnerIds?: string[];
     draw?: boolean;
@@ -381,6 +384,7 @@ export type GameActionType =
   | "bang.end_turn"
   | "sutda.call"
   | "sutda.fold"
+  | "sutda.raise"
   | "sutda.showdown"
   | "gostop.play"
   | "gostop.go"
