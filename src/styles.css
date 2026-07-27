@@ -1507,6 +1507,17 @@ button.davinci-tile {
   font-weight: 900;
 }
 
+.splendor-deck-reserve {
+  min-height: 28px;
+  border: 1px solid rgba(23, 33, 43, 0.16);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: #17212b;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
 .splendor-tier-header span {
   color: #66727f;
   font-size: 0.78rem;
