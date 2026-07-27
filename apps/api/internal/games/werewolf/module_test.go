@@ -45,6 +45,83 @@ func TestRobberSwapsAndLearnsNewRole(t *testing.T) {
 	}
 }
 
+func TestWerewolfMustSeeTeammateBeforeNightCanFinish(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Phase: PhaseNight,
+		Players: []PlayerState{
+			{PlayerID: "p1", OriginalRole: RoleWerewolf, CurrentRole: RoleWerewolf, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p2", OriginalRole: RoleWerewolf, CurrentRole: RoleWerewolf, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p3", OriginalRole: RoleVillager, CurrentRole: RoleVillager, SeenRoles: map[string]string{}, Active: true},
+		},
+		Center:           []string{RoleSeer, RoleDrunk, RoleVillager},
+		CompletedActions: map[string]bool{},
+		Votes:            map[string]string{},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionFinishNight,
+		PlayerID: "p3",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected night finish to wait for werewolf actions")
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeWerewolves,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+	if state.Players[0].SeenRoles["player:p2"] != RoleWerewolf {
+		t.Fatalf("expected p1 to see p2 as werewolf, got %+v", state.Players[0].SeenRoles)
+	}
+
+	result, err = module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeWerewolves,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionFinishNight,
+		PlayerID: "p3",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoneWerewolfMayViewOneCenterCard(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionLoneWolfCenter,
+		PlayerID: "p2",
+		Payload:  map[string]any{"centerIndexes": []any{1}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Players[1].SeenRoles["center:1"] != RoleDrunk || !next.CompletedActions["p2"] {
+		t.Fatalf("expected lone wolf to see one center card, got seen=%+v completed=%+v", next.Players[1].SeenRoles, next.CompletedActions)
+	}
+
+	err = module.ValidateAction(context.Background(), fixedState(), gamecore.Action{
+		Type:     ActionSeeWerewolves,
+		PlayerID: "p2",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected lone wolf teammate check to be rejected")
+	}
+}
+
 func TestVoteKillsWerewolfAndVillageWins(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
@@ -80,6 +157,7 @@ func TestFinishNightRequiresRequiredRoleActions(t *testing.T) {
 	}
 
 	state.CompletedActions["p1"] = true
+	state.CompletedActions["p2"] = true
 	err = module.ValidateAction(context.Background(), state, gamecore.Action{
 		Type:     ActionFinishNight,
 		PlayerID: "p2",

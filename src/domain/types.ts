@@ -312,6 +312,8 @@ export type GameActionType =
   | "splendor.choose_noble"
   | "dalmuti.play"
   | "dalmuti.pass"
+  | "werewolf.see_werewolves"
+  | "werewolf.lone_wolf_center"
   | "werewolf.see_player"
   | "werewolf.see_center"
   | "werewolf.rob"

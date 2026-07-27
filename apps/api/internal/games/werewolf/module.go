@@ -13,23 +13,25 @@ import (
 )
 
 const (
-	ActionSeePlayer   = "werewolf.see_player"
-	ActionSeeCenter   = "werewolf.see_center"
-	ActionRob         = "werewolf.rob"
-	ActionTroublemake = "werewolf.troublemake"
-	ActionDrunkSwap   = "werewolf.drunk_swap"
-	ActionFinishNight = "werewolf.finish_night"
-	ActionVote        = "werewolf.vote"
-	PhaseNight        = "NIGHT"
-	PhaseDiscussion   = "DISCUSSION"
-	PhaseFinished     = "FINISHED"
-	RoleWerewolf      = "werewolf"
-	RoleSeer          = "seer"
-	RoleRobber        = "robber"
-	RoleTroublemaker  = "troublemaker"
-	RoleDrunk         = "drunk"
-	RoleInsomniac     = "insomniac"
-	RoleVillager      = "villager"
+	ActionSeeWerewolves  = "werewolf.see_werewolves"
+	ActionLoneWolfCenter = "werewolf.lone_wolf_center"
+	ActionSeePlayer      = "werewolf.see_player"
+	ActionSeeCenter      = "werewolf.see_center"
+	ActionRob            = "werewolf.rob"
+	ActionTroublemake    = "werewolf.troublemake"
+	ActionDrunkSwap      = "werewolf.drunk_swap"
+	ActionFinishNight    = "werewolf.finish_night"
+	ActionVote           = "werewolf.vote"
+	PhaseNight           = "NIGHT"
+	PhaseDiscussion      = "DISCUSSION"
+	PhaseFinished        = "FINISHED"
+	RoleWerewolf         = "werewolf"
+	RoleSeer             = "seer"
+	RoleRobber           = "robber"
+	RoleTroublemaker     = "troublemaker"
+	RoleDrunk            = "drunk"
+	RoleInsomniac        = "insomniac"
+	RoleVillager         = "villager"
 )
 
 type PlayerState struct {
@@ -145,6 +147,23 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	}
 	player := current.Players[playerIndex]
 	switch action.Type {
+	case ActionSeeWerewolves:
+		if err := requireNightRole(current, player, RoleWerewolf); err != nil {
+			return err
+		}
+		if originalWerewolfCount(current) < 2 {
+			return errors.New("lone werewolf may view one center card instead")
+		}
+	case ActionLoneWolfCenter:
+		if err := requireNightRole(current, player, RoleWerewolf); err != nil {
+			return err
+		}
+		if originalWerewolfCount(current) != 1 {
+			return errors.New("only lone werewolf may view center")
+		}
+		if _, err := centerIndexes(action.Payload, 1); err != nil {
+			return err
+		}
 	case ActionSeePlayer:
 		return requireNightRole(current, player, RoleSeer)
 	case ActionSeeCenter:
@@ -185,6 +204,23 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[playerIndex]
 
 	switch action.Type {
+	case ActionSeeWerewolves:
+		for _, other := range current.Players {
+			if other.PlayerID == player.PlayerID || other.OriginalRole != RoleWerewolf {
+				continue
+			}
+			player.SeenRoles["player:"+other.PlayerID] = other.OriginalRole
+		}
+		current.CompletedActions[player.PlayerID] = true
+		current.Log = append(current.Log, player.PlayerID+" 님이 늑대인간 동료를 확인했습니다.")
+	case ActionLoneWolfCenter:
+		indexes, err := centerIndexes(action.Payload, 1)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		player.SeenRoles[fmt.Sprintf("center:%d", indexes[0])] = current.Center[indexes[0]]
+		current.CompletedActions[player.PlayerID] = true
+		current.Log = append(current.Log, player.PlayerID+" 님이 외로운 늑대로 중앙 카드 1장을 확인했습니다.")
 	case ActionSeePlayer:
 		target, err := targetPayload(action.Payload)
 		if err != nil {
@@ -348,11 +384,21 @@ func requiredNightActionsComplete(state State) bool {
 
 func isRequiredNightRole(role string) bool {
 	switch role {
-	case RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
+	case RoleWerewolf, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
 		return true
 	default:
 		return false
 	}
+}
+
+func originalWerewolfCount(state State) int {
+	count := 0
+	for _, player := range state.Players {
+		if player.OriginalRole == RoleWerewolf {
+			count++
+		}
+	}
+	return count
 }
 
 func finishVote(state State) State {
