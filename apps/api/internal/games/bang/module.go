@@ -21,6 +21,11 @@ const (
 	CardMissed      = "missed"
 	CardBeer        = "beer"
 	CardGatling     = "gatling"
+	CardStagecoach  = "stagecoach"
+	CardWellsFargo  = "wells_fargo"
+	CardSaloon      = "saloon"
+	CardCatBalou    = "cat_balou"
+	CardPanic       = "panic"
 	CardScope       = "scope"
 	CardMustang     = "mustang"
 	CardVolcanic    = "volcanic"
@@ -78,6 +83,7 @@ type State struct {
 type PlayPayload struct {
 	CardID         string `json:"cardId"`
 	TargetPlayerID string `json:"targetPlayerId"`
+	TargetCardID   string `json:"targetCardId"`
 }
 
 type DiscardPayload struct {
@@ -223,6 +229,27 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 			}
 		case CardGatling:
 			return nil
+		case CardStagecoach, CardWellsFargo, CardSaloon:
+			return nil
+		case CardCatBalou:
+			targetIndex := findPlayer(current, payload.TargetPlayerID)
+			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
+				return errors.New("invalid target")
+			}
+			if !targetHasRemovableCard(current.Players[targetIndex], payload.TargetCardID) {
+				return errors.New("target has no removable card")
+			}
+		case CardPanic:
+			targetIndex := findPlayer(current, payload.TargetPlayerID)
+			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
+				return errors.New("invalid target")
+			}
+			if attackDistance(current, current.CurrentPlayerIndex, targetIndex) > 1 {
+				return errors.New("panic target is out of range")
+			}
+			if !targetHasRemovableCard(current.Players[targetIndex], payload.TargetCardID) {
+				return errors.New("target has no removable card")
+			}
 		case CardScope, CardMustang, CardVolcanic, CardSchofield, CardRemington, CardCarabine, CardWinchester:
 			return nil
 		default:
@@ -323,6 +350,53 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Discard = append(current.Discard, card)
 			current.Log = append(current.Log, player.PlayerID+" 님이 개틀링을 사용했습니다.")
 			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1)
+		case CardStagecoach:
+			current.Discard = append(current.Discard, card)
+			drawn := drawCards(&current, 2)
+			player.Hand = append(player.Hand, drawn...)
+			player.HandSize = len(player.Hand)
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 역마차로 카드 %d장을 뽑았습니다.", player.PlayerID, len(drawn)))
+		case CardWellsFargo:
+			current.Discard = append(current.Discard, card)
+			drawn := drawCards(&current, 3)
+			player.Hand = append(player.Hand, drawn...)
+			player.HandSize = len(player.Hand)
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 웰스 파고로 카드 %d장을 뽑았습니다.", player.PlayerID, len(drawn)))
+		case CardSaloon:
+			current.Discard = append(current.Discard, card)
+			healed := 0
+			for index := range current.Players {
+				if current.Players[index].Alive && current.Players[index].HP < current.Players[index].MaxHP {
+					current.Players[index].HP++
+					healed++
+				}
+			}
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 살룬으로 %d명을 회복시켰습니다.", player.PlayerID, healed))
+		case CardCatBalou:
+			current.Discard = append(current.Discard, card)
+			targetIndex := findPlayer(current, payload.TargetPlayerID)
+			if targetIndex < 0 || targetIndex == current.CurrentPlayerIndex {
+				return gamecore.ActionResult{}, errors.New("invalid target")
+			}
+			removed, ok := removeRemovableCard(&current.Players[targetIndex], payload.TargetCardID)
+			if !ok {
+				return gamecore.ActionResult{}, errors.New("target has no removable card")
+			}
+			current.Discard = append(current.Discard, removed)
+			current.Log = append(current.Log, player.PlayerID+" 님이 캣 벌루로 카드를 버리게 했습니다.")
+		case CardPanic:
+			current.Discard = append(current.Discard, card)
+			targetIndex := findPlayer(current, payload.TargetPlayerID)
+			if targetIndex < 0 || targetIndex == current.CurrentPlayerIndex {
+				return gamecore.ActionResult{}, errors.New("invalid target")
+			}
+			stolen, ok := removeRemovableCard(&current.Players[targetIndex], payload.TargetCardID)
+			if !ok {
+				return gamecore.ActionResult{}, errors.New("target has no removable card")
+			}
+			player.Hand = append(player.Hand, stolen)
+			player.HandSize = len(player.Hand)
+			current.Log = append(current.Log, player.PlayerID+" 님이 패닉으로 카드를 가져왔습니다.")
 		case CardScope, CardMustang, CardVolcanic, CardSchofield, CardRemington, CardCarabine, CardWinchester:
 			current = equipCard(current, current.CurrentPlayerIndex, card)
 		}
@@ -816,10 +890,11 @@ func playPayload(payload any) (PlayPayload, error) {
 	}
 	cardID, _ := raw["cardId"].(string)
 	targetID, _ := raw["targetPlayerId"].(string)
+	targetCardID, _ := raw["targetCardId"].(string)
 	if cardID == "" {
 		return PlayPayload{}, errors.New("card is required")
 	}
-	return PlayPayload{CardID: cardID, TargetPlayerID: targetID}, nil
+	return PlayPayload{CardID: cardID, TargetPlayerID: targetID, TargetCardID: targetCardID}, nil
 }
 
 func discardPayload(payload any) (DiscardPayload, error) {
@@ -894,6 +969,49 @@ func removeFirstType(player *PlayerState, cardType string) (Card, bool) {
 	return Card{}, false
 }
 
+func targetHasRemovableCard(player PlayerState, cardID string) bool {
+	if cardID == "" {
+		return len(player.Hand) > 0 || len(player.Equipment) > 0
+	}
+	if _, ok := findCard(player.Hand, cardID); ok {
+		return true
+	}
+	_, ok := findCard(player.Equipment, cardID)
+	return ok
+}
+
+func removeRemovableCard(player *PlayerState, cardID string) (Card, bool) {
+	if cardID != "" {
+		if card, ok := removeCard(player, cardID); ok {
+			return card, true
+		}
+		return removeEquipment(player, cardID)
+	}
+	if len(player.Hand) > 0 {
+		return removeCard(player, player.Hand[0].ID)
+	}
+	if len(player.Equipment) > 0 {
+		return removeEquipment(player, player.Equipment[0].ID)
+	}
+	return Card{}, false
+}
+
+func removeEquipment(player *PlayerState, cardID string) (Card, bool) {
+	next := []Card{}
+	removed := Card{}
+	found := false
+	for _, card := range player.Equipment {
+		if !found && card.ID == cardID {
+			removed = card
+			found = true
+			continue
+		}
+		next = append(next, card)
+	}
+	player.Equipment = next
+	return removed, found
+}
+
 func nextAliveIndex(state State, current int) int {
 	for step := 1; step <= len(state.Players); step++ {
 		next := (current + step) % len(state.Players)
@@ -942,21 +1060,28 @@ func rankForOutcome(outcome gamecore.Outcome) int {
 
 func shuffledDeck(seed string) []Card {
 	cardTypes := []string{}
-	for range 28 {
+	for range 25 {
 		cardTypes = append(cardTypes, CardBang)
 	}
-	for range 14 {
+	for range 12 {
 		cardTypes = append(cardTypes, CardMissed)
 	}
-	for range 8 {
+	for range 6 {
 		cardTypes = append(cardTypes, CardBeer)
 	}
-	for range 4 {
+	for range 1 {
 		cardTypes = append(cardTypes, CardGatling)
 	}
 	for range 2 {
-		cardTypes = append(cardTypes, CardScope, CardMustang, CardVolcanic, CardSchofield)
+		cardTypes = append(cardTypes, CardStagecoach, CardMustang, CardVolcanic)
 	}
+	for range 4 {
+		cardTypes = append(cardTypes, CardCatBalou, CardPanic)
+	}
+	for range 3 {
+		cardTypes = append(cardTypes, CardSchofield)
+	}
+	cardTypes = append(cardTypes, CardWellsFargo, CardSaloon, CardScope)
 	cardTypes = append(cardTypes, CardRemington, CardCarabine, CardWinchester)
 	deck := make([]Card, 0, len(cardTypes))
 	for index, cardType := range cardTypes {

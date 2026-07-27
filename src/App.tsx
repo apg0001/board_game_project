@@ -1888,8 +1888,8 @@ export function App() {
                             </button>
                           ))}
                         </div>
-                        <div className="bang-target-panel" aria-label="공격 대상">
-                          <strong>공격 대상</strong>
+                        <div className="bang-target-panel" aria-label="대상 플레이어">
+                          <strong>대상 플레이어</strong>
                           <div className="bang-targets">
                             {bangTargets.map((player) => (
                               <button
@@ -3209,8 +3209,13 @@ function bangCardLabel(cardType: string) {
   const labels: Record<string, string> = {
     bang: "BANG!",
     gatling: "개틀링",
-    missed: "빗맞음",
+    missed: "빗나감",
     beer: "맥주",
+    stagecoach: "역마차",
+    wells_fargo: "웰스 파고",
+    saloon: "살룬",
+    cat_balou: "캣 벌루",
+    panic: "패닉",
     scope: "Scope",
     mustang: "Mustang",
     volcanic: "Volcanic",
@@ -3231,7 +3236,7 @@ function isBangEquipmentCard(cardType?: string) {
 
 function bangPlayPayload(card: HandCard, targetPlayerId: string) {
   const payload: Record<string, string> = { cardId: card.id };
-  if (card.type === "bang") {
+  if (card.type === "bang" || card.type === "cat_balou" || card.type === "panic") {
     payload.targetPlayerId = targetPlayerId;
   }
   return payload;
@@ -3252,6 +3257,8 @@ function bangCardPlayable(
     return Boolean(targetPlayerId) && (!player.bangUsed || hasVolcanic);
   }
   if (card.type === "gatling") return true;
+  if (card.type === "stagecoach" || card.type === "wells_fargo" || card.type === "saloon") return true;
+  if (card.type === "cat_balou" || card.type === "panic") return Boolean(targetPlayerId);
   if (card.type === "beer") return (player.hp ?? 0) < (player.maxHp ?? 0) && aliveCount > 2;
   if (isBangEquipmentCard(card.type)) return true;
   return false;

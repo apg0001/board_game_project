@@ -612,6 +612,163 @@ func TestVolcanicAllowsMultipleBangCardsInOneTurn(t *testing.T) {
 	}
 }
 
+func TestStagecoachAndWellsFargoDrawCards(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "stagecoach-1", Type: CardStagecoach}, {ID: "wells-1", Type: CardWellsFargo}}
+	state.Deck = []Card{
+		{ID: "draw-1", Type: CardBang},
+		{ID: "draw-2", Type: CardMissed},
+		{ID: "draw-3", Type: CardBeer},
+		{ID: "draw-4", Type: CardBang},
+		{ID: "draw-5", Type: CardBang},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "stagecoach-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.Players[0].Hand) != 3 || len(next.Deck) != 3 {
+		t.Fatalf("expected stagecoach to draw two cards, got hand=%+v deck=%d", next.Players[0].Hand, len(next.Deck))
+	}
+
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "wells-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next = result.State.(State)
+	if len(next.Players[0].Hand) != 5 || len(next.Deck) != 0 {
+		t.Fatalf("expected wells fargo to draw three cards, got hand=%+v deck=%d", next.Players[0].Hand, len(next.Deck))
+	}
+}
+
+func TestSaloonHealsAllAlivePlayers(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "saloon-1", Type: CardSaloon}}
+	state.Players[0].HP = 4
+	state.Players[1].HP = 2
+	state.Players[2].HP = 4
+	state.Players[3].HP = 0
+	state.Players[3].Alive = false
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "saloon-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Players[0].HP != 5 || next.Players[1].HP != 3 || next.Players[2].HP != 4 || next.Players[3].HP != 0 {
+		t.Fatalf("expected saloon to heal alive damaged players only, got %+v", next.Players)
+	}
+}
+
+func TestCatBalouDiscardsTargetCard(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "cat-1", Type: CardCatBalou}}
+	state.Players[1].Hand = []Card{{ID: "missed-1", Type: CardMissed}}
+	state.Players[1].Equipment = []Card{{ID: "scope-1", Type: CardScope}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "cat-1", "targetPlayerId": "p2", "targetCardId": "scope-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.Players[1].Equipment) != 0 || len(next.Players[1].Hand) != 1 {
+		t.Fatalf("expected cat balou to discard selected equipment only, got %+v", next.Players[1])
+	}
+	if len(next.Discard) != 2 || next.Discard[1].ID != "scope-1" {
+		t.Fatalf("expected discarded cat balou and target card, got %+v", next.Discard)
+	}
+}
+
+func TestPanicStealsDistanceOneTargetCard(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "panic-1", Type: CardPanic}}
+	state.Players[1].Hand = []Card{{ID: "beer-1", Type: CardBeer}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "panic-1", "targetPlayerId": "p2", "targetCardId": "beer-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.Players[1].Hand) != 0 || len(next.Players[0].Hand) != 1 || next.Players[0].Hand[0].ID != "beer-1" {
+		t.Fatalf("expected panic to steal target card, got actor=%+v target=%+v", next.Players[0], next.Players[1])
+	}
+
+	state = fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "panic-1", Type: CardPanic}}
+	state.Players[2].Hand = []Card{{ID: "beer-1", Type: CardBeer}}
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "panic-1", "targetPlayerId": "p3"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected panic to reject distance two target")
+	}
+}
+
+func TestImplementedDeckUsesOfficialCoreActionCounts(t *testing.T) {
+	counts := map[string]int{}
+	for _, card := range shuffledDeck("counts") {
+		counts[card.Type]++
+	}
+	expected := map[string]int{
+		CardBang:       25,
+		CardMissed:     12,
+		CardBeer:       6,
+		CardGatling:    1,
+		CardStagecoach: 2,
+		CardWellsFargo: 1,
+		CardSaloon:     1,
+		CardCatBalou:   4,
+		CardPanic:      4,
+		CardMustang:    2,
+		CardScope:      1,
+		CardVolcanic:   2,
+		CardSchofield:  3,
+		CardRemington:  1,
+		CardCarabine:   1,
+		CardWinchester: 1,
+	}
+	for cardType, want := range expected {
+		if counts[cardType] != want {
+			t.Fatalf("expected %s count %d, got %d in %+v", cardType, want, counts[cardType], counts)
+		}
+	}
+	if len(shuffledDeck("counts")) != 67 {
+		t.Fatalf("expected 67 implemented base cards, got %d", len(shuffledDeck("counts")))
+	}
+}
+
 func fixedState() State {
 	return State{
 		Players: []PlayerState{

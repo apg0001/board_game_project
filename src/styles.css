@@ -1820,6 +1820,21 @@ button.rummikub-tile:disabled {
   background: linear-gradient(155deg, #17212b, #46505c);
 }
 
+.bang-card-face.type-stagecoach,
+.bang-card-face.type-wells_fargo {
+  color: #17212b;
+  background: linear-gradient(155deg, #fffdf7, #e1a85d);
+}
+
+.bang-card-face.type-saloon {
+  background: linear-gradient(155deg, #1d6959, #67a77b);
+}
+
+.bang-card-face.type-cat_balou,
+.bang-card-face.type-panic {
+  background: linear-gradient(155deg, #4b4f88, #8c3f2a);
+}
+
 .bang-card-face strong,
 .bang-card-face small,
 .bang-card-kicker {
@@ -2006,6 +2021,21 @@ button.rummikub-tile:disabled {
 
 .bang-card.gatling {
   background: #17212b;
+}
+
+.bang-card.stagecoach,
+.bang-card.wells_fargo {
+  color: #17212b;
+  background: #e1a85d;
+}
+
+.bang-card.saloon {
+  background: #1d6959;
+}
+
+.bang-card.cat_balou,
+.bang-card.panic {
+  background: #4b4f88;
 }
 
 .bang-card.scope,
