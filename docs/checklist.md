@@ -258,7 +258,7 @@
 - [x] 32. Kit Carlson 3장 중 2장 선택 드로우
 - [x] 33. Pedro Ramirez 버림 더미 첫 카드 선택 드로우
 - [x] 34. Sid Ketchum 손패 2장 버리고 생명력 1 회복
-- [ ] 35. Jesse Jones 다른 플레이어 손패에서 첫 카드 선택 드로우
+- [x] 35. Jesse Jones 다른 플레이어 손패에서 첫 카드 선택 드로우
 
 ## 원카드/조커뽑기 추가 Top 10
 
