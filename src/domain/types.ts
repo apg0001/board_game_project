@@ -333,6 +333,7 @@ export type GameActionType =
   | "werewolf.vote"
   | "rummikub.meld"
   | "rummikub.draw"
+  | "rummikub.rearrange"
   | "bang.draw"
   | "bang.play"
   | "bang.use_missed"
