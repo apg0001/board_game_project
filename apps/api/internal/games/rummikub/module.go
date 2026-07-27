@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	ActionMeld = "rummikub.meld"
-	ActionDraw = "rummikub.draw"
+	ActionMeld      = "rummikub.meld"
+	ActionDraw      = "rummikub.draw"
+	ActionRearrange = "rummikub.rearrange"
 )
 
 var colors = []string{"black", "blue", "red", "orange"}
@@ -46,6 +47,10 @@ type State struct {
 type MeldPayload struct {
 	TileIDs []string   `json:"tileIds"`
 	Groups  [][]string `json:"groups"`
+}
+
+type RearrangePayload struct {
+	Groups [][]string `json:"groups"`
 }
 
 type Module struct{}
@@ -138,6 +143,14 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if !current.Players[current.CurrentPlayerIndex].InitialMelded && meldGroupsValue(groups) < 30 {
 			return errors.New("initial meld must be at least 30 points")
 		}
+	case ActionRearrange:
+		payload, err := rearrangePayload(action.Payload)
+		if err != nil {
+			return err
+		}
+		if _, _, err := rearrangedTable(current, current.CurrentPlayerIndex, payload.Groups); err != nil {
+			return err
+		}
 	default:
 		return errors.New("unsupported action")
 	}
@@ -170,6 +183,24 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		player.InitialMelded = true
 		current.Table = append(current.Table, groups...)
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d개 조합을 등록했습니다.", player.PlayerID, len(groups)))
+		if len(player.Rack) == 0 {
+			current.Finished = true
+			current.Log = append(current.Log, "루미큐브가 종료되었습니다.")
+		}
+	case ActionRearrange:
+		payload, err := rearrangePayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		groups, rackTileIDs, err := rearrangedTable(current, current.CurrentPlayerIndex, payload.Groups)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		if _, err := removeTiles(player, rackTileIDs); err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		current.Table = groups
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 테이블을 %d개 조합으로 재배열했습니다.", player.PlayerID, len(groups)))
 		if len(player.Rack) == 0 {
 			current.Finished = true
 			current.Log = append(current.Log, "루미큐브가 종료되었습니다.")
@@ -333,6 +364,71 @@ func rackPenalty(tiles []Tile) int {
 	return total
 }
 
+func rearrangedTable(state State, playerIndex int, groups [][]string) ([][]Tile, []string, error) {
+	if !state.Players[playerIndex].InitialMelded {
+		return nil, nil, errors.New("initial meld is required before rearranging table")
+	}
+	if len(state.Table) == 0 {
+		return nil, nil, errors.New("table is empty")
+	}
+	tableTiles := tileMap(flattenTiles(state.Table))
+	rackTiles := tileMap(state.Players[playerIndex].Rack)
+	usedTableTiles := map[string]bool{}
+	rackTileIDs := []string{}
+	seen := map[string]bool{}
+	result := make([][]Tile, 0, len(groups))
+	for _, ids := range groups {
+		if len(ids) < 3 {
+			return nil, nil, errors.New("at least three tiles are required")
+		}
+		group := make([]Tile, 0, len(ids))
+		for _, id := range ids {
+			if seen[id] {
+				return nil, nil, errors.New("tile cannot be used twice")
+			}
+			seen[id] = true
+			if tile, ok := tableTiles[id]; ok {
+				usedTableTiles[id] = true
+				group = append(group, tile)
+				continue
+			}
+			if tile, ok := rackTiles[id]; ok {
+				rackTileIDs = append(rackTileIDs, id)
+				group = append(group, tile)
+				continue
+			}
+			return nil, nil, errors.New("tile not found on table or rack")
+		}
+		if !validSet(group) {
+			return nil, nil, errors.New("rearranged groups must be valid")
+		}
+		result = append(result, group)
+	}
+	if len(rackTileIDs) == 0 {
+		return nil, nil, errors.New("rearrange must add at least one rack tile")
+	}
+	if len(usedTableTiles) != len(tableTiles) {
+		return nil, nil, errors.New("all table tiles must remain on the table")
+	}
+	return result, rackTileIDs, nil
+}
+
+func flattenTiles(groups [][]Tile) []Tile {
+	tiles := []Tile{}
+	for _, group := range groups {
+		tiles = append(tiles, group...)
+	}
+	return tiles
+}
+
+func tileMap(tiles []Tile) map[string]Tile {
+	mapped := map[string]Tile{}
+	for _, tile := range tiles {
+		mapped[tile.ID] = tile
+	}
+	return mapped
+}
+
 func selectTileGroups(rack []Tile, groups [][]string) ([][]Tile, error) {
 	if len(groups) == 0 {
 		return nil, errors.New("at least one tile group is required")
@@ -425,6 +521,22 @@ func meldPayload(payload any) (MeldPayload, error) {
 		return MeldPayload{}, err
 	}
 	return MeldPayload{TileIDs: ids, Groups: [][]string{ids}}, nil
+}
+
+func rearrangePayload(payload any) (RearrangePayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return RearrangePayload{}, errors.New("invalid rearrange payload")
+	}
+	rawGroups, ok := raw["groups"]
+	if !ok {
+		return RearrangePayload{}, errors.New("at least one tile group is required")
+	}
+	groups, err := tileIDGroupsFromAny(rawGroups)
+	if err != nil {
+		return RearrangePayload{}, err
+	}
+	return RearrangePayload{Groups: groups}, nil
 }
 
 func tileIDGroupsFromAny(value any) ([][]string, error) {

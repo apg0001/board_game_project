@@ -192,6 +192,116 @@ func TestCalculateResultAwardsWinnerSumOfOpponentPenalties(t *testing.T) {
 	}
 }
 
+func TestRearrangeCanReplaceJokerAndReuseItInValidGroup(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{
+				PlayerID:      "p1",
+				InitialMelded: true,
+				Active:        true,
+				Rack:          []Tile{{ID: "blue-2", Color: "blue", Number: 2}},
+			},
+			{PlayerID: "p2", Active: true},
+		},
+		Table: [][]Tile{
+			{
+				{ID: "blue-1", Color: "blue", Number: 1},
+				{ID: "joker-1", Joker: true},
+				{ID: "blue-3", Color: "blue", Number: 3},
+			},
+			{
+				{ID: "black-7", Color: "black", Number: 7},
+				{ID: "blue-7", Color: "blue", Number: 7},
+				{ID: "red-7", Color: "red", Number: 7},
+			},
+		},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRearrange,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"groups": []any{
+				[]any{"blue-1", "blue-2", "blue-3"},
+				[]any{"black-7", "blue-7", "red-7", "joker-1"},
+			},
+		},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Rack) != 0 {
+		t.Fatalf("expected replacement tile to leave rack, got %+v", next.Players[0].Rack)
+	}
+	if len(next.Table) != 2 || !validSet(next.Table[0]) || !validSet(next.Table[1]) {
+		t.Fatalf("expected valid rearranged table, got %+v", next.Table)
+	}
+}
+
+func TestRearrangeRejectsMissingOriginalTableTile(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{
+				PlayerID:      "p1",
+				InitialMelded: true,
+				Active:        true,
+				Rack:          []Tile{{ID: "blue-2", Color: "blue", Number: 2}},
+			},
+			{PlayerID: "p2", Active: true},
+		},
+		Table: [][]Tile{{
+			{ID: "blue-1", Color: "blue", Number: 1},
+			{ID: "joker-1", Joker: true},
+			{ID: "blue-3", Color: "blue", Number: 3},
+		}},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRearrange,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"groups": []any{
+				[]any{"blue-1", "blue-2", "blue-3"},
+			},
+		},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected rearrange without original joker to be rejected")
+	}
+}
+
+func TestRearrangeRequiresInitialMeld(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Active: true, Rack: []Tile{{ID: "blue-2", Color: "blue", Number: 2}}},
+			{PlayerID: "p2", Active: true},
+		},
+		Table: [][]Tile{{
+			{ID: "blue-1", Color: "blue", Number: 1},
+			{ID: "joker-1", Joker: true},
+			{ID: "blue-3", Color: "blue", Number: 3},
+		}},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRearrange,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"groups": []any{
+				[]any{"blue-1", "blue-2", "blue-3", "joker-1"},
+			},
+		},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected rearrange before initial meld to be rejected")
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		GameID: "rummikub",
