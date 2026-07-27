@@ -2236,6 +2236,13 @@ export function App() {
                         <div className="werewolf-panel">
                           <strong>{sutdaMe?.rankName ?? "족보 대기"}</strong>
                           <span>판돈 {currentSession.state.pot ?? 0}</span>
+                          {currentSession.state.finished ? (
+                            <small>
+                              {currentSession.state.draw
+                                ? `무승부 ${currentSession.state.winnerIds?.map((id) => participantName(currentRoom, id)).join(", ") || ""}`
+                                : `승자 ${participantName(currentRoom, currentSession.state.winnerId ?? "")}`}
+                            </small>
+                          ) : null}
                         </div>
                         <div className="splendor-players">
                           {davinciPlayers.map((player) => (
@@ -2275,6 +2282,22 @@ export function App() {
                           disabled={!isMyTurn}
                         >
                           다이
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button play-now"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "sutda.showdown",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={!isMyTurn}
+                        >
+                          쇼다운
                           <ChevronRight size={18} />
                         </button>
                       </div>
