@@ -23,6 +23,9 @@ const (
 	CardMissed       = "missed"
 	CardBeer         = "beer"
 	CardGatling      = "gatling"
+	CardBarrel       = "barrel"
+	CardJail         = "jail"
+	CardDynamite     = "dynamite"
 	CardStagecoach   = "stagecoach"
 	CardWellsFargo   = "wells_fargo"
 	CardSaloon       = "saloon"
@@ -42,11 +45,17 @@ const (
 	RoleDeputy       = "deputy"
 	RoleOutlaw       = "outlaw"
 	RoleRenegade     = "renegade"
+	SuitSpade        = "spade"
+	SuitHeart        = "heart"
+	SuitDiamond      = "diamond"
+	SuitClub         = "club"
 )
 
 type Card struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
+	Suit string `json:"suit,omitempty"`
+	Rank int    `json:"rank,omitempty"`
 }
 
 type PlayerState struct {
@@ -258,6 +267,16 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
 				return errors.New("invalid target")
 			}
+		case CardJail:
+			targetIndex := findPlayer(current, payload.TargetPlayerID)
+			if targetIndex < 0 || !current.Players[targetIndex].Alive {
+				return errors.New("invalid target")
+			}
+			if current.Players[targetIndex].Role == RoleSheriff {
+				return errors.New("jail cannot target sheriff")
+			}
+		case CardBarrel, CardDynamite:
+			return nil
 		case CardCatBalou:
 			targetIndex := findPlayer(current, payload.TargetPlayerID)
 			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
@@ -375,6 +394,12 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionDraw:
+		var shouldContinue bool
+		current, shouldContinue = resolveStartOfTurnCards(current, current.CurrentPlayerIndex)
+		if !shouldContinue || current.Finished {
+			break
+		}
+		player = &current.Players[current.CurrentPlayerIndex]
 		drawn := drawCards(&current, 2)
 		player.Hand = append(player.Hand, drawn...)
 		player.HandSize = len(player.Hand)
@@ -421,6 +446,14 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			}
 			current.Log = append(current.Log, fmt.Sprintf("%s 님이 잡화점 카드 %d장을 공개했습니다.", player.PlayerID, len(offer)))
 			current = advanceGeneralStore(current)
+		case CardBarrel, CardDynamite:
+			current = equipCard(current, current.CurrentPlayerIndex, card)
+		case CardJail:
+			targetIndex := findPlayer(current, payload.TargetPlayerID)
+			if targetIndex < 0 {
+				return gamecore.ActionResult{}, errors.New("invalid target")
+			}
+			current = equipCard(current, targetIndex, card)
 		case CardStagecoach:
 			current.Discard = append(current.Discard, card)
 			drawn := drawCards(&current, 2)
@@ -739,6 +772,15 @@ func hasEquipment(player PlayerState, cardType string) bool {
 	return false
 }
 
+func firstEquipmentID(player PlayerState, cardType string) string {
+	for _, equipment := range player.Equipment {
+		if equipment.Type == cardType {
+			return equipment.ID
+		}
+	}
+	return ""
+}
+
 func isWeapon(cardType string) bool {
 	return weaponRange(cardType) > 0
 }
@@ -780,6 +822,45 @@ func handLimitExcess(player PlayerState) int {
 	return len(player.Hand) - player.HP
 }
 
+func resolveStartOfTurnCards(state State, playerIndex int) (State, bool) {
+	if playerIndex < 0 || playerIndex >= len(state.Players) || !state.Players[playerIndex].Alive {
+		return state, false
+	}
+	playerID := state.Players[playerIndex].PlayerID
+	if hasEquipment(state.Players[playerIndex], CardDynamite) {
+		dynamite, _ := removeEquipment(&state.Players[playerIndex], firstEquipmentID(state.Players[playerIndex], CardDynamite))
+		check, ok := drawCheck(&state)
+		if ok && dynamiteExplodes(check) {
+			state.Discard = append(state.Discard, dynamite)
+			state.Log = append(state.Log, playerID+" 님의 다이너마이트가 폭발했습니다.")
+			state = damageTargetWithoutMissed(state, playerID, 3, "")
+			state = checkEnd(state)
+			if state.Finished {
+				return state, false
+			}
+			if playerIndex >= len(state.Players) || !state.Players[playerIndex].Alive {
+				return finishTurn(state), false
+			}
+		} else {
+			nextIndex := nextAliveIndex(state, playerIndex)
+			state.Players[nextIndex].Equipment = append(state.Players[nextIndex].Equipment, dynamite)
+			state.Log = append(state.Log, playerID+" 님의 다이너마이트가 넘어갔습니다.")
+		}
+	}
+	if hasEquipment(state.Players[playerIndex], CardJail) {
+		jail, _ := removeEquipment(&state.Players[playerIndex], firstEquipmentID(state.Players[playerIndex], CardJail))
+		check, ok := drawCheck(&state)
+		state.Discard = append(state.Discard, jail)
+		if ok && drawCheckIsHeart(check) {
+			state.Log = append(state.Log, playerID+" 님이 감옥에서 풀려났습니다.")
+			return state, true
+		}
+		state.Log = append(state.Log, playerID+" 님이 감옥 때문에 턴을 넘깁니다.")
+		return finishTurn(state), false
+	}
+	return state, true
+}
+
 func startPendingAttack(state State, sourcePlayerID string, cardType string, targetPlayerIDs []string, damage int) State {
 	state.PendingAttack = &PendingAttack{
 		SourcePlayerID:     sourcePlayerID,
@@ -816,6 +897,14 @@ func advancePendingAttack(state State) State {
 			continue
 		}
 		responseCard := requiredPendingResponseCard(state.PendingAttack.CardType)
+		if responseCard == CardMissed && canUseBarrelForAttack(state.PendingAttack.CardType) && hasEquipment(state.Players[targetIndex], CardBarrel) {
+			check, ok := drawCheck(&state)
+			if ok && drawCheckIsHeart(check) {
+				state.Log = append(state.Log, targetPlayerID+" 님이 술통으로 공격을 피했습니다.")
+				continue
+			}
+			state.Log = append(state.Log, targetPlayerID+" 님의 술통 판정이 실패했습니다.")
+		}
 		if _, ok := findCardByType(state.Players[targetIndex].Hand, responseCard); ok {
 			state.PendingAttack.TargetPlayerID = targetPlayerID
 			state.Log = append(state.Log, fmt.Sprintf("%s 님의 %s 반응을 기다립니다.", targetPlayerID, bangCardName(responseCard)))
@@ -830,6 +919,10 @@ func advancePendingAttack(state State) State {
 		}
 	}
 	return state
+}
+
+func canUseBarrelForAttack(cardType string) bool {
+	return cardType == CardBang || cardType == CardGatling
 }
 
 func advancePendingDuel(state State) State {
@@ -1087,6 +1180,23 @@ func drawCards(state *State, count int) []Card {
 	return drawn
 }
 
+func drawCheck(state *State) (Card, bool) {
+	drawn := drawCards(state, 1)
+	if len(drawn) == 0 {
+		return Card{}, false
+	}
+	state.Discard = append(state.Discard, drawn[0])
+	return drawn[0], true
+}
+
+func drawCheckIsHeart(card Card) bool {
+	return card.Suit == SuitHeart
+}
+
+func dynamiteExplodes(card Card) bool {
+	return card.Suit == SuitSpade && card.Rank >= 2 && card.Rank <= 9
+}
+
 func availableDrawCount(state State) int {
 	return len(state.Deck) + len(state.Discard)
 }
@@ -1293,45 +1403,67 @@ func rankForOutcome(outcome gamecore.Outcome) int {
 }
 
 func shuffledDeck(seed string) []Card {
-	cardTypes := []string{}
-	for range 25 {
-		cardTypes = append(cardTypes, CardBang)
-	}
-	for range 12 {
-		cardTypes = append(cardTypes, CardMissed)
-	}
-	for range 6 {
-		cardTypes = append(cardTypes, CardBeer)
-	}
-	for range 1 {
-		cardTypes = append(cardTypes, CardGatling)
-	}
-	for range 3 {
-		cardTypes = append(cardTypes, CardDuel)
-	}
-	for range 2 {
-		cardTypes = append(cardTypes, CardIndians, CardGeneralStore)
-	}
-	for range 2 {
-		cardTypes = append(cardTypes, CardStagecoach, CardMustang, CardVolcanic)
-	}
-	for range 4 {
-		cardTypes = append(cardTypes, CardCatBalou, CardPanic)
-	}
-	for range 3 {
-		cardTypes = append(cardTypes, CardSchofield)
-	}
-	cardTypes = append(cardTypes, CardWellsFargo, CardSaloon, CardScope)
-	cardTypes = append(cardTypes, CardRemington, CardCarabine, CardWinchester)
-	deck := make([]Card, 0, len(cardTypes))
-	for index, cardType := range cardTypes {
-		deck = append(deck, Card{ID: fmt.Sprintf("%s-%d", cardType, index), Type: cardType})
+	deck := officialBaseDeck()
+	for index := range deck {
+		deck[index].ID = fmt.Sprintf("%s-%d", deck[index].Type, index)
 	}
 	random := rand.New(rand.NewSource(seedToInt(seed)))
 	random.Shuffle(len(deck), func(i, j int) {
 		deck[i], deck[j] = deck[j], deck[i]
 	})
 	return deck
+}
+
+func officialBaseDeck() []Card {
+	deck := []Card{}
+	addCards(&deck, CardBarrel, SuitSpade, 12, 13)
+	addCards(&deck, CardDynamite, SuitHeart, 2)
+	addCards(&deck, CardScope, SuitSpade, 14)
+	addCards(&deck, CardMustang, SuitHeart, 8, 9)
+	addCards(&deck, CardJail, SuitSpade, 11)
+	addCards(&deck, CardJail, SuitHeart, 4)
+	addCards(&deck, CardJail, SuitSpade, 10)
+	addCards(&deck, CardRemington, SuitClub, 13)
+	addCards(&deck, CardCarabine, SuitClub, 14)
+	addCards(&deck, CardSchofield, SuitClub, 11, 12)
+	addCards(&deck, CardSchofield, SuitSpade, 13)
+	addCards(&deck, CardVolcanic, SuitSpade, 10)
+	addCards(&deck, CardVolcanic, SuitClub, 10)
+	addCards(&deck, CardWinchester, SuitSpade, 8)
+	addCards(&deck, CardBang, SuitSpade, 14)
+	addCardRange(&deck, CardBang, SuitDiamond, 2, 14)
+	addCardRange(&deck, CardBang, SuitClub, 2, 9)
+	addCardRange(&deck, CardBang, SuitHeart, 12, 14)
+	addCardRange(&deck, CardBeer, SuitHeart, 6, 11)
+	addCards(&deck, CardCatBalou, SuitHeart, 13)
+	addCardRange(&deck, CardCatBalou, SuitDiamond, 9, 11)
+	addCards(&deck, CardStagecoach, SuitSpade, 9, 9)
+	addCards(&deck, CardDuel, SuitDiamond, 12)
+	addCards(&deck, CardDuel, SuitSpade, 11)
+	addCards(&deck, CardDuel, SuitClub, 8)
+	addCards(&deck, CardGeneralStore, SuitClub, 9)
+	addCards(&deck, CardGeneralStore, SuitSpade, 12)
+	addCards(&deck, CardGatling, SuitHeart, 10)
+	addCards(&deck, CardIndians, SuitDiamond, 13, 14)
+	addCardRange(&deck, CardMissed, SuitClub, 10, 14)
+	addCardRange(&deck, CardMissed, SuitSpade, 2, 8)
+	addCards(&deck, CardPanic, SuitHeart, 11, 12, 14)
+	addCards(&deck, CardPanic, SuitDiamond, 8)
+	addCards(&deck, CardSaloon, SuitHeart, 5)
+	addCards(&deck, CardWellsFargo, SuitHeart, 3)
+	return deck
+}
+
+func addCardRange(deck *[]Card, cardType string, suit string, start int, end int) {
+	for rank := start; rank <= end; rank++ {
+		addCards(deck, cardType, suit, rank)
+	}
+}
+
+func addCards(deck *[]Card, cardType string, suit string, ranks ...int) {
+	for _, rank := range ranks {
+		*deck = append(*deck, Card{Type: cardType, Suit: suit, Rank: rank})
+	}
 }
 
 func seedToInt(seed string) int64 {
