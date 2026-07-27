@@ -163,6 +163,7 @@ export interface SplendorCard {
   color: string;
   points: number;
   cost: Record<string, number>;
+  hidden?: boolean;
 }
 
 export interface SplendorNoble {

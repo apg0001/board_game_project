@@ -31,6 +31,7 @@ type Card struct {
 	Color  string         `json:"color"`
 	Points int            `json:"points"`
 	Cost   map[string]int `json:"cost"`
+	Hidden bool           `json:"hidden,omitempty"`
 }
 
 type Noble struct {
@@ -126,10 +127,11 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	}
 }
 
-func (m Module) PublicState(state any, _ gamecore.PlayerID) any {
+func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
 	current := cloneState(asState(state))
 	current.Deck = make([]Card, len(current.Deck))
 	current.Decks = maskDecks(current.Decks)
+	maskReservedCards(&current, string(viewerID))
 	return current
 }
 
@@ -880,6 +882,22 @@ func maskDecks(decks map[int][]Card) map[int][]Card {
 		masked[tier] = make([]Card, len(deck))
 	}
 	return masked
+}
+
+func maskReservedCards(state *State, viewerID string) {
+	for playerIndex := range state.Players {
+		player := &state.Players[playerIndex]
+		if viewerID != "" && player.PlayerID == viewerID {
+			continue
+		}
+		player.Reserved = make([]Card, len(player.Reserved))
+		for cardIndex := range player.Reserved {
+			player.Reserved[cardIndex] = Card{
+				ID:     fmt.Sprintf("hidden-reserved-%s-%d", player.PlayerID, cardIndex),
+				Hidden: true,
+			}
+		}
+	}
 }
 
 func cloneNobles(nobles []Noble) []Noble {
