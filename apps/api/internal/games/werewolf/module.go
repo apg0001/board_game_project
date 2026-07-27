@@ -15,6 +15,7 @@ import (
 const (
 	ActionSeeWerewolves  = "werewolf.see_werewolves"
 	ActionLoneWolfCenter = "werewolf.lone_wolf_center"
+	ActionSeeMinion      = "werewolf.see_minion"
 	ActionSeePlayer      = "werewolf.see_player"
 	ActionSeeCenter      = "werewolf.see_center"
 	ActionRob            = "werewolf.rob"
@@ -26,11 +27,14 @@ const (
 	PhaseDiscussion      = "DISCUSSION"
 	PhaseFinished        = "FINISHED"
 	RoleWerewolf         = "werewolf"
+	RoleMinion           = "minion"
 	RoleSeer             = "seer"
 	RoleRobber           = "robber"
 	RoleTroublemaker     = "troublemaker"
 	RoleDrunk            = "drunk"
 	RoleInsomniac        = "insomniac"
+	RoleHunter           = "hunter"
+	RoleTanner           = "tanner"
 	RoleVillager         = "villager"
 )
 
@@ -53,6 +57,7 @@ type State struct {
 	Votes              map[string]string `json:"votes,omitempty"`
 	Executed           []string          `json:"executed,omitempty"`
 	WinningTeam        string            `json:"winningTeam,omitempty"`
+	WinningPlayerIDs   []string          `json:"winningPlayerIds,omitempty"`
 	Log                []string          `json:"log"`
 	Finished           bool              `json:"finished"`
 }
@@ -164,6 +169,8 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if _, err := centerIndexes(action.Payload, 1); err != nil {
 			return err
 		}
+	case ActionSeeMinion:
+		return requireNightRole(current, player, RoleMinion)
 	case ActionSeePlayer:
 		return requireNightRole(current, player, RoleSeer)
 	case ActionSeeCenter:
@@ -221,6 +228,14 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		player.SeenRoles[fmt.Sprintf("center:%d", indexes[0])] = current.Center[indexes[0]]
 		current.CompletedActions[player.PlayerID] = true
 		current.Log = append(current.Log, player.PlayerID+" 님이 외로운 늑대로 중앙 카드 1장을 확인했습니다.")
+	case ActionSeeMinion:
+		for _, other := range current.Players {
+			if other.OriginalRole == RoleWerewolf {
+				player.SeenRoles["player:"+other.PlayerID] = other.OriginalRole
+			}
+		}
+		current.CompletedActions[player.PlayerID] = true
+		current.Log = append(current.Log, player.PlayerID+" 님이 앞잡이로 늑대인간을 확인했습니다.")
 	case ActionSeePlayer:
 		target, err := targetPayload(action.Payload)
 		if err != nil {
@@ -341,10 +356,13 @@ func (m Module) IsFinished(state any, _ gamecore.Context) bool {
 func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result {
 	current := asState(state)
 	results := make([]gamecore.Result, 0, len(current.Players))
+	winners := map[string]bool{}
+	for _, playerID := range current.WinningPlayerIDs {
+		winners[playerID] = true
+	}
 	for _, player := range current.Players {
-		team := teamFor(player.CurrentRole)
 		outcome := gamecore.OutcomeLose
-		if team == current.WinningTeam {
+		if winners[player.PlayerID] {
 			outcome = gamecore.OutcomeWin
 		}
 		results = append(results, gamecore.Result{
@@ -408,7 +426,7 @@ func nightRoleIndex(role string) int {
 }
 
 func nightRoleOrder() []string {
-	return []string{RoleWerewolf, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk}
+	return []string{RoleWerewolf, RoleMinion, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk}
 }
 
 func requiredNightActionsComplete(state State) bool {
@@ -425,7 +443,7 @@ func requiredNightActionsComplete(state State) bool {
 
 func isRequiredNightRole(role string) bool {
 	switch role {
-	case RoleWerewolf, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
+	case RoleWerewolf, RoleMinion, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
 		return true
 	default:
 		return false
@@ -464,6 +482,7 @@ func finishVote(state State) State {
 		}
 		sort.Strings(executed)
 	}
+	executed = applyHunterExecution(state, executed)
 
 	werewolves := currentWerewolves(state)
 	werewolfKilled := false
@@ -472,10 +491,17 @@ func finishVote(state State) State {
 			werewolfKilled = true
 		}
 	}
-	if len(werewolves) == 0 {
+	state.WinningPlayerIDs = winningPlayers(state, executed, werewolfKilled, len(werewolves) > 0)
+	if tannerExecuted(state, executed) && werewolfKilled {
+		state.WinningTeam = "mixed"
+	} else if tannerExecuted(state, executed) {
+		state.WinningTeam = "tanner"
+	} else if len(werewolves) == 0 && len(executed) == 0 {
 		state.WinningTeam = "village"
-	} else if werewolfKilled {
+	} else if len(werewolves) > 0 && werewolfKilled {
 		state.WinningTeam = "village"
+	} else if len(state.WinningPlayerIDs) == 0 {
+		state.WinningTeam = "none"
 	} else {
 		state.WinningTeam = "werewolf"
 	}
@@ -484,6 +510,120 @@ func finishVote(state State) State {
 	state.Finished = true
 	state.Log = append(state.Log, "투표가 종료되었습니다.")
 	return state
+}
+
+func applyHunterExecution(state State, executed []string) []string {
+	next := append([]string(nil), executed...)
+	for _, playerID := range executed {
+		playerIndex := findPlayer(state, playerID)
+		if playerIndex < 0 || state.Players[playerIndex].CurrentRole != RoleHunter {
+			continue
+		}
+		target := state.Votes[playerID]
+		if target != "" && !contains(next, target) {
+			next = append(next, target)
+		}
+	}
+	sort.Strings(next)
+	return next
+}
+
+func winningPlayers(state State, executed []string, werewolfKilled bool, hasWerewolf bool) []string {
+	winners := []string{}
+	if tannerExecuted(state, executed) {
+		winners = appendRoleWinners(state, winners, RoleTanner)
+		if werewolfKilled {
+			winners = appendVillageWinners(state, winners)
+		}
+		sort.Strings(winners)
+		return uniqueStrings(winners)
+	}
+	if hasWerewolf {
+		if werewolfKilled {
+			winners = appendVillageWinners(state, winners)
+		} else {
+			winners = appendWerewolfTeamWinners(state, winners)
+		}
+	} else if len(executed) == 0 {
+		winners = appendVillageWinners(state, winners)
+	} else {
+		winners = appendNoWerewolfMinionWinners(state, winners, executed)
+	}
+	sort.Strings(winners)
+	return uniqueStrings(winners)
+}
+
+func appendVillageWinners(state State, winners []string) []string {
+	for _, player := range state.Players {
+		if teamFor(player.CurrentRole) == "village" {
+			winners = append(winners, player.PlayerID)
+		}
+	}
+	return winners
+}
+
+func appendWerewolfTeamWinners(state State, winners []string) []string {
+	for _, player := range state.Players {
+		if teamFor(player.CurrentRole) == "werewolf" {
+			winners = append(winners, player.PlayerID)
+		}
+	}
+	return winners
+}
+
+func appendRoleWinners(state State, winners []string, role string) []string {
+	for _, player := range state.Players {
+		if player.CurrentRole == role {
+			winners = append(winners, player.PlayerID)
+		}
+	}
+	return winners
+}
+
+func appendNoWerewolfMinionWinners(state State, winners []string, executed []string) []string {
+	for _, player := range state.Players {
+		if player.CurrentRole == RoleMinion && !contains(executed, player.PlayerID) && nonTannerNonWerewolfTeamExecuted(state, executed) {
+			winners = append(winners, player.PlayerID)
+		}
+	}
+	return winners
+}
+
+func tannerExecuted(state State, executed []string) bool {
+	for _, playerID := range executed {
+		playerIndex := findPlayer(state, playerID)
+		if playerIndex >= 0 && state.Players[playerIndex].CurrentRole == RoleTanner {
+			return true
+		}
+	}
+	return false
+}
+
+func nonTannerNonWerewolfTeamExecuted(state State, executed []string) bool {
+	for _, playerID := range executed {
+		playerIndex := findPlayer(state, playerID)
+		if playerIndex < 0 {
+			continue
+		}
+		role := state.Players[playerIndex].CurrentRole
+		if role != RoleTanner && teamFor(role) != "werewolf" {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	unique := []string{}
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		unique = append(unique, value)
+	}
+	return unique
 }
 
 func currentWerewolves(state State) []string {
@@ -497,8 +637,11 @@ func currentWerewolves(state State) []string {
 }
 
 func teamFor(role string) string {
-	if role == RoleWerewolf {
+	if role == RoleWerewolf || role == RoleMinion {
 		return "werewolf"
+	}
+	if role == RoleTanner {
+		return "tanner"
 	}
 	return "village"
 }
@@ -571,14 +714,14 @@ func shuffledRoles(seed string, count int) []string {
 	roles := []string{
 		RoleWerewolf,
 		RoleWerewolf,
+		RoleMinion,
 		RoleSeer,
 		RoleRobber,
 		RoleTroublemaker,
 		RoleDrunk,
 		RoleInsomniac,
-		RoleVillager,
-		RoleVillager,
-		RoleVillager,
+		RoleHunter,
+		RoleTanner,
 		RoleVillager,
 		RoleVillager,
 		RoleVillager,

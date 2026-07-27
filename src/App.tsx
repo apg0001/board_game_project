@@ -2580,6 +2580,23 @@ export function App() {
                                 ))}
                               </>
                             ) : null}
+                            {werewolfMe?.originalRole === "minion" ? (
+                              <button
+                                className="wide-button"
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "werewolf.see_minion",
+                                    setCurrentSession,
+                                    setRoomMessage
+                                  )
+                                }
+                              >
+                                늑대인간 확인
+                                <ChevronRight size={18} />
+                              </button>
+                            ) : null}
                             {werewolfMe?.originalRole === "seer" ? (
                               <>
                                 {werewolfOthers.map((player) => (
@@ -2722,7 +2739,8 @@ export function App() {
                             {currentSession.state.finished ? (
                               <p className="helper-copy">
                                 처형 {currentSession.state.executed?.map((id) => participantName(currentRoom, id)).join(", ") || "없음"} · 승리팀{" "}
-                                {currentSession.state.winningTeam === "village" ? "마을" : "늑대"}
+                                {werewolfWinningTeamLabel(currentSession.state.winningTeam ?? "")} · 승자{" "}
+                                {currentSession.state.winningPlayerIds?.map((id) => participantName(currentRoom, id)).join(", ") || "없음"}
                               </p>
                             ) : null}
                           </div>
@@ -3438,15 +3456,29 @@ function dalmutiRankLabel(rank: number) {
 function werewolfRoleLabel(role: string) {
   const labels: Record<string, string> = {
     werewolf: "늑대인간",
+    minion: "앞잡이",
     seer: "예언자",
     robber: "강도",
     troublemaker: "말썽쟁이",
     drunk: "주정뱅이",
     insomniac: "불면증",
+    hunter: "사냥꾼",
+    tanner: "무두장이",
     villager: "마을 주민",
     hidden: "비공개"
   };
   return labels[role] ?? role;
+}
+
+function werewolfWinningTeamLabel(team: string) {
+  const labels: Record<string, string> = {
+    village: "마을",
+    werewolf: "늑대",
+    tanner: "무두장이",
+    mixed: "복합",
+    none: "없음"
+  };
+  return labels[team] ?? team;
 }
 
 function werewolfPhaseLabel(phase: GameSession["state"]["phase"]) {
