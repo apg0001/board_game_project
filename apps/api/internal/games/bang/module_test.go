@@ -699,6 +699,62 @@ func TestDynamiteSafeDrawMovesToNextAlivePlayer(t *testing.T) {
 	}
 }
 
+func TestLuckyDukeChoosesSafeDynamiteDraw(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterLucky
+	state.Players[0].Equipment = []Card{{ID: "dynamite-1", Type: CardDynamite}}
+	state.Deck = []Card{
+		{ID: "check-bad", Type: CardBang, Suit: SuitSpade, Rank: 5},
+		{ID: "check-good", Type: CardBeer, Suit: SuitHeart, Rank: 6},
+		{ID: "draw-1", Type: CardBang},
+		{ID: "draw-2", Type: CardBeer},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Players[0].HP != 5 || len(next.Players[1].Equipment) != 1 || next.Players[1].Equipment[0].Type != CardDynamite {
+		t.Fatalf("expected lucky duke to choose safe dynamite result, got p1=%+v p2=%+v", next.Players[0], next.Players[1])
+	}
+	if len(next.Discard) != 2 {
+		t.Fatalf("expected both draw check cards discarded, got %+v", next.Discard)
+	}
+}
+
+func TestLuckyDukeChoosesHeartToEscapeJail(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterLucky
+	state.Players[0].Equipment = []Card{{ID: "jail-1", Type: CardJail}}
+	state.Deck = []Card{
+		{ID: "check-bad", Type: CardBang, Suit: SuitSpade, Rank: 4},
+		{ID: "check-good", Type: CardBeer, Suit: SuitHeart, Rank: 6},
+		{ID: "draw-1", Type: CardBang},
+		{ID: "draw-2", Type: CardBeer},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.CurrentPlayerIndex != 0 || !next.Players[0].Drawn || len(next.Players[0].Hand) != 2 {
+		t.Fatalf("expected lucky duke to escape jail and draw, got index=%d player=%+v", next.CurrentPlayerIndex, next.Players[0])
+	}
+	if len(next.Discard) != 3 {
+		t.Fatalf("expected two draw checks and jail discarded, got %+v", next.Discard)
+	}
+}
+
 func TestWillyTheKidCanPlayMultipleBangCards(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
