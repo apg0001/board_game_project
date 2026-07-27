@@ -29,6 +29,9 @@ const bangLabel: Record<string, string> = {
   missed: "빗나감",
   beer: "맥주",
   gatling: "개틀링",
+  barrel: "술통",
+  jail: "감옥",
+  dynamite: "다이너마이트",
   stagecoach: "역마차",
   wells_fargo: "웰스 파고",
   saloon: "살룬",
@@ -46,7 +49,18 @@ const bangLabel: Record<string, string> = {
   winchester: "Winchester"
 };
 
-const bangEquipmentTypes = new Set(["scope", "mustang", "volcanic", "schofield", "remington", "carabine", "winchester"]);
+const bangEquipmentTypes = new Set([
+  "barrel",
+  "jail",
+  "dynamite",
+  "scope",
+  "mustang",
+  "volcanic",
+  "schofield",
+  "remington",
+  "carabine",
+  "winchester"
+]);
 
 const gemLabel: Record<string, string> = {
   white: "흰색",

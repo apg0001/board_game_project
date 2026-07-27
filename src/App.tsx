@@ -3249,6 +3249,9 @@ function bangCardLabel(cardType: string) {
     gatling: "개틀링",
     missed: "빗나감",
     beer: "맥주",
+    barrel: "술통",
+    jail: "감옥",
+    dynamite: "다이너마이트",
     stagecoach: "역마차",
     wells_fargo: "웰스 파고",
     saloon: "살룬",
@@ -3271,13 +3274,30 @@ function bangCardLabel(cardType: string) {
 function isBangEquipmentCard(cardType?: string) {
   return Boolean(
     cardType &&
-      ["scope", "mustang", "volcanic", "schofield", "remington", "carabine", "winchester"].includes(cardType)
+      [
+        "barrel",
+        "jail",
+        "dynamite",
+        "scope",
+        "mustang",
+        "volcanic",
+        "schofield",
+        "remington",
+        "carabine",
+        "winchester"
+      ].includes(cardType)
   );
 }
 
 function bangPlayPayload(card: HandCard, targetPlayerId: string) {
   const payload: Record<string, string> = { cardId: card.id };
-  if (card.type === "bang" || card.type === "cat_balou" || card.type === "panic" || card.type === "duel") {
+  if (
+    card.type === "bang" ||
+    card.type === "cat_balou" ||
+    card.type === "panic" ||
+    card.type === "duel" ||
+    card.type === "jail"
+  ) {
     payload.targetPlayerId = targetPlayerId;
   }
   return payload;
@@ -3304,7 +3324,9 @@ function bangCardPlayable(
   if (card.type === "gatling") return true;
   if (card.type === "stagecoach" || card.type === "wells_fargo" || card.type === "saloon") return true;
   if (card.type === "indians" || card.type === "general_store") return true;
-  if (card.type === "cat_balou" || card.type === "panic" || card.type === "duel") return Boolean(targetPlayerId);
+  if (card.type === "cat_balou" || card.type === "panic" || card.type === "duel" || card.type === "jail") {
+    return Boolean(targetPlayerId);
+  }
   if (card.type === "beer") return (player.hp ?? 0) < (player.maxHp ?? 0) && aliveCount > 2;
   if (isBangEquipmentCard(card.type)) return true;
   return false;

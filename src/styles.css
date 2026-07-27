@@ -1820,6 +1820,12 @@ button.rummikub-tile:disabled {
   background: linear-gradient(155deg, #17212b, #46505c);
 }
 
+.bang-card-face.type-barrel,
+.bang-card-face.type-jail,
+.bang-card-face.type-dynamite {
+  background: linear-gradient(155deg, #5e4b37, #8b6f4d);
+}
+
 .bang-card-face.type-stagecoach,
 .bang-card-face.type-wells_fargo {
   color: #17212b;
@@ -2031,6 +2037,12 @@ button.rummikub-tile:disabled {
 
 .bang-card.gatling {
   background: #17212b;
+}
+
+.bang-card.barrel,
+.bang-card.jail,
+.bang-card.dynamite {
+  background: #5e4b37;
 }
 
 .bang-card.stagecoach,

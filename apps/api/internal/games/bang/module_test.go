@@ -551,6 +551,149 @@ func TestGeneralStoreRevealsCardsAndChoosesInSeatOrder(t *testing.T) {
 	}
 }
 
+func TestBarrelHeartDrawAvoidsBangBeforeMissed(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[1].Hand = []Card{}
+	state.Players[1].Equipment = []Card{{ID: "barrel-1", Type: CardBarrel}}
+	state.Deck = []Card{{ID: "check-1", Type: CardBeer, Suit: SuitHeart, Rank: 6}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack != nil || next.Players[1].HP != 4 {
+		t.Fatalf("expected barrel heart draw to avoid attack, got pending=%+v player=%+v", next.PendingAttack, next.Players[1])
+	}
+	if len(next.Discard) != 2 || next.Discard[1].ID != "check-1" {
+		t.Fatalf("expected bang and draw check card in discard, got %+v", next.Discard)
+	}
+}
+
+func TestBarrelFailedDrawFallsBackToMissedResponse(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[1].Hand = []Card{{ID: "missed-1", Type: CardMissed}}
+	state.Players[1].Equipment = []Card{{ID: "barrel-1", Type: CardBarrel}}
+	state.Deck = []Card{{ID: "check-1", Type: CardBang, Suit: SuitSpade, Rank: 4}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack == nil || next.PendingAttack.TargetPlayerID != "p2" {
+		t.Fatalf("expected missed response after failed barrel, got %+v", next.PendingAttack)
+	}
+	if len(next.Discard) != 2 || next.Discard[1].ID != "check-1" {
+		t.Fatalf("expected failed draw check in discard, got %+v", next.Discard)
+	}
+}
+
+func TestJailCannotTargetSheriff(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.CurrentPlayerIndex = 1
+	state.Players[1].Drawn = true
+	state.Players[1].Hand = []Card{{ID: "jail-1", Type: CardJail}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p2",
+		Payload:  map[string]any{"cardId": "jail-1", "targetPlayerId": "p1"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected jail on sheriff to be rejected")
+	}
+}
+
+func TestJailFailedDrawSkipsTurn(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Equipment = []Card{{ID: "jail-1", Type: CardJail}}
+	state.Deck = []Card{{ID: "check-1", Type: CardBang, Suit: SuitSpade, Rank: 4}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.CurrentPlayerIndex != 1 || next.Round != 1 || next.Players[0].Drawn {
+		t.Fatalf("expected jail to skip p1 turn, got index=%d round=%d player=%+v", next.CurrentPlayerIndex, next.Round, next.Players[0])
+	}
+	if len(next.Players[0].Equipment) != 0 || len(next.Discard) != 2 {
+		t.Fatalf("expected jail and draw check discarded, got equipment=%+v discard=%+v", next.Players[0].Equipment, next.Discard)
+	}
+}
+
+func TestDynamiteExplodesBeforeDrawAndPlayerContinuesIfAlive(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Equipment = []Card{{ID: "dynamite-1", Type: CardDynamite}}
+	state.Deck = []Card{
+		{ID: "check-1", Type: CardBang, Suit: SuitSpade, Rank: 5},
+		{ID: "draw-1", Type: CardBang},
+		{ID: "draw-2", Type: CardBeer},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Players[0].HP != 2 || !next.Players[0].Drawn || len(next.Players[0].Hand) != 2 {
+		t.Fatalf("expected p1 to lose three hp then draw, got %+v", next.Players[0])
+	}
+	if len(next.Players[0].Equipment) != 0 || len(next.Discard) != 2 {
+		t.Fatalf("expected dynamite and draw check discarded, got equipment=%+v discard=%+v", next.Players[0].Equipment, next.Discard)
+	}
+}
+
+func TestDynamiteSafeDrawMovesToNextAlivePlayer(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Equipment = []Card{{ID: "dynamite-1", Type: CardDynamite}}
+	state.Deck = []Card{
+		{ID: "check-1", Type: CardBeer, Suit: SuitHeart, Rank: 6},
+		{ID: "draw-1", Type: CardBang},
+		{ID: "draw-2", Type: CardBeer},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.Players[0].Equipment) != 0 || len(next.Players[1].Equipment) != 1 || next.Players[1].Equipment[0].Type != CardDynamite {
+		t.Fatalf("expected dynamite to move to p2, got p1=%+v p2=%+v", next.Players[0].Equipment, next.Players[1].Equipment)
+	}
+	if !next.Players[0].Drawn || len(next.Players[0].Hand) != 2 {
+		t.Fatalf("expected p1 to continue draw phase, got %+v", next.Players[0])
+	}
+}
+
 func TestEndTurnRequiresDiscardDownToCurrentHP(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
@@ -918,6 +1061,9 @@ func TestImplementedDeckUsesOfficialCoreActionCounts(t *testing.T) {
 		CardMissed:       12,
 		CardBeer:         6,
 		CardGatling:      1,
+		CardBarrel:       2,
+		CardJail:         3,
+		CardDynamite:     1,
 		CardStagecoach:   2,
 		CardWellsFargo:   1,
 		CardSaloon:       1,
@@ -939,8 +1085,13 @@ func TestImplementedDeckUsesOfficialCoreActionCounts(t *testing.T) {
 			t.Fatalf("expected %s count %d, got %d in %+v", cardType, want, counts[cardType], counts)
 		}
 	}
-	if len(shuffledDeck("counts")) != 74 {
-		t.Fatalf("expected 74 implemented base cards, got %d", len(shuffledDeck("counts")))
+	if len(shuffledDeck("counts")) != 80 {
+		t.Fatalf("expected 80 base cards, got %d", len(shuffledDeck("counts")))
+	}
+	for _, card := range shuffledDeck("counts") {
+		if card.Suit == "" || card.Rank == 0 {
+			t.Fatalf("expected official suit/rank on card %+v", card)
+		}
 	}
 }
 
