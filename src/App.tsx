@@ -525,6 +525,17 @@ export function App() {
   const turnBadgeLabel = isSessionFinished ? "게임 종료" : isMyTurn ? "내 차례" : "상대 차례";
   const splendorColors = ["white", "blue", "green", "red", "black"];
   const splendorMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const splendorTierRows = [3, 2, 1]
+    .map((tier) => ({
+      tier,
+      cards: currentSession?.state.markets?.[String(tier)] ?? [],
+      deckSize: currentSession?.state.decks?.[String(tier)]?.length ?? 0
+    }))
+    .filter((row) => row.cards.length > 0 || row.deckSize > 0);
+  const splendorMarketRows =
+    splendorTierRows.length > 0
+      ? splendorTierRows
+      : [{ tier: 1, cards: currentSession?.state.market ?? [], deckSize: currentSession?.state.deck?.length ?? 0 }];
   const dalmutiMe = davinciPlayers.find((player) => player.playerId === playerID);
   const dalmutiGroups = groupDalmutiHand(dalmutiMe?.hand ?? []);
   const werewolfMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1383,42 +1394,52 @@ export function App() {
                             선택 취소
                           </button>
                         </div>
-                        <div className="splendor-market" aria-label="시장 카드">
-                          {(currentSession.state.market ?? []).map((card, index) => (
-                            <div className={`splendor-card ${card.color}`} key={card.id}>
-                              <SplendorCardFace card={card} />
-                              <button
-                                className="mini-action-button"
-                                onClick={() =>
-                                  sendGameAction(
-                                    currentSession.id,
-                                    currentRoom?.id,
-                                    "splendor.buy_card",
-                                    setCurrentSession,
-                                    setRoomMessage,
-                                    { marketIndex: index }
-                                  )
-                                }
-                                disabled={!isMyTurn}
-                              >
-                                구매
-                              </button>
-                              <button
-                                className="mini-action-button"
-                                onClick={() =>
-                                  sendGameAction(
-                                    currentSession.id,
-                                    currentRoom?.id,
-                                    "splendor.reserve_card",
-                                    setCurrentSession,
-                                    setRoomMessage,
-                                    { marketIndex: index }
-                                  )
-                                }
-                                disabled={!isMyTurn || (splendorMe?.reserved?.length ?? 0) >= 3}
-                              >
-                                예약
-                              </button>
+                        <div className="splendor-market-board" aria-label="시장 카드">
+                          {splendorMarketRows.map((row) => (
+                            <div className="splendor-tier-row" key={`splendor-tier-${row.tier}`}>
+                              <div className="splendor-tier-header">
+                                <strong>{romanTier(row.tier)} 단계</strong>
+                                <span>덱 {row.deckSize}장</span>
+                              </div>
+                              <div className="splendor-market">
+                                {row.cards.map((card, index) => (
+                                  <div className={`splendor-card ${card.color}`} key={card.id}>
+                                    <SplendorCardFace card={card} badge={romanTier(card.tier ?? row.tier)} />
+                                    <button
+                                      className="mini-action-button"
+                                      onClick={() =>
+                                        sendGameAction(
+                                          currentSession.id,
+                                          currentRoom?.id,
+                                          "splendor.buy_card",
+                                          setCurrentSession,
+                                          setRoomMessage,
+                                          { marketTier: row.tier, marketIndex: index }
+                                        )
+                                      }
+                                      disabled={!isMyTurn}
+                                    >
+                                      구매
+                                    </button>
+                                    <button
+                                      className="mini-action-button"
+                                      onClick={() =>
+                                        sendGameAction(
+                                          currentSession.id,
+                                          currentRoom?.id,
+                                          "splendor.reserve_card",
+                                          setCurrentSession,
+                                          setRoomMessage,
+                                          { marketTier: row.tier, marketIndex: index }
+                                        )
+                                      }
+                                      disabled={!isMyTurn || (splendorMe?.reserved?.length ?? 0) >= 3}
+                                    >
+                                      예약
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -2818,6 +2839,15 @@ function gemLabel(color: string) {
     black: "검정"
   };
   return labels[color] ?? color;
+}
+
+function romanTier(tier: number) {
+  const labels: Record<number, string> = {
+    1: "I",
+    2: "II",
+    3: "III"
+  };
+  return labels[tier] ?? String(tier);
 }
 
 function formatCost(cost: Record<string, number>) {

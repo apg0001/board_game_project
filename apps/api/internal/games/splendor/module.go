@@ -19,10 +19,14 @@ const (
 	ActionReserveCard = "splendor.reserve_card"
 )
 
-var colors = []string{"white", "blue", "green", "red", "black"}
+var (
+	colors        = []string{"white", "blue", "green", "red", "black"}
+	splendorTiers = []int{1, 2, 3}
+)
 
 type Card struct {
 	ID     string         `json:"id"`
+	Tier   int            `json:"tier"`
 	Color  string         `json:"color"`
 	Points int            `json:"points"`
 	Cost   map[string]int `json:"cost"`
@@ -51,6 +55,8 @@ type State struct {
 	Bank               map[string]int `json:"bank"`
 	Market             []Card         `json:"market"`
 	Deck               []Card         `json:"deck"`
+	Markets            map[int][]Card `json:"markets"`
+	Decks              map[int][]Card `json:"decks"`
 	Nobles             []Noble        `json:"nobles"`
 	Players            []PlayerState  `json:"players"`
 	Log                []string       `json:"log"`
@@ -60,6 +66,7 @@ type State struct {
 }
 
 type BuyPayload struct {
+	MarketTier    int
 	MarketIndex   int
 	ReservedIndex int
 }
@@ -87,9 +94,8 @@ func (m Module) MaxPlayers() int {
 }
 
 func (m Module) CreateInitialState(ctx gamecore.Context) any {
-	deck := shuffledDeck(ctx.RandomSeed)
-	market := append([]Card(nil), deck[:4]...)
-	deck = deck[4:]
+	decks := shuffledDecks(ctx.RandomSeed)
+	markets := startingMarkets(decks)
 	players := make([]PlayerState, 0, len(ctx.Players))
 	for _, player := range ctx.Players {
 		players = append(players, PlayerState{
@@ -106,8 +112,10 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 		CurrentPlayerIndex: 0,
 		Round:              1,
 		Bank:               startingBank(len(ctx.Players)),
-		Market:             market,
-		Deck:               deck,
+		Market:             flattenMarkets(markets),
+		Deck:               flattenDecks(decks),
+		Markets:            markets,
+		Decks:              decks,
 		Nobles:             startingNobles(ctx.RandomSeed, len(ctx.Players)),
 		Players:            players,
 		Log:                []string{"스플랜더가 시작되었습니다."},
@@ -117,6 +125,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 func (m Module) PublicState(state any, _ gamecore.PlayerID) any {
 	current := cloneState(asState(state))
 	current.Deck = make([]Card, len(current.Deck))
+	current.Decks = maskDecks(current.Decks)
 	return current
 }
 
@@ -144,11 +153,11 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 			return errors.New("token limit is reached")
 		}
 	case ActionReserveCard:
-		index, err := reservePayload(action.Payload)
+		payload, err := reservePayload(action.Payload)
 		if err != nil {
 			return err
 		}
-		if index < 0 || index >= len(current.Market) {
+		if _, ok := selectedMarketCard(current, payload); !ok {
 			return errors.New("card index out of range")
 		}
 		if len(current.Players[current.CurrentPlayerIndex].Reserved) >= 3 {
@@ -159,7 +168,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if err != nil {
 			return err
 		}
-		card, ok := selectedBuyCard(current.Players[current.CurrentPlayerIndex], current.Market, payload)
+		card, ok := selectedBuyCard(current.Players[current.CurrentPlayerIndex], current, payload)
 		if !ok {
 			return errors.New("card index out of range")
 		}
@@ -174,6 +183,7 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 
 func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
+	ensureTieredMarket(&current)
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionTakeToken:
@@ -187,17 +197,15 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %s 보석을 가져갔습니다.", player.PlayerID, strings.Join(colorList, ", ")))
 	case ActionReserveCard:
-		index, err := reservePayload(action.Payload)
+		payload, err := reservePayload(action.Payload)
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
-		card := current.Market[index]
-		player.Reserved = append(player.Reserved, card)
-		current.Market = removeMarketCard(current.Market, index)
-		if len(current.Deck) > 0 {
-			current.Market = append(current.Market, current.Deck[0])
-			current.Deck = current.Deck[1:]
+		card, ok := removeAndRefillMarketCard(&current, payload)
+		if !ok {
+			return gamecore.ActionResult{}, errors.New("card index out of range")
 		}
+		player.Reserved = append(player.Reserved, card)
 		if current.Bank["gold"] > 0 && totalTokens(*player) < 10 {
 			player.Tokens["gold"]++
 			current.Bank["gold"]--
@@ -210,7 +218,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
-		card, ok := selectedBuyCard(*player, current.Market, payload)
+		card, ok := selectedBuyCard(*player, current, payload)
 		if !ok {
 			return gamecore.ActionResult{}, errors.New("card index out of range")
 		}
@@ -221,10 +229,8 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		if payload.ReservedIndex >= 0 {
 			player.Reserved = append(player.Reserved[:payload.ReservedIndex], player.Reserved[payload.ReservedIndex+1:]...)
 		} else {
-			current.Market = removeMarketCard(current.Market, payload.MarketIndex)
-			if len(current.Deck) > 0 {
-				current.Market = append(current.Market, current.Deck[0])
-				current.Deck = current.Deck[1:]
+			if _, ok := removeAndRefillMarketCard(&current, payload); !ok {
+				return gamecore.ActionResult{}, errors.New("card index out of range")
 			}
 		}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d점 카드를 구매했습니다.", player.PlayerID, card.Points))
@@ -395,21 +401,86 @@ func canReceiveNoble(player PlayerState, noble Noble) bool {
 	return true
 }
 
-func selectedBuyCard(player PlayerState, market []Card, payload BuyPayload) (Card, bool) {
+func selectedBuyCard(player PlayerState, state State, payload BuyPayload) (Card, bool) {
 	if payload.ReservedIndex >= 0 {
 		if payload.ReservedIndex >= len(player.Reserved) {
 			return Card{}, false
 		}
 		return player.Reserved[payload.ReservedIndex], true
 	}
-	if payload.MarketIndex < 0 || payload.MarketIndex >= len(market) {
-		return Card{}, false
-	}
-	return market[payload.MarketIndex], true
+	return selectedMarketCard(state, payload)
 }
 
-func removeMarketCard(market []Card, index int) []Card {
-	return append(market[:index], market[index+1:]...)
+func selectedMarketCard(state State, payload BuyPayload) (Card, bool) {
+	markets := state.Markets
+	if len(markets) == 0 {
+		markets = map[int][]Card{1: state.Market}
+	}
+	tier, index, ok := resolveMarketSelection(markets, payload)
+	if !ok {
+		return Card{}, false
+	}
+	return markets[tier][index], true
+}
+
+func removeAndRefillMarketCard(state *State, payload BuyPayload) (Card, bool) {
+	ensureTieredMarket(state)
+	tier, index, ok := resolveMarketSelection(state.Markets, payload)
+	if !ok {
+		return Card{}, false
+	}
+	card := state.Markets[tier][index]
+	state.Markets[tier] = append(state.Markets[tier][:index], state.Markets[tier][index+1:]...)
+	if len(state.Decks[tier]) > 0 {
+		state.Markets[tier] = append(state.Markets[tier], state.Decks[tier][0])
+		state.Decks[tier] = state.Decks[tier][1:]
+	}
+	syncLegacyMarket(state)
+	return card, true
+}
+
+func resolveMarketSelection(markets map[int][]Card, payload BuyPayload) (int, int, bool) {
+	if payload.MarketIndex < 0 {
+		return 0, 0, false
+	}
+	if payload.MarketTier > 0 {
+		market := markets[payload.MarketTier]
+		if payload.MarketIndex < len(market) {
+			return payload.MarketTier, payload.MarketIndex, true
+		}
+		return 0, 0, false
+	}
+	return locateFlatMarketIndex(markets, payload.MarketIndex)
+}
+
+func locateFlatMarketIndex(markets map[int][]Card, flatIndex int) (int, int, bool) {
+	if flatIndex < 0 {
+		return 0, 0, false
+	}
+	offset := 0
+	for _, tier := range splendorTiers {
+		market := markets[tier]
+		if flatIndex < offset+len(market) {
+			return tier, flatIndex - offset, true
+		}
+		offset += len(market)
+	}
+	return 0, 0, false
+}
+
+func ensureTieredMarket(state *State) {
+	if len(state.Markets) == 0 {
+		state.Markets = map[int][]Card{1: cloneCards(state.Market)}
+	}
+	if len(state.Decks) == 0 {
+		state.Decks = map[int][]Card{1: cloneCards(state.Deck)}
+	}
+	syncLegacyMarket(state)
+}
+
+func syncLegacyMarket(state *State) {
+	state.Market = flattenMarkets(state.Markets)
+	state.Deck = flattenDecks(state.Decks)
 }
 
 func returnTokensToBank(state *State, playerIndex int) {
@@ -516,16 +587,20 @@ func validateTakeTokens(state State, colors []string) error {
 	return nil
 }
 
-func reservePayload(payload any) (int, error) {
+func reservePayload(payload any) (BuyPayload, error) {
 	raw, ok := payload.(map[string]any)
 	if !ok {
-		return 0, errors.New("invalid reserve payload")
+		return BuyPayload{}, errors.New("invalid reserve payload")
 	}
 	value, ok := gameutil.Int(raw["marketIndex"])
 	if !ok {
-		return 0, errors.New("market index is required")
+		return BuyPayload{}, errors.New("market index is required")
 	}
-	return value, nil
+	result := BuyPayload{MarketIndex: value, ReservedIndex: -1}
+	if tier, ok := gameutil.Int(raw["marketTier"]); ok {
+		result.MarketTier = tier
+	}
+	return result, nil
 }
 
 func buyPayload(payload any) (BuyPayload, error) {
@@ -536,6 +611,9 @@ func buyPayload(payload any) (BuyPayload, error) {
 	result := BuyPayload{MarketIndex: -1, ReservedIndex: -1}
 	if value, ok := gameutil.Int(raw["marketIndex"]); ok {
 		result.MarketIndex = value
+	}
+	if value, ok := gameutil.Int(raw["marketTier"]); ok {
+		result.MarketTier = value
 	}
 	if value, ok := gameutil.Int(raw["reservedIndex"]); ok {
 		result.ReservedIndex = value
@@ -609,6 +687,8 @@ func cloneState(state State) State {
 	clone.Bank = copyCounter(state.Bank)
 	clone.Market = cloneCards(state.Market)
 	clone.Deck = cloneCards(state.Deck)
+	clone.Markets = cloneCardMap(state.Markets)
+	clone.Decks = cloneCardMap(state.Decks)
 	clone.Nobles = cloneNobles(state.Nobles)
 	clone.Players = make([]PlayerState, len(state.Players))
 	for index := range state.Players {
@@ -623,6 +703,17 @@ func cloneState(state State) State {
 	return clone
 }
 
+func cloneCardMap(cardsByTier map[int][]Card) map[int][]Card {
+	if cardsByTier == nil {
+		return nil
+	}
+	result := make(map[int][]Card, len(cardsByTier))
+	for tier, cards := range cardsByTier {
+		result[tier] = cloneCards(cards)
+	}
+	return result
+}
+
 func cloneCards(cards []Card) []Card {
 	result := make([]Card, len(cards))
 	for index := range cards {
@@ -630,6 +721,14 @@ func cloneCards(cards []Card) []Card {
 		result[index].Cost = copyCounter(cards[index].Cost)
 	}
 	return result
+}
+
+func maskDecks(decks map[int][]Card) map[int][]Card {
+	masked := make(map[int][]Card, len(decks))
+	for tier, deck := range decks {
+		masked[tier] = make([]Card, len(deck))
+	}
+	return masked
 }
 
 func cloneNobles(nobles []Noble) []Noble {
@@ -649,29 +748,148 @@ func copyCounter(source map[string]int) map[string]int {
 	return result
 }
 
-func shuffledDeck(seed string) []Card {
-	deck := []Card{
-		{ID: "w1", Color: "white", Points: 0, Cost: map[string]int{"blue": 1, "green": 1}},
-		{ID: "u1", Color: "blue", Points: 0, Cost: map[string]int{"red": 1, "black": 1}},
-		{ID: "g1", Color: "green", Points: 0, Cost: map[string]int{"white": 1, "blue": 1}},
-		{ID: "r1", Color: "red", Points: 0, Cost: map[string]int{"green": 1, "black": 1}},
-		{ID: "b1", Color: "black", Points: 0, Cost: map[string]int{"white": 1, "red": 1}},
-		{ID: "w2", Color: "white", Points: 1, Cost: map[string]int{"blue": 2, "green": 2}},
-		{ID: "u2", Color: "blue", Points: 1, Cost: map[string]int{"red": 2, "black": 2}},
-		{ID: "g2", Color: "green", Points: 1, Cost: map[string]int{"white": 2, "blue": 2}},
-		{ID: "r2", Color: "red", Points: 1, Cost: map[string]int{"green": 2, "black": 2}},
-		{ID: "b2", Color: "black", Points: 1, Cost: map[string]int{"white": 2, "red": 2}},
-		{ID: "w3", Color: "white", Points: 3, Cost: map[string]int{"blue": 3, "green": 3, "red": 1}},
-		{ID: "u3", Color: "blue", Points: 3, Cost: map[string]int{"red": 3, "black": 3, "white": 1}},
-		{ID: "g3", Color: "green", Points: 3, Cost: map[string]int{"white": 3, "blue": 3, "black": 1}},
-		{ID: "r3", Color: "red", Points: 3, Cost: map[string]int{"green": 3, "black": 3, "blue": 1}},
-		{ID: "b3", Color: "black", Points: 3, Cost: map[string]int{"white": 3, "red": 3, "green": 1}},
+func shuffledDecks(seed string) map[int][]Card {
+	decks := map[int][]Card{}
+	for _, card := range fullDeck() {
+		decks[card.Tier] = append(decks[card.Tier], card)
 	}
-	random := rand.New(rand.NewSource(seedToInt(seed)))
-	random.Shuffle(len(deck), func(i, j int) {
-		deck[i], deck[j] = deck[j], deck[i]
-	})
-	return deck
+	for _, tier := range splendorTiers {
+		deck := decks[tier]
+		random := rand.New(rand.NewSource(seedToInt(fmt.Sprintf("%s:tier:%d", seed, tier))))
+		random.Shuffle(len(deck), func(i, j int) {
+			deck[i], deck[j] = deck[j], deck[i]
+		})
+		decks[tier] = deck
+	}
+	return decks
+}
+
+func startingMarkets(decks map[int][]Card) map[int][]Card {
+	markets := map[int][]Card{}
+	for _, tier := range splendorTiers {
+		count := 4
+		if len(decks[tier]) < count {
+			count = len(decks[tier])
+		}
+		markets[tier] = cloneCards(decks[tier][:count])
+		decks[tier] = decks[tier][count:]
+	}
+	return markets
+}
+
+func flattenMarkets(markets map[int][]Card) []Card {
+	return flattenCardMap(markets)
+}
+
+func flattenDecks(decks map[int][]Card) []Card {
+	return flattenCardMap(decks)
+}
+
+func flattenCardMap(cardsByTier map[int][]Card) []Card {
+	total := 0
+	for _, cards := range cardsByTier {
+		total += len(cards)
+	}
+	result := make([]Card, 0, total)
+	for _, tier := range splendorTiers {
+		result = append(result, cardsByTier[tier]...)
+	}
+	return cloneCards(result)
+}
+
+func fullDeck() []Card {
+	return []Card{
+		{ID: "splendor-1", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{"blue": 3}},
+		{ID: "splendor-2", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{"red": 2, "black": 1}},
+		{ID: "splendor-3", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{"blue": 1, "green": 1, "red": 1, "black": 1}},
+		{ID: "splendor-4", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{"blue": 2, "black": 2}},
+		{ID: "splendor-5", Tier: 1, Color: "white", Points: 1, Cost: map[string]int{"green": 4}},
+		{ID: "splendor-6", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{"blue": 1, "green": 2, "red": 1, "black": 1}},
+		{ID: "splendor-7", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{"blue": 2, "green": 2, "black": 1}},
+		{ID: "splendor-8", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{"white": 3, "blue": 1, "black": 1}},
+		{ID: "splendor-9", Tier: 1, Color: "blue", Points: 0, Cost: map[string]int{"white": 1, "black": 2}},
+		{ID: "splendor-10", Tier: 1, Color: "blue", Points: 0, Cost: map[string]int{"black": 3}},
+		{ID: "splendor-11", Tier: 1, Color: "blue", Points: 0, Cost: map[string]int{"white": 1, "green": 1, "red": 1, "black": 1}},
+		{ID: "splendor-12", Tier: 1, Color: "blue", Points: 0, Cost: map[string]int{"green": 2, "black": 2}},
+		{ID: "splendor-13", Tier: 1, Color: "blue", Points: 1, Cost: map[string]int{"red": 4}},
+		{ID: "splendor-14", Tier: 1, Color: "blue", Points: 0, Cost: map[string]int{"white": 1, "green": 1, "red": 2, "black": 1}},
+		{ID: "splendor-15", Tier: 1, Color: "blue", Points: 0, Cost: map[string]int{"white": 1, "green": 2, "red": 2}},
+		{ID: "splendor-16", Tier: 1, Color: "blue", Points: 0, Cost: map[string]int{"blue": 1, "green": 3, "red": 1}},
+		{ID: "splendor-17", Tier: 1, Color: "green", Points: 0, Cost: map[string]int{"white": 2, "blue": 1}},
+		{ID: "splendor-18", Tier: 1, Color: "green", Points: 0, Cost: map[string]int{"red": 3}},
+		{ID: "splendor-19", Tier: 1, Color: "green", Points: 0, Cost: map[string]int{"white": 1, "blue": 1, "red": 1, "black": 1}},
+		{ID: "splendor-20", Tier: 1, Color: "green", Points: 0, Cost: map[string]int{"blue": 2, "red": 2}},
+		{ID: "splendor-21", Tier: 1, Color: "green", Points: 1, Cost: map[string]int{"black": 4}},
+		{ID: "splendor-22", Tier: 1, Color: "green", Points: 0, Cost: map[string]int{"white": 1, "blue": 1, "red": 1, "black": 2}},
+		{ID: "splendor-23", Tier: 1, Color: "green", Points: 0, Cost: map[string]int{"blue": 1, "red": 2, "black": 2}},
+		{ID: "splendor-24", Tier: 1, Color: "green", Points: 0, Cost: map[string]int{"white": 1, "blue": 3, "green": 1}},
+		{ID: "splendor-25", Tier: 1, Color: "red", Points: 0, Cost: map[string]int{"blue": 2, "green": 1}},
+		{ID: "splendor-26", Tier: 1, Color: "red", Points: 0, Cost: map[string]int{"white": 3}},
+		{ID: "splendor-27", Tier: 1, Color: "red", Points: 0, Cost: map[string]int{"white": 1, "blue": 1, "green": 1, "black": 1}},
+		{ID: "splendor-28", Tier: 1, Color: "red", Points: 0, Cost: map[string]int{"white": 2, "red": 2}},
+		{ID: "splendor-29", Tier: 1, Color: "red", Points: 1, Cost: map[string]int{"white": 4}},
+		{ID: "splendor-30", Tier: 1, Color: "red", Points: 0, Cost: map[string]int{"white": 2, "blue": 1, "green": 1, "black": 1}},
+		{ID: "splendor-31", Tier: 1, Color: "red", Points: 0, Cost: map[string]int{"white": 2, "green": 1, "black": 2}},
+		{ID: "splendor-32", Tier: 1, Color: "red", Points: 0, Cost: map[string]int{"white": 1, "red": 1, "black": 3}},
+		{ID: "splendor-33", Tier: 1, Color: "black", Points: 0, Cost: map[string]int{"green": 2, "red": 1}},
+		{ID: "splendor-34", Tier: 1, Color: "black", Points: 0, Cost: map[string]int{"green": 3}},
+		{ID: "splendor-35", Tier: 1, Color: "black", Points: 0, Cost: map[string]int{"white": 1, "blue": 1, "green": 1, "red": 1}},
+		{ID: "splendor-36", Tier: 1, Color: "black", Points: 0, Cost: map[string]int{"white": 2, "green": 2}},
+		{ID: "splendor-37", Tier: 1, Color: "black", Points: 1, Cost: map[string]int{"blue": 4}},
+		{ID: "splendor-38", Tier: 1, Color: "black", Points: 0, Cost: map[string]int{"white": 1, "blue": 2, "green": 1, "red": 1}},
+		{ID: "splendor-39", Tier: 1, Color: "black", Points: 0, Cost: map[string]int{"white": 2, "blue": 2, "red": 1}},
+		{ID: "splendor-40", Tier: 1, Color: "black", Points: 0, Cost: map[string]int{"green": 1, "red": 3, "black": 1}},
+		{ID: "splendor-41", Tier: 2, Color: "white", Points: 2, Cost: map[string]int{"red": 5}},
+		{ID: "splendor-42", Tier: 2, Color: "white", Points: 3, Cost: map[string]int{"white": 6}},
+		{ID: "splendor-43", Tier: 2, Color: "white", Points: 1, Cost: map[string]int{"green": 3, "red": 2, "black": 2}},
+		{ID: "splendor-44", Tier: 2, Color: "white", Points: 2, Cost: map[string]int{"green": 1, "red": 4, "black": 2}},
+		{ID: "splendor-45", Tier: 2, Color: "white", Points: 1, Cost: map[string]int{"white": 2, "blue": 3, "red": 3}},
+		{ID: "splendor-46", Tier: 2, Color: "white", Points: 2, Cost: map[string]int{"red": 5, "black": 3}},
+		{ID: "splendor-47", Tier: 2, Color: "blue", Points: 2, Cost: map[string]int{"blue": 5}},
+		{ID: "splendor-48", Tier: 2, Color: "blue", Points: 3, Cost: map[string]int{"blue": 6}},
+		{ID: "splendor-49", Tier: 2, Color: "blue", Points: 1, Cost: map[string]int{"blue": 2, "green": 2, "red": 3}},
+		{ID: "splendor-50", Tier: 2, Color: "blue", Points: 2, Cost: map[string]int{"white": 2, "red": 1, "black": 4}},
+		{ID: "splendor-51", Tier: 2, Color: "blue", Points: 1, Cost: map[string]int{"blue": 2, "green": 3, "black": 3}},
+		{ID: "splendor-52", Tier: 2, Color: "blue", Points: 2, Cost: map[string]int{"white": 5, "blue": 3}},
+		{ID: "splendor-53", Tier: 2, Color: "green", Points: 2, Cost: map[string]int{"green": 5}},
+		{ID: "splendor-54", Tier: 2, Color: "green", Points: 3, Cost: map[string]int{"green": 6}},
+		{ID: "splendor-55", Tier: 2, Color: "green", Points: 1, Cost: map[string]int{"white": 2, "blue": 3, "black": 2}},
+		{ID: "splendor-56", Tier: 2, Color: "green", Points: 1, Cost: map[string]int{"white": 3, "green": 2, "red": 3}},
+		{ID: "splendor-57", Tier: 2, Color: "green", Points: 2, Cost: map[string]int{"white": 4, "blue": 2, "black": 1}},
+		{ID: "splendor-58", Tier: 2, Color: "green", Points: 2, Cost: map[string]int{"blue": 5, "green": 3}},
+		{ID: "splendor-59", Tier: 2, Color: "red", Points: 2, Cost: map[string]int{"black": 5}},
+		{ID: "splendor-60", Tier: 2, Color: "red", Points: 3, Cost: map[string]int{"red": 6}},
+		{ID: "splendor-61", Tier: 2, Color: "red", Points: 1, Cost: map[string]int{"white": 2, "red": 2, "black": 3}},
+		{ID: "splendor-62", Tier: 2, Color: "red", Points: 2, Cost: map[string]int{"white": 1, "blue": 4, "green": 2}},
+		{ID: "splendor-63", Tier: 2, Color: "red", Points: 1, Cost: map[string]int{"blue": 3, "red": 2, "black": 3}},
+		{ID: "splendor-64", Tier: 2, Color: "red", Points: 2, Cost: map[string]int{"white": 3, "black": 5}},
+		{ID: "splendor-65", Tier: 2, Color: "black", Points: 2, Cost: map[string]int{"white": 5}},
+		{ID: "splendor-66", Tier: 2, Color: "black", Points: 3, Cost: map[string]int{"black": 6}},
+		{ID: "splendor-67", Tier: 2, Color: "black", Points: 1, Cost: map[string]int{"white": 3, "blue": 2, "green": 2}},
+		{ID: "splendor-68", Tier: 2, Color: "black", Points: 2, Cost: map[string]int{"blue": 1, "green": 4, "red": 2}},
+		{ID: "splendor-69", Tier: 2, Color: "black", Points: 1, Cost: map[string]int{"white": 3, "green": 3, "black": 2}},
+		{ID: "splendor-70", Tier: 2, Color: "black", Points: 2, Cost: map[string]int{"green": 5, "red": 3}},
+		{ID: "splendor-71", Tier: 3, Color: "white", Points: 4, Cost: map[string]int{"black": 7}},
+		{ID: "splendor-72", Tier: 3, Color: "white", Points: 5, Cost: map[string]int{"white": 3, "black": 7}},
+		{ID: "splendor-73", Tier: 3, Color: "white", Points: 4, Cost: map[string]int{"white": 3, "red": 3, "black": 6}},
+		{ID: "splendor-74", Tier: 3, Color: "white", Points: 3, Cost: map[string]int{"blue": 3, "green": 3, "red": 5, "black": 3}},
+		{ID: "splendor-75", Tier: 3, Color: "blue", Points: 4, Cost: map[string]int{"white": 7}},
+		{ID: "splendor-76", Tier: 3, Color: "blue", Points: 5, Cost: map[string]int{"white": 7, "blue": 3}},
+		{ID: "splendor-77", Tier: 3, Color: "blue", Points: 4, Cost: map[string]int{"white": 6, "blue": 3, "black": 3}},
+		{ID: "splendor-78", Tier: 3, Color: "blue", Points: 3, Cost: map[string]int{"white": 3, "green": 3, "red": 3, "black": 5}},
+		{ID: "splendor-79", Tier: 3, Color: "green", Points: 4, Cost: map[string]int{"blue": 7}},
+		{ID: "splendor-80", Tier: 3, Color: "green", Points: 5, Cost: map[string]int{"blue": 7, "green": 3}},
+		{ID: "splendor-81", Tier: 3, Color: "green", Points: 4, Cost: map[string]int{"white": 3, "blue": 6, "green": 3}},
+		{ID: "splendor-82", Tier: 3, Color: "green", Points: 3, Cost: map[string]int{"white": 5, "blue": 3, "red": 3, "black": 3}},
+		{ID: "splendor-83", Tier: 3, Color: "red", Points: 4, Cost: map[string]int{"green": 7}},
+		{ID: "splendor-84", Tier: 3, Color: "red", Points: 5, Cost: map[string]int{"green": 7, "red": 3}},
+		{ID: "splendor-85", Tier: 3, Color: "red", Points: 4, Cost: map[string]int{"blue": 3, "green": 6, "red": 3}},
+		{ID: "splendor-86", Tier: 3, Color: "red", Points: 3, Cost: map[string]int{"white": 3, "blue": 5, "green": 3, "black": 3}},
+		{ID: "splendor-87", Tier: 3, Color: "black", Points: 4, Cost: map[string]int{"red": 7}},
+		{ID: "splendor-88", Tier: 3, Color: "black", Points: 5, Cost: map[string]int{"red": 7, "black": 3}},
+		{ID: "splendor-89", Tier: 3, Color: "black", Points: 4, Cost: map[string]int{"green": 3, "red": 6, "black": 3}},
+		{ID: "splendor-90", Tier: 3, Color: "black", Points: 3, Cost: map[string]int{"white": 3, "blue": 3, "green": 5, "red": 3}},
+	}
 }
 
 func seedToInt(seed string) int64 {

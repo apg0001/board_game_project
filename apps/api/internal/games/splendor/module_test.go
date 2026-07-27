@@ -11,8 +11,16 @@ import (
 func TestCreateInitialStateBuildsMarket(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
-	if len(state.Market) != 4 {
-		t.Fatalf("expected 4 market cards, got %d", len(state.Market))
+	if len(state.Market) != 12 {
+		t.Fatalf("expected 12 visible market cards, got %d", len(state.Market))
+	}
+	for _, tier := range splendorTiers {
+		if len(state.Markets[tier]) != 4 {
+			t.Fatalf("expected 4 tier %d market cards, got %d", tier, len(state.Markets[tier]))
+		}
+	}
+	if len(state.Decks[1]) != 36 || len(state.Decks[2]) != 26 || len(state.Decks[3]) != 16 {
+		t.Fatalf("expected official tier deck remainders 36/26/16, got %d/%d/%d", len(state.Decks[1]), len(state.Decks[2]), len(state.Decks[3]))
 	}
 	if state.Bank["white"] != 4 {
 		t.Fatalf("expected two-player bank amount 4, got %d", state.Bank["white"])
@@ -90,13 +98,13 @@ func TestSingleTokenTakeIsRejected(t *testing.T) {
 func TestBuyCardUsesTokens(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
-	card := Card{ID: "test", Color: "white", Points: 1, Cost: map[string]int{"blue": 1}}
-	state.Market[0] = card
+	card := Card{ID: "test", Tier: 1, Color: "white", Points: 1, Cost: map[string]int{"blue": 1}}
+	setVisibleCard(&state, 1, 0, card)
 	state.Players[0].Tokens["blue"] = 1
 	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
 		Type:     ActionBuyCard,
 		PlayerID: "p1",
-		Payload:  map[string]any{"marketIndex": float64(0)},
+		Payload:  map[string]any{"marketTier": 1, "marketIndex": float64(0)},
 	}, testContext())
 	if err != nil {
 		t.Fatal(err)
@@ -108,11 +116,11 @@ func TestBuyCardUsesTokens(t *testing.T) {
 }
 
 func TestBuyPayloadAcceptsIntegerMarketIndex(t *testing.T) {
-	payload, err := buyPayload(map[string]any{"marketIndex": 0})
+	payload, err := buyPayload(map[string]any{"marketTier": 2, "marketIndex": 0})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.MarketIndex != 0 || payload.ReservedIndex != -1 {
+	if payload.MarketTier != 2 || payload.MarketIndex != 0 || payload.ReservedIndex != -1 {
 		t.Fatalf("expected market index 0, got %+v", payload)
 	}
 }
@@ -120,13 +128,13 @@ func TestBuyPayloadAcceptsIntegerMarketIndex(t *testing.T) {
 func TestReserveCardTakesGoldAndRefillsMarket(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
-	reserved := state.Market[0]
-	nextDeckID := state.Deck[0].ID
+	reserved := state.Markets[1][0]
+	nextDeckID := state.Decks[1][0].ID
 
 	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
 		Type:     ActionReserveCard,
 		PlayerID: "p1",
-		Payload:  map[string]any{"marketIndex": 0},
+		Payload:  map[string]any{"marketTier": 1, "marketIndex": 0},
 	}, testContext())
 	if err != nil {
 		t.Fatal(err)
@@ -139,8 +147,8 @@ func TestReserveCardTakesGoldAndRefillsMarket(t *testing.T) {
 	if next.Players[0].Tokens["gold"] != 1 || next.Bank["gold"] != 4 {
 		t.Fatalf("expected one gold token taken, got player=%d bank=%d", next.Players[0].Tokens["gold"], next.Bank["gold"])
 	}
-	if len(next.Market) != 4 || next.Market[3].ID != nextDeckID {
-		t.Fatalf("expected market refill with next deck card %s, got %+v", nextDeckID, next.Market)
+	if len(next.Market) != 12 || len(next.Markets[1]) != 4 || next.Markets[1][3].ID != nextDeckID {
+		t.Fatalf("expected tier 1 market refill with next deck card %s, got %+v", nextDeckID, next.Markets[1])
 	}
 }
 
@@ -152,7 +160,7 @@ func TestReserveCardLimitIsThree(t *testing.T) {
 	err := module.ValidateAction(context.Background(), state, gamecore.Action{
 		Type:     ActionReserveCard,
 		PlayerID: "p1",
-		Payload:  map[string]any{"marketIndex": 0},
+		Payload:  map[string]any{"marketTier": 1, "marketIndex": 0},
 	}, testContext())
 	if err == nil {
 		t.Fatal("expected fourth reserved card to be rejected")
@@ -194,12 +202,12 @@ func TestNobleVisitsQualifiedPlayerAfterAction(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
 	state.Nobles = []Noble{{ID: "noble-test", Points: 3, Cost: map[string]int{"white": 1}}}
-	state.Market[0] = Card{ID: "white-free", Color: "white", Points: 0, Cost: map[string]int{}}
+	setVisibleCard(&state, 1, 0, Card{ID: "white-free", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{}})
 
 	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
 		Type:     ActionBuyCard,
 		PlayerID: "p1",
-		Payload:  map[string]any{"marketIndex": 0},
+		Payload:  map[string]any{"marketTier": 1, "marketIndex": 0},
 	}, testContext())
 	if err != nil {
 		t.Fatal(err)
@@ -249,8 +257,14 @@ func TestPublicStateMasksDeckAndDoesNotMutatePrivateState(t *testing.T) {
 	if len(public.Deck) != len(state.Deck) {
 		t.Fatalf("expected masked deck length %d, got %d", len(state.Deck), len(public.Deck))
 	}
+	if len(public.Decks[1]) != len(state.Decks[1]) || len(public.Decks[2]) != len(state.Decks[2]) || len(public.Decks[3]) != len(state.Decks[3]) {
+		t.Fatalf("expected masked tier deck lengths to match private state, got %+v", public.Decks)
+	}
 	if len(public.Deck) > 0 && public.Deck[0].ID != "" {
 		t.Fatalf("expected hidden deck card, got %+v", public.Deck[0])
+	}
+	if len(public.Decks[1]) > 0 && public.Decks[1][0].ID != "" {
+		t.Fatalf("expected hidden tier deck card, got %+v", public.Decks[1][0])
 	}
 	if len(state.Deck) > 0 && state.Deck[0].ID == "" {
 		t.Fatal("public state must not mutate private deck")
@@ -258,8 +272,9 @@ func TestPublicStateMasksDeckAndDoesNotMutatePrivateState(t *testing.T) {
 
 	public.Bank["white"] = 99
 	public.Market[0].Cost["blue"] = 99
+	public.Markets[1][0].Cost["blue"] = 99
 	public.Nobles[0].Cost["white"] = 99
-	if state.Bank["white"] == 99 || state.Market[0].Cost["blue"] == 99 || state.Nobles[0].Cost["white"] == 99 {
+	if state.Bank["white"] == 99 || state.Market[0].Cost["blue"] == 99 || state.Markets[1][0].Cost["blue"] == 99 || state.Nobles[0].Cost["white"] == 99 {
 		t.Fatal("public state must not share mutable maps with private state")
 	}
 }
@@ -267,13 +282,13 @@ func TestPublicStateMasksDeckAndDoesNotMutatePrivateState(t *testing.T) {
 func TestReaching15PointsTriggersFinalRoundInsteadOfInstantEnd(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
-	card := Card{ID: "winning", Color: "white", Points: 15, Cost: map[string]int{}}
-	state.Market[0] = card
+	card := Card{ID: "winning", Tier: 1, Color: "white", Points: 15, Cost: map[string]int{}}
+	setVisibleCard(&state, 1, 0, card)
 
 	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
 		Type:     ActionBuyCard,
 		PlayerID: "p1",
-		Payload:  map[string]any{"marketIndex": 0},
+		Payload:  map[string]any{"marketTier": 1, "marketIndex": 0},
 	}, testContext())
 	if err != nil {
 		t.Fatal(err)
@@ -317,6 +332,14 @@ func TestTimeoutReturnsTokensToBank(t *testing.T) {
 	if next.Players[0].Tokens["white"] != 0 || next.Bank["white"] != 4 {
 		t.Fatalf("expected timed out player's tokens returned, got tokens=%d bank=%d", next.Players[0].Tokens["white"], next.Bank["white"])
 	}
+}
+
+func setVisibleCard(state *State, tier int, index int, card Card) {
+	if card.Tier == 0 {
+		card.Tier = tier
+	}
+	state.Markets[tier][index] = card
+	syncLegacyMarket(state)
 }
 
 func testContext() gamecore.Context {
