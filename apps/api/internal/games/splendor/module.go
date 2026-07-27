@@ -18,6 +18,7 @@ const (
 	ActionBuyCard     = "splendor.buy_card"
 	ActionReserveCard = "splendor.reserve_card"
 	ActionReturnToken = "splendor.return_tokens"
+	ActionChooseNoble = "splendor.choose_noble"
 )
 
 var (
@@ -67,6 +68,8 @@ type State struct {
 	EndTriggerIndex    int            `json:"-"`
 	PendingReturnID    string         `json:"pendingReturnPlayerId,omitempty"`
 	PendingReturnCount int            `json:"pendingReturnCount,omitempty"`
+	PendingNobleID     string         `json:"pendingNoblePlayerId,omitempty"`
+	PendingNobles      []Noble        `json:"pendingNobleChoices,omitempty"`
 }
 
 type BuyPayload struct {
@@ -150,6 +153,15 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		}
 		return validateReturnTokens(current, action)
 	}
+	if current.PendingNobleID != "" {
+		if action.Type != ActionChooseNoble {
+			return errors.New("noble must be chosen first")
+		}
+		if current.PendingNobleID != string(action.PlayerID) {
+			return errors.New("not your noble choice")
+		}
+		return validateChooseNoble(current, action)
+	}
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
@@ -203,6 +215,20 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	ensureTieredMarket(&current)
 	if current.PendingReturnID != "" {
 		next, err := applyReturnTokens(current, action)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		return gamecore.ActionResult{
+			State: next,
+			Events: []gamecore.Event{{
+				Type:       "game.state_updated",
+				Visibility: gamecore.VisibilityPublic,
+				Payload:    m.PublicState(next, ""),
+			}},
+		}, nil
+	}
+	if current.PendingNobleID != "" {
+		next, err := applyChooseNoble(current, action)
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
@@ -271,12 +297,14 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			}
 		}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d점 카드를 구매했습니다.", player.PlayerID, card.Points))
-		awardNobleIfQualified(&current, current.CurrentPlayerIndex)
+		resolveNobleVisit(&current, current.CurrentPlayerIndex)
 	}
 	if overflow := totalTokens(*player) - 10; overflow > 0 {
 		current.PendingReturnID = player.PlayerID
 		current.PendingReturnCount = overflow
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 토큰 %d개를 반납해야 합니다.", player.PlayerID, overflow))
+	} else if current.PendingNobleID != "" {
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 방문할 귀족을 선택해야 합니다.", player.PlayerID))
 	} else {
 		current = completeTurn(current, current.CurrentPlayerIndex)
 	}
@@ -301,6 +329,10 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	if current.PendingReturnID == string(playerID) {
 		current.PendingReturnID = ""
 		current.PendingReturnCount = 0
+	}
+	if current.PendingNobleID == string(playerID) {
+		current.PendingNobleID = ""
+		current.PendingNobles = nil
 	}
 	current.Log = append(current.Log, string(playerID)+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
 	if current.CurrentPlayerIndex == index {
@@ -432,6 +464,40 @@ func applyReturnTokens(state State, action gamecore.Action) (State, error) {
 	state.PendingReturnID = ""
 	state.PendingReturnCount = 0
 	state.Log = append(state.Log, fmt.Sprintf("%s 님이 초과 토큰을 반납했습니다.", action.PlayerID))
+	if state.PendingNobleID != "" {
+		return state, nil
+	}
+	return completeTurn(state, state.CurrentPlayerIndex), nil
+}
+
+func validateChooseNoble(state State, action gamecore.Action) error {
+	nobleID, err := chooseNoblePayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	for _, noble := range state.PendingNobles {
+		if noble.ID == nobleID {
+			return nil
+		}
+	}
+	return errors.New("invalid noble choice")
+}
+
+func applyChooseNoble(state State, action gamecore.Action) (State, error) {
+	if err := validateChooseNoble(state, action); err != nil {
+		return state, err
+	}
+	index := findPlayer(state, string(action.PlayerID))
+	if index < 0 {
+		return state, errors.New("player not found")
+	}
+	nobleID, err := chooseNoblePayload(action.Payload)
+	if err != nil {
+		return state, err
+	}
+	if !awardNoble(&state, index, nobleID) {
+		return state, errors.New("noble choice cannot be awarded")
+	}
 	return completeTurn(state, state.CurrentPlayerIndex), nil
 }
 
@@ -474,21 +540,51 @@ func payCost(player *PlayerState, state *State, card Card) {
 	}
 }
 
-func awardNobleIfQualified(state *State, playerIndex int) {
-	if playerIndex < 0 || playerIndex >= len(state.Players) {
+func resolveNobleVisit(state *State, playerIndex int) {
+	eligible := eligibleNobles(*state, playerIndex)
+	switch len(eligible) {
+	case 0:
 		return
+	case 1:
+		awardNoble(state, playerIndex, eligible[0].ID)
+	default:
+		state.PendingNobleID = state.Players[playerIndex].PlayerID
+		state.PendingNobles = cloneNobles(eligible)
 	}
-	player := &state.Players[playerIndex]
-	for nobleIndex, noble := range state.Nobles {
-		if !canReceiveNoble(*player, noble) {
+}
+
+func eligibleNobles(state State, playerIndex int) []Noble {
+	if playerIndex < 0 || playerIndex >= len(state.Players) {
+		return nil
+	}
+	player := state.Players[playerIndex]
+	eligible := []Noble{}
+	for _, noble := range state.Nobles {
+		if !canReceiveNoble(player, noble) {
 			continue
 		}
-		player.Nobles = append(player.Nobles, noble)
-		player.Score += noble.Points
-		state.Nobles = append(state.Nobles[:nobleIndex], state.Nobles[nobleIndex+1:]...)
-		state.Log = append(state.Log, fmt.Sprintf("%s 님에게 귀족이 방문했습니다.", player.PlayerID))
-		return
+		eligible = append(eligible, noble)
 	}
+	return eligible
+}
+
+func awardNoble(state *State, playerIndex int, nobleID string) bool {
+	if playerIndex < 0 || playerIndex >= len(state.Players) {
+		return false
+	}
+	for nobleIndex, noble := range state.Nobles {
+		if noble.ID != nobleID || !canReceiveNoble(state.Players[playerIndex], noble) {
+			continue
+		}
+		state.Players[playerIndex].Nobles = append(state.Players[playerIndex].Nobles, noble)
+		state.Players[playerIndex].Score += noble.Points
+		state.Nobles = append(state.Nobles[:nobleIndex], state.Nobles[nobleIndex+1:]...)
+		state.PendingNobleID = ""
+		state.PendingNobles = nil
+		state.Log = append(state.Log, fmt.Sprintf("%s 님에게 귀족이 방문했습니다.", state.Players[playerIndex].PlayerID))
+		return true
+	}
+	return false
 }
 
 func canReceiveNoble(player PlayerState, noble Noble) bool {
@@ -773,6 +869,18 @@ func returnTokensPayload(payload any) (map[string]int, error) {
 	return tokens, nil
 }
 
+func chooseNoblePayload(payload any) (string, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return "", errors.New("invalid noble payload")
+	}
+	nobleID, _ := raw["nobleId"].(string)
+	if nobleID == "" {
+		return "", errors.New("noble id is required")
+	}
+	return nobleID, nil
+}
+
 func validColor(color string) bool {
 	for _, item := range colors {
 		if item == color {
@@ -843,6 +951,7 @@ func cloneState(state State) State {
 	clone.Markets = cloneCardMap(state.Markets)
 	clone.Decks = cloneCardMap(state.Decks)
 	clone.Nobles = cloneNobles(state.Nobles)
+	clone.PendingNobles = cloneNobles(state.PendingNobles)
 	clone.Players = make([]PlayerState, len(state.Players))
 	for index := range state.Players {
 		clone.Players[index] = state.Players[index]

@@ -205,6 +205,8 @@ export interface GameSession {
     nobles?: SplendorNoble[];
     pendingReturnPlayerId?: string;
     pendingReturnCount?: number;
+    pendingNoblePlayerId?: string;
+    pendingNobleChoices?: SplendorNoble[];
     currentTrick?: {
       rank?: number;
       count?: number;
@@ -307,6 +309,7 @@ export type GameActionType =
   | "splendor.buy_card"
   | "splendor.reserve_card"
   | "splendor.return_tokens"
+  | "splendor.choose_noble"
   | "dalmuti.play"
   | "dalmuti.pass"
   | "werewolf.see_player"
