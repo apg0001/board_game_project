@@ -2348,12 +2348,15 @@ export function App() {
                                   { cardId: card.id }
                                 )
                               }
-                              disabled={!isMyTurn}
+                              disabled={!isMyTurn || Boolean(currentSession.state.awaitingDecision)}
                             >
                               <HwatuCardFace card={card} />
                             </button>
                           ))}
                         </div>
+                        {currentSession.state.awaitingDecision ? (
+                          <p className="helper-copy">고/스톱 선택 대기 중</p>
+                        ) : null}
                         <div className="hwatu-field">
                           {(currentSession.state.field ?? []).map((card) => (
                             <span className={`hwatu-card ${card.kind}`} key={card.id}>

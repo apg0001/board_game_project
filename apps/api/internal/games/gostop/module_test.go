@@ -122,6 +122,27 @@ func TestScoringPlayWaitsForGoStopDecision(t *testing.T) {
 	}
 }
 
+func TestPlayIsRejectedWhileGoStopDecisionIsPending(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		AwaitingDecision:   true,
+		Players: []PlayerState{
+			{PlayerID: "p1", Score: 3, Hand: []Card{{ID: "1-bright", Month: 1, Kind: "bright"}}, Active: true},
+			{PlayerID: "p2", Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "1-bright"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected play to be rejected while go/stop decision is pending")
+	}
+}
+
 func TestGoDecisionAdvancesTurn(t *testing.T) {
 	module := NewModule()
 	state := State{
