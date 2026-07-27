@@ -288,6 +288,10 @@ func finalScore(state State, winnerIndex int) (int, []string) {
 			multiplier *= 2
 			tags = append(tags, "광박")
 		}
+		if animalScore(winner.Captured) > 0 && animalCount(loser.Captured) == 0 {
+			multiplier *= 2
+			tags = append(tags, "멍박")
+		}
 		if loser.GoCount > 0 {
 			multiplier *= 2
 			tags = append(tags, "고박")
@@ -524,6 +528,24 @@ func brightCount(cards []Card) int {
 		}
 	}
 	return count
+}
+
+func animalCount(cards []Card) int {
+	count := 0
+	for _, card := range cards {
+		if card.Kind == "animal" {
+			count++
+		}
+	}
+	return count
+}
+
+func animalScore(cards []Card) int {
+	count := animalCount(cards)
+	if count < 5 {
+		return 0
+	}
+	return count - 4
 }
 
 func junkCount(cards []Card) int {

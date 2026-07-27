@@ -188,6 +188,32 @@ func TestFinalScoreAppliesGoAndPenaltyMultipliers(t *testing.T) {
 	}
 }
 
+func TestFinalScoreAppliesMeongBakMultiplier(t *testing.T) {
+	state := State{
+		Players: []PlayerState{
+			{
+				PlayerID: "p1",
+				Score:    3,
+				Captured: []Card{{Kind: "animal"}, {Kind: "animal"}, {Kind: "animal"}, {Kind: "animal"}, {Kind: "animal"}},
+				Active:   true,
+			},
+			{
+				PlayerID: "p2",
+				Captured: []Card{{Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}},
+				Active:   true,
+			},
+		},
+	}
+
+	done := finishWithWinner(state, "p1")
+	if done.Players[0].FinalScore != 6 {
+		t.Fatalf("expected meong-bak to double base score 3 to 6, got %+v", done.Players[0])
+	}
+	if !hasPenaltyTag(done.Players[0].PenaltyTags, "멍박") {
+		t.Fatalf("expected meong-bak penalty tag, got %+v", done.Players[0].PenaltyTags)
+	}
+}
+
 func TestCaptureMonthTakesAllMatchingFieldCards(t *testing.T) {
 	player := &PlayerState{PlayerID: "p1"}
 	field := []Card{
