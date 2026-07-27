@@ -564,11 +564,14 @@ export function App() {
   const bangPendingAttack = currentSession?.gameId === "bang" ? currentSession.state.pendingAttack : undefined;
   const bangMustRespond = Boolean(bangPendingAttack?.targetPlayerId === playerID);
   const bangHasMissed = Boolean((bangMe?.hand ?? []).some((card) => card.type === "missed"));
+  const bangHasBang = Boolean((bangMe?.hand ?? []).some((card) => card.type === "bang"));
+  const bangPendingGeneralStore = currentSession?.gameId === "bang" ? currentSession.state.pendingGeneralStore : undefined;
+  const bangMustChooseGeneralStore = Boolean(bangPendingGeneralStore?.currentChooserId === playerID);
   const bangPendingDiscardPlayerId = currentSession?.gameId === "bang" ? currentSession.state.pendingDiscardPlayerId : undefined;
   const bangPendingDiscardCount = currentSession?.gameId === "bang" ? (currentSession.state.pendingDiscardCount ?? 0) : 0;
   const bangMustDiscard = Boolean(bangPendingDiscardPlayerId === playerID && bangPendingDiscardCount > 0);
   const bangDiscardSelectedIds = selectedBangDiscardIds.filter((id) => (bangMe?.hand ?? []).some((card) => card.id === id));
-  const bangActionBlocked = Boolean(bangPendingAttack || bangPendingDiscardPlayerId);
+  const bangActionBlocked = Boolean(bangPendingAttack || bangPendingGeneralStore || bangPendingDiscardPlayerId);
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
   const gostopMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1792,14 +1795,20 @@ export function App() {
                                     sendGameAction(
                                       currentSession.id,
                                       currentRoom?.id,
-                                      "bang.use_missed",
+                                      bangResponseAction(bangPendingAttack.cardType),
                                       setCurrentSession,
                                       setRoomMessage
                                     )
                                   }
-                                  disabled={!bangHasMissed}
+                                  disabled={
+                                    bangResponseAction(bangPendingAttack.cardType) === "bang.use_bang"
+                                      ? !bangHasBang
+                                      : !bangHasMissed
+                                  }
                                 >
-                                  빗맞음 사용
+                                  {bangResponseAction(bangPendingAttack.cardType) === "bang.use_bang"
+                                    ? "BANG! 버리기"
+                                    : "빗나감 사용"}
                                 </button>
                                 <button
                                   className="mini-action-button dark-mini-action"
@@ -1819,6 +1828,35 @@ export function App() {
                             ) : (
                               <small>{participantName(currentRoom, bangPendingAttack.targetPlayerId)} 님 선택 대기</small>
                             )}
+                          </div>
+                        ) : null}
+                        {bangPendingGeneralStore ? (
+                          <div className="bang-reaction-panel" aria-label="잡화점 선택">
+                            <strong>잡화점</strong>
+                            <span>
+                              {participantName(currentRoom, bangPendingGeneralStore.currentChooserId)} 님이 카드를 선택해야 합니다.
+                            </span>
+                            <div className="bang-hand bang-offer-hand" aria-label="잡화점 공개 카드">
+                              {(bangPendingGeneralStore.offer ?? []).map((card) => (
+                                <button
+                                  className={`bang-card ${card.type}`}
+                                  key={card.id}
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "bang.choose_general_store",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { cardId: card.id }
+                                    )
+                                  }
+                                  disabled={!bangMustChooseGeneralStore}
+                                >
+                                  <BangCardFace card={card} />
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         ) : null}
                         {bangPendingDiscardPlayerId ? (
@@ -3216,6 +3254,9 @@ function bangCardLabel(cardType: string) {
     saloon: "살룬",
     cat_balou: "캣 벌루",
     panic: "패닉",
+    duel: "결투",
+    indians: "인디언!",
+    general_store: "잡화점",
     scope: "Scope",
     mustang: "Mustang",
     volcanic: "Volcanic",
@@ -3236,10 +3277,14 @@ function isBangEquipmentCard(cardType?: string) {
 
 function bangPlayPayload(card: HandCard, targetPlayerId: string) {
   const payload: Record<string, string> = { cardId: card.id };
-  if (card.type === "bang" || card.type === "cat_balou" || card.type === "panic") {
+  if (card.type === "bang" || card.type === "cat_balou" || card.type === "panic" || card.type === "duel") {
     payload.targetPlayerId = targetPlayerId;
   }
   return payload;
+}
+
+function bangResponseAction(cardType: string) {
+  return cardType === "duel" || cardType === "indians" ? "bang.use_bang" : "bang.use_missed";
 }
 
 function bangCardPlayable(
@@ -3258,7 +3303,8 @@ function bangCardPlayable(
   }
   if (card.type === "gatling") return true;
   if (card.type === "stagecoach" || card.type === "wells_fargo" || card.type === "saloon") return true;
-  if (card.type === "cat_balou" || card.type === "panic") return Boolean(targetPlayerId);
+  if (card.type === "indians" || card.type === "general_store") return true;
+  if (card.type === "cat_balou" || card.type === "panic" || card.type === "duel") return Boolean(targetPlayerId);
   if (card.type === "beer") return (player.hp ?? 0) < (player.maxHp ?? 0) && aliveCount > 2;
   if (isBangEquipmentCard(card.type)) return true;
   return false;

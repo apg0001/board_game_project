@@ -234,6 +234,11 @@ export interface GameSession {
       damage: number;
       remainingTargetIds?: string[];
     };
+    pendingGeneralStore?: {
+      offer: HandCard[];
+      currentChooserId: string;
+      remainingChooserIds?: string[];
+    };
     pendingDiscardPlayerId?: string;
     pendingDiscardCount?: number;
     deck?: DavinciTile[];
@@ -336,8 +341,10 @@ export type GameActionType =
   | "rummikub.rearrange"
   | "bang.draw"
   | "bang.play"
+  | "bang.use_bang"
   | "bang.use_missed"
   | "bang.take_hit"
+  | "bang.choose_general_store"
   | "bang.discard"
   | "bang.end_turn"
   | "sutda.call"

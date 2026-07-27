@@ -1835,6 +1835,16 @@ button.rummikub-tile:disabled {
   background: linear-gradient(155deg, #4b4f88, #8c3f2a);
 }
 
+.bang-card-face.type-duel,
+.bang-card-face.type-indians {
+  background: linear-gradient(155deg, #7f2f24, #c95f42);
+}
+
+.bang-card-face.type-general_store {
+  color: #17212b;
+  background: linear-gradient(155deg, #fffdf7, #8dc2c0);
+}
+
 .bang-card-face strong,
 .bang-card-face small,
 .bang-card-kicker {
@@ -2036,6 +2046,16 @@ button.rummikub-tile:disabled {
 .bang-card.cat_balou,
 .bang-card.panic {
   background: #4b4f88;
+}
+
+.bang-card.duel,
+.bang-card.indians {
+  background: #7f2f24;
+}
+
+.bang-card.general_store {
+  color: #17212b;
+  background: #8dc2c0;
 }
 
 .bang-card.scope,

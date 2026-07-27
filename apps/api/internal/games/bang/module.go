@@ -11,32 +11,37 @@ import (
 )
 
 const (
-	ActionDraw      = "bang.draw"
-	ActionPlay      = "bang.play"
-	ActionEndTurn   = "bang.end_turn"
-	ActionUseMissed = "bang.use_missed"
-	ActionTakeHit   = "bang.take_hit"
-	ActionDiscard   = "bang.discard"
-	CardBang        = "bang"
-	CardMissed      = "missed"
-	CardBeer        = "beer"
-	CardGatling     = "gatling"
-	CardStagecoach  = "stagecoach"
-	CardWellsFargo  = "wells_fargo"
-	CardSaloon      = "saloon"
-	CardCatBalou    = "cat_balou"
-	CardPanic       = "panic"
-	CardScope       = "scope"
-	CardMustang     = "mustang"
-	CardVolcanic    = "volcanic"
-	CardSchofield   = "schofield"
-	CardRemington   = "remington"
-	CardCarabine    = "carabine"
-	CardWinchester  = "winchester"
-	RoleSheriff     = "sheriff"
-	RoleDeputy      = "deputy"
-	RoleOutlaw      = "outlaw"
-	RoleRenegade    = "renegade"
+	ActionDraw       = "bang.draw"
+	ActionPlay       = "bang.play"
+	ActionEndTurn    = "bang.end_turn"
+	ActionUseBang    = "bang.use_bang"
+	ActionUseMissed  = "bang.use_missed"
+	ActionTakeHit    = "bang.take_hit"
+	ActionDiscard    = "bang.discard"
+	ActionChoose     = "bang.choose_general_store"
+	CardBang         = "bang"
+	CardMissed       = "missed"
+	CardBeer         = "beer"
+	CardGatling      = "gatling"
+	CardStagecoach   = "stagecoach"
+	CardWellsFargo   = "wells_fargo"
+	CardSaloon       = "saloon"
+	CardCatBalou     = "cat_balou"
+	CardPanic        = "panic"
+	CardDuel         = "duel"
+	CardIndians      = "indians"
+	CardGeneralStore = "general_store"
+	CardScope        = "scope"
+	CardMustang      = "mustang"
+	CardVolcanic     = "volcanic"
+	CardSchofield    = "schofield"
+	CardRemington    = "remington"
+	CardCarabine     = "carabine"
+	CardWinchester   = "winchester"
+	RoleSheriff      = "sheriff"
+	RoleDeputy       = "deputy"
+	RoleOutlaw       = "outlaw"
+	RoleRenegade     = "renegade"
 )
 
 type Card struct {
@@ -66,18 +71,25 @@ type PendingAttack struct {
 	RemainingTargetIDs []string `json:"remainingTargetIds"`
 }
 
+type PendingGeneralStore struct {
+	Offer               []Card   `json:"offer"`
+	CurrentChooserID    string   `json:"currentChooserId"`
+	RemainingChooserIDs []string `json:"remainingChooserIds"`
+}
+
 type State struct {
-	CurrentPlayerIndex  int            `json:"currentPlayerIndex"`
-	Round               int            `json:"round"`
-	Players             []PlayerState  `json:"players"`
-	Deck                []Card         `json:"deck"`
-	Discard             []Card         `json:"discard"`
-	PendingAttack       *PendingAttack `json:"pendingAttack,omitempty"`
-	PendingDiscardID    string         `json:"pendingDiscardPlayerId,omitempty"`
-	PendingDiscardCount int            `json:"pendingDiscardCount,omitempty"`
-	Winner              string         `json:"winner,omitempty"`
-	Log                 []string       `json:"log"`
-	Finished            bool           `json:"finished"`
+	CurrentPlayerIndex  int                  `json:"currentPlayerIndex"`
+	Round               int                  `json:"round"`
+	Players             []PlayerState        `json:"players"`
+	Deck                []Card               `json:"deck"`
+	Discard             []Card               `json:"discard"`
+	PendingAttack       *PendingAttack       `json:"pendingAttack,omitempty"`
+	PendingGeneralStore *PendingGeneralStore `json:"pendingGeneralStore,omitempty"`
+	PendingDiscardID    string               `json:"pendingDiscardPlayerId,omitempty"`
+	PendingDiscardCount int                  `json:"pendingDiscardCount,omitempty"`
+	Winner              string               `json:"winner,omitempty"`
+	Log                 []string             `json:"log"`
+	Finished            bool                 `json:"finished"`
 }
 
 type PlayPayload struct {
@@ -164,11 +176,17 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if current.Finished {
 		return errors.New("game is already finished")
 	}
-	if action.Type == ActionUseMissed || action.Type == ActionTakeHit {
+	if action.Type == ActionUseBang || action.Type == ActionUseMissed || action.Type == ActionTakeHit {
 		return validatePendingAttackAction(current, action)
 	}
 	if current.PendingAttack != nil {
 		return errors.New("pending attack response")
+	}
+	if action.Type == ActionChoose {
+		return validateGeneralStoreAction(current, action)
+	}
+	if current.PendingGeneralStore != nil {
+		return errors.New("pending general store choice")
 	}
 	if action.Type == ActionDiscard {
 		return validatePendingDiscardAction(current, action)
@@ -227,10 +245,19 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 			if attackDistance(current, current.CurrentPlayerIndex, targetIndex) > attackRange(player) {
 				return errors.New("target is out of range")
 			}
-		case CardGatling:
+		case CardGatling, CardIndians:
 			return nil
 		case CardStagecoach, CardWellsFargo, CardSaloon:
 			return nil
+		case CardGeneralStore:
+			if availableDrawCount(current) == 0 {
+				return errors.New("deck is empty")
+			}
+		case CardDuel:
+			targetIndex := findPlayer(current, payload.TargetPlayerID)
+			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
+				return errors.New("invalid target")
+			}
 		case CardCatBalou:
 			targetIndex := findPlayer(current, payload.TargetPlayerID)
 			if targetIndex < 0 || !current.Players[targetIndex].Alive || payload.TargetPlayerID == player.PlayerID {
@@ -304,7 +331,17 @@ func validatePendingAttackAction(state State, action gamecore.Action) error {
 		return errors.New("target is not active")
 	}
 	switch action.Type {
+	case ActionUseBang:
+		if requiredPendingResponseCard(state.PendingAttack.CardType) != CardBang {
+			return errors.New("bang response is not allowed")
+		}
+		if _, ok := findCardByType(state.Players[targetIndex].Hand, CardBang); !ok {
+			return errors.New("bang card not found")
+		}
 	case ActionUseMissed:
+		if requiredPendingResponseCard(state.PendingAttack.CardType) != CardMissed {
+			return errors.New("missed response is not allowed")
+		}
 		if _, ok := findCardByType(state.Players[targetIndex].Hand, CardMissed); !ok {
 			return errors.New("missed card not found")
 		}
@@ -312,6 +349,23 @@ func validatePendingAttackAction(state State, action gamecore.Action) error {
 		return nil
 	default:
 		return errors.New("unsupported pending action")
+	}
+	return nil
+}
+
+func validateGeneralStoreAction(state State, action gamecore.Action) error {
+	if state.PendingGeneralStore == nil || state.PendingGeneralStore.CurrentChooserID == "" {
+		return errors.New("no pending general store choice")
+	}
+	if state.PendingGeneralStore.CurrentChooserID != string(action.PlayerID) {
+		return errors.New("not your general store choice")
+	}
+	payload, err := playPayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	if _, ok := findCard(state.PendingGeneralStore.Offer, payload.CardID); !ok {
+		return errors.New("general store card not found")
 	}
 	return nil
 }
@@ -350,6 +404,23 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Discard = append(current.Discard, card)
 			current.Log = append(current.Log, player.PlayerID+" 님이 개틀링을 사용했습니다.")
 			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1)
+		case CardIndians:
+			current.Discard = append(current.Discard, card)
+			current.Log = append(current.Log, player.PlayerID+" 님이 인디언!을 사용했습니다.")
+			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1)
+		case CardDuel:
+			current.Discard = append(current.Discard, card)
+			current.Log = append(current.Log, player.PlayerID+" 님이 결투를 신청했습니다.")
+			current = startPendingDuel(current, player.PlayerID, payload.TargetPlayerID)
+		case CardGeneralStore:
+			current.Discard = append(current.Discard, card)
+			offer := drawCards(&current, alivePlayerCount(current))
+			current.PendingGeneralStore = &PendingGeneralStore{
+				Offer:               offer,
+				RemainingChooserIDs: generalStoreChooserOrder(current, current.CurrentPlayerIndex),
+			}
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 잡화점 카드 %d장을 공개했습니다.", player.PlayerID, len(offer)))
+			current = advanceGeneralStore(current)
 		case CardStagecoach:
 			current.Discard = append(current.Discard, card)
 			drawn := drawCards(&current, 2)
@@ -401,10 +472,18 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current = equipCard(current, current.CurrentPlayerIndex, card)
 		}
 		current = checkEnd(current)
+	case ActionUseBang:
+		current = resolvePendingAttackWithBang(current, string(action.PlayerID))
 	case ActionUseMissed:
 		current = resolvePendingAttackWithMissed(current, string(action.PlayerID))
 	case ActionTakeHit:
 		current = resolvePendingAttackWithDamage(current)
+	case ActionChoose:
+		payload, err := playPayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		current = applyGeneralStoreChoice(current, string(action.PlayerID), payload.CardID)
 	case ActionDiscard:
 		payload, err := discardPayload(action.Payload)
 		if err != nil {
@@ -451,6 +530,10 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 		if wasPendingAttackTarget && !current.Finished {
 			current.PendingAttack.TargetPlayerID = ""
 			current = advancePendingAttack(current)
+		}
+		if current.PendingGeneralStore != nil && current.PendingGeneralStore.CurrentChooserID == string(playerID) && !current.Finished {
+			current.PendingGeneralStore.CurrentChooserID = ""
+			current = advanceGeneralStore(current)
 		}
 		if current.CurrentPlayerIndex == index && !current.Finished {
 			current.CurrentPlayerIndex = nextAliveIndex(current, index)
@@ -502,6 +585,73 @@ func applyPendingDiscard(state State, playerID string, cardIDs []string) State {
 	state.PendingDiscardCount = 0
 	state.Log = append(state.Log, player.PlayerID+" 님이 손패 제한을 맞췄습니다.")
 	return finishTurn(state)
+}
+
+func generalStoreChooserOrder(state State, startIndex int) []string {
+	chooserIDs := []string{}
+	for offset := 0; offset < len(state.Players); offset++ {
+		index := (startIndex + offset) % len(state.Players)
+		if state.Players[index].Alive {
+			chooserIDs = append(chooserIDs, state.Players[index].PlayerID)
+		}
+	}
+	return chooserIDs
+}
+
+func advanceGeneralStore(state State) State {
+	for state.PendingGeneralStore != nil {
+		if len(state.PendingGeneralStore.Offer) == 0 || len(state.PendingGeneralStore.RemainingChooserIDs) == 0 {
+			state.PendingGeneralStore = nil
+			state.Log = append(state.Log, "잡화점 선택이 끝났습니다.")
+			return state
+		}
+		chooserID := state.PendingGeneralStore.RemainingChooserIDs[0]
+		state.PendingGeneralStore.RemainingChooserIDs = state.PendingGeneralStore.RemainingChooserIDs[1:]
+		chooserIndex := findPlayer(state, chooserID)
+		if chooserIndex < 0 || !state.Players[chooserIndex].Alive {
+			continue
+		}
+		state.PendingGeneralStore.CurrentChooserID = chooserID
+		state.Log = append(state.Log, chooserID+" 님이 잡화점 카드를 선택해야 합니다.")
+		return state
+	}
+	return state
+}
+
+func applyGeneralStoreChoice(state State, playerID string, cardID string) State {
+	if state.PendingGeneralStore == nil || state.PendingGeneralStore.CurrentChooserID != playerID {
+		return state
+	}
+	playerIndex := findPlayer(state, playerID)
+	if playerIndex < 0 {
+		return state
+	}
+	card, ok := removeOfferCard(state.PendingGeneralStore, cardID)
+	if !ok {
+		return state
+	}
+	player := &state.Players[playerIndex]
+	player.Hand = append(player.Hand, card)
+	player.HandSize = len(player.Hand)
+	state.PendingGeneralStore.CurrentChooserID = ""
+	state.Log = append(state.Log, playerID+" 님이 잡화점 카드를 가져갔습니다.")
+	return advanceGeneralStore(state)
+}
+
+func removeOfferCard(pending *PendingGeneralStore, cardID string) (Card, bool) {
+	next := []Card{}
+	removed := Card{}
+	found := false
+	for _, card := range pending.Offer {
+		if !found && card.ID == cardID {
+			removed = card
+			found = true
+			continue
+		}
+		next = append(next, card)
+	}
+	pending.Offer = next
+	return removed, found
 }
 
 func equipCard(state State, playerIndex int, card Card) State {
@@ -640,8 +790,21 @@ func startPendingAttack(state State, sourcePlayerID string, cardType string, tar
 	return advancePendingAttack(state)
 }
 
+func startPendingDuel(state State, challengerID string, challengedID string) State {
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID: challengerID,
+		TargetPlayerID: challengedID,
+		CardType:       CardDuel,
+		Damage:         1,
+	}
+	return advancePendingAttack(state)
+}
+
 func advancePendingAttack(state State) State {
 	for state.PendingAttack != nil {
+		if state.PendingAttack.CardType == CardDuel {
+			return advancePendingDuel(state)
+		}
 		if len(state.PendingAttack.RemainingTargetIDs) == 0 {
 			state.PendingAttack = nil
 			return state
@@ -652,9 +815,10 @@ func advancePendingAttack(state State) State {
 		if targetIndex < 0 || !state.Players[targetIndex].Alive {
 			continue
 		}
-		if _, ok := findCardByType(state.Players[targetIndex].Hand, CardMissed); ok {
+		responseCard := requiredPendingResponseCard(state.PendingAttack.CardType)
+		if _, ok := findCardByType(state.Players[targetIndex].Hand, responseCard); ok {
 			state.PendingAttack.TargetPlayerID = targetPlayerID
-			state.Log = append(state.Log, targetPlayerID+" 님의 빗맞음 반응을 기다립니다.")
+			state.Log = append(state.Log, fmt.Sprintf("%s 님의 %s 반응을 기다립니다.", targetPlayerID, bangCardName(responseCard)))
 			return state
 		}
 		pending := *state.PendingAttack
@@ -666,6 +830,76 @@ func advancePendingAttack(state State) State {
 		}
 	}
 	return state
+}
+
+func advancePendingDuel(state State) State {
+	if state.PendingAttack == nil {
+		return state
+	}
+	pending := *state.PendingAttack
+	targetIndex := findPlayer(state, pending.TargetPlayerID)
+	if targetIndex < 0 || !state.Players[targetIndex].Alive {
+		state.PendingAttack = nil
+		return state
+	}
+	if _, ok := findCardByType(state.Players[targetIndex].Hand, CardBang); ok {
+		state.Log = append(state.Log, pending.TargetPlayerID+" 님의 결투 BANG! 반응을 기다립니다.")
+		return state
+	}
+	state.PendingAttack = nil
+	state = damageTargetWithoutMissed(state, pending.TargetPlayerID, pending.Damage, pending.SourcePlayerID)
+	return checkEnd(state)
+}
+
+func requiredPendingResponseCard(cardType string) string {
+	if cardType == CardDuel || cardType == CardIndians {
+		return CardBang
+	}
+	return CardMissed
+}
+
+func bangCardName(cardType string) string {
+	if cardType == CardBang {
+		return "BANG!"
+	}
+	if cardType == CardMissed {
+		return "빗나감"
+	}
+	return cardType
+}
+
+func resolvePendingAttackWithBang(state State, playerID string) State {
+	if state.PendingAttack == nil || state.PendingAttack.TargetPlayerID != playerID {
+		return state
+	}
+	targetIndex := findPlayer(state, playerID)
+	if targetIndex < 0 {
+		return state
+	}
+	bang, ok := removeFirstType(&state.Players[targetIndex], CardBang)
+	if !ok {
+		return state
+	}
+	pending := *state.PendingAttack
+	state.Discard = append(state.Discard, bang)
+	if pending.CardType == CardDuel {
+		state.Log = append(state.Log, playerID+" 님이 결투에 BANG!으로 응수했습니다.")
+		state.PendingAttack = &PendingAttack{
+			SourcePlayerID: playerID,
+			TargetPlayerID: pending.SourcePlayerID,
+			CardType:       CardDuel,
+			Damage:         pending.Damage,
+		}
+		return advancePendingAttack(state)
+	}
+	state.Log = append(state.Log, playerID+" 님이 BANG!으로 인디언을 막았습니다.")
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID:     pending.SourcePlayerID,
+		CardType:           pending.CardType,
+		Damage:             pending.Damage,
+		RemainingTargetIDs: append([]string(nil), pending.RemainingTargetIDs...),
+	}
+	return advancePendingAttack(state)
 }
 
 func resolvePendingAttackWithMissed(state State, playerID string) State {
@@ -1071,6 +1305,12 @@ func shuffledDeck(seed string) []Card {
 	}
 	for range 1 {
 		cardTypes = append(cardTypes, CardGatling)
+	}
+	for range 3 {
+		cardTypes = append(cardTypes, CardDuel)
+	}
+	for range 2 {
+		cardTypes = append(cardTypes, CardIndians, CardGeneralStore)
 	}
 	for range 2 {
 		cardTypes = append(cardTypes, CardStagecoach, CardMustang, CardVolcanic)
