@@ -563,8 +563,12 @@ export function App() {
   const bangAliveCount = davinciPlayers.filter((player) => player.alive !== false).length;
   const bangPendingAttack = currentSession?.gameId === "bang" ? currentSession.state.pendingAttack : undefined;
   const bangMustRespond = Boolean(bangPendingAttack?.targetPlayerId === playerID);
-  const bangHasMissed = Boolean((bangMe?.hand ?? []).some((card) => card.type === "missed"));
-  const bangHasBang = Boolean((bangMe?.hand ?? []).some((card) => card.type === "bang"));
+  const bangHasMissed = Boolean(
+    (bangMe?.hand ?? []).some((card) => card.type === "missed" || (bangMe?.characterId === "calamity_janet" && card.type === "bang"))
+  );
+  const bangHasBang = Boolean(
+    (bangMe?.hand ?? []).some((card) => card.type === "bang" || (bangMe?.characterId === "calamity_janet" && card.type === "missed"))
+  );
   const bangPendingGeneralStore = currentSession?.gameId === "bang" ? currentSession.state.pendingGeneralStore : undefined;
   const bangMustChooseGeneralStore = Boolean(bangPendingGeneralStore?.currentChooserId === playerID);
   const bangPendingDiscardPlayerId = currentSession?.gameId === "bang" ? currentSession.state.pendingDiscardPlayerId : undefined;
@@ -1949,8 +1953,8 @@ export function App() {
                             <div className="halli-player" key={player.playerId}>
                               <strong>{participantName(currentRoom, player.playerId)}</strong>
                               <span>
-                                {player.role ? bangRoleLabel(player.role) : "비공개"} · HP {player.hp ?? 0}/
-                                {player.maxHp ?? 0} · 손패 {player.handSize ?? player.hand?.length ?? 0} · 장비{" "}
+                                {player.characterName ?? "캐릭터"} · {player.role ? bangRoleLabel(player.role) : "비공개"} · HP{" "}
+                                {player.hp ?? 0}/{player.maxHp ?? 0} · 손패 {player.handSize ?? player.hand?.length ?? 0} · 장비{" "}
                                 {player.equipment?.map((card) => bangCardLabel(card.type ?? "")).join(", ") || "없음"}
                               </span>
                             </div>
@@ -3318,6 +3322,10 @@ function bangCardPlayable(
   if (hasPendingAttack) return false;
   if (!isMyTurn || !player?.drawn) return false;
   if (card.type === "bang") {
+    const hasVolcanic = Boolean(player.equipment?.some((equipment) => equipment.type === "volcanic"));
+    return Boolean(targetPlayerId) && (!player.bangUsed || hasVolcanic || player.characterId === "willy_the_kid");
+  }
+  if (card.type === "missed" && player.characterId === "calamity_janet") {
     const hasVolcanic = Boolean(player.equipment?.some((equipment) => equipment.type === "volcanic"));
     return Boolean(targetPlayerId) && (!player.bangUsed || hasVolcanic);
   }
