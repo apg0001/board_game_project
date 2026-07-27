@@ -343,6 +343,13 @@ func captureTurn(state *State, playerIndex int, card Card) []string {
 		player.Captured = append(player.Captured, card)
 		player.Captured = append(player.Captured, firstMatches...)
 		capturedThisTurn += 1 + len(firstMatches)
+		if len(firstMatches) == 3 {
+			if stolen := stealJunkFromOpponents(state, playerIndex); stolen > 0 {
+				logs = append(logs, fmt.Sprintf("%s 님이 뻑더미를 먹고 피 %d장을 가져왔습니다.", player.PlayerID, stolen))
+			} else {
+				logs = append(logs, player.PlayerID+" 님이 뻑더미를 먹었습니다.")
+			}
+		}
 	} else {
 		state.Field = append(state.Field, card)
 	}
