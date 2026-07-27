@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { BangCardFace, DalmutiCardFan, HwatuCardFace, PlayingCardBack, PlayingCardFace, SplendorCardFace } from "./components/CardFace";
 import { FlowOptionCard } from "./components/FlowOptionCard";
 import { fallbackRecommendedGames, games, playerCount } from "./domain/gameCatalog";
 import type {
@@ -111,12 +112,16 @@ export function App() {
   const [maxWaitSeconds, setMaxWaitSeconds] = useState(180);
   const [autoStart, setAutoStart] = useState(false);
   const [allowSpectators, setAllowSpectators] = useState(true);
+  const [davinciAdvancedDash, setDavinciAdvancedDash] = useState("off");
+  const [davinciTournamentScoring, setDavinciTournamentScoring] = useState("off");
   const [onecardAttackCards, setOnecardAttackCards] = useState("two-ace-joker");
   const [onecardDefenseMode, setOnecardDefenseMode] = useState("attack-or-joker");
   const [onecardJokerDrawCount, setOnecardJokerDrawCount] = useState("5");
   const [onecardStacking, setOnecardStacking] = useState("on");
   const [onecardChangeSuitCards, setOnecardChangeSuitCards] = useState("seven-joker");
   const [onecardPenalty, setOnecardPenalty] = useState("on");
+  const [onecardFinalAttack, setOnecardFinalAttack] = useState("on");
+  const [onecardFinalSpecial, setOnecardFinalSpecial] = useState("on");
   const [onecardDeclaredSuit, setOnecardDeclaredSuit] = useState("spade");
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
@@ -909,6 +914,59 @@ export function App() {
                   </button>
                 </div>
               ) : null}
+              {currentRoom?.gameId === "davinci" && currentRoom.status === "LOBBY" ? (
+                <div className="rule-vote-panel">
+                  <div className="section-title compact-title">
+                    <div>
+                      <span>다빈치 코드 룰 투표</span>
+                      <h2>{ruleVoteCount}/{partyMembers.length}명 투표</h2>
+                    </div>
+                    <Dice5 size={20} />
+                  </div>
+                  <div className="option-grid">
+                    <label>
+                      대시 타일
+                      <select value={davinciAdvancedDash} onChange={(event) => setDavinciAdvancedDash(event.target.value)}>
+                        <option value="off">기본 24타일</option>
+                        <option value="on">고급 대시 포함</option>
+                      </select>
+                    </label>
+                    <label>
+                      점수 방식
+                      <select value={davinciTournamentScoring} onChange={(event) => setDavinciTournamentScoring(event.target.value)}>
+                        <option value="off">단판 승패</option>
+                        <option value="on">토너먼트 점수</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button
+                    className="wide-button"
+                    onClick={() =>
+                      voteRoomRules(
+                        currentRoom.id,
+                        {
+                          advancedDashTiles: davinciAdvancedDash,
+                          tournamentScoring: davinciTournamentScoring
+                        },
+                        setCurrentRoom,
+                        setRoomMessage
+                      )
+                    }
+                  >
+                    룰 투표
+                    <ChevronRight size={18} />
+                  </button>
+                  {currentRoom.ruleMessages?.length ? (
+                    <div className="rule-message-list">
+                      {currentRoom.ruleMessages.map((message) => (
+                        <span key={message}>{message}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="room-helper">투표 변경 시 Ready가 해제됩니다. 동률은 시작 시 랜덤으로 정해집니다.</p>
+                  )}
+                </div>
+              ) : null}
               {currentRoom?.gameId === "onecard" && currentRoom.status === "LOBBY" ? (
                 <div className="rule-vote-panel">
                   <div className="section-title compact-title">
@@ -967,6 +1025,20 @@ export function App() {
                         <option value="off">사용 안 함</option>
                       </select>
                     </label>
+                    <label>
+                      막카 공격
+                      <select value={onecardFinalAttack} onChange={(event) => setOnecardFinalAttack(event.target.value)}>
+                        <option value="on">허용</option>
+                        <option value="off">금지</option>
+                      </select>
+                    </label>
+                    <label>
+                      막카 특수
+                      <select value={onecardFinalSpecial} onChange={(event) => setOnecardFinalSpecial(event.target.value)}>
+                        <option value="on">허용</option>
+                        <option value="off">금지</option>
+                      </select>
+                    </label>
                   </div>
                   <button
                     className="wide-button"
@@ -979,7 +1051,9 @@ export function App() {
                           jokerDrawCount: onecardJokerDrawCount,
                           stacking: onecardStacking,
                           changeSuitCards: onecardChangeSuitCards,
-                          oneCardPenalty: onecardPenalty
+                          oneCardPenalty: onecardPenalty,
+                          allowFinalAttack: onecardFinalAttack,
+                          allowFinalSpecial: onecardFinalSpecial
                         },
                         setCurrentRoom,
                         setRoomMessage
@@ -1304,9 +1378,7 @@ export function App() {
                         <div className="splendor-market" aria-label="시장 카드">
                           {(currentSession.state.market ?? []).map((card, index) => (
                             <div className={`splendor-card ${card.color}`} key={card.id}>
-                              <strong>{card.points}점</strong>
-                              <span>{gemLabel(card.color)} 보너스</span>
-                              <small>{formatCost(card.cost)}</small>
+                              <SplendorCardFace card={card} />
                               <button
                                 className="mini-action-button"
                                 onClick={() =>
@@ -1346,9 +1418,7 @@ export function App() {
                           <div className="splendor-market" aria-label="내 예약 카드">
                             {splendorMe.reserved.map((card, index) => (
                               <div className={`splendor-card ${card.color}`} key={`reserved-${card.id}`}>
-                                <strong>{card.points}점</strong>
-                                <span>예약 · {gemLabel(card.color)} 보너스</span>
-                                <small>{formatCost(card.cost)}</small>
+                                <SplendorCardFace card={card} badge="예약" />
                                 <button
                                   className="mini-action-button"
                                   onClick={() =>
@@ -1406,6 +1476,7 @@ export function App() {
                         <div className="dalmuti-hand" aria-label="내 카드">
                           {dalmutiGroups.map((group) => (
                             <div className="dalmuti-group" key={group.rank}>
+                              <DalmutiCardFan rank={group.rank} count={group.count} />
                               <strong>{dalmutiRankLabel(group.rank)}</strong>
                               <span>{group.count}장</span>
                               <div className="dalmuti-counts">
@@ -1555,7 +1626,7 @@ export function App() {
                               }
                               disabled={!isMyTurn || !bangMe?.drawn}
                             >
-                              {bangCardLabel(card.type ?? "")}
+                              <BangCardFace card={card} />
                             </button>
                           ))}
                         </div>
@@ -1611,7 +1682,7 @@ export function App() {
                         <div className="hwatu-hand" aria-label="내 섯다 패">
                           {(sutdaMe?.hand ?? []).map((card) => (
                             <span className="hwatu-card" key={card.id}>
-                              {card.month}월{card.gwang ? " 광" : ""}
+                              <HwatuCardFace card={card} />
                             </span>
                           ))}
                         </div>
@@ -1679,14 +1750,14 @@ export function App() {
                               }
                               disabled={!isMyTurn}
                             >
-                              {card.month}월 {goStopKindLabel(card.kind ?? "")}
+                              <HwatuCardFace card={card} />
                             </button>
                           ))}
                         </div>
                         <div className="hwatu-field">
                           {(currentSession.state.field ?? []).map((card) => (
                             <span className={`hwatu-card ${card.kind}`} key={card.id}>
-                              {card.month}월
+                              <HwatuCardFace card={card} />
                             </span>
                           ))}
                         </div>
@@ -1777,7 +1848,7 @@ export function App() {
                               }
                               disabled={!isMyTurn}
                             >
-                              {standardCardLabel(card)}
+                              <PlayingCardFace card={card} />
                             </button>
                           ))}
                         </div>
@@ -1862,7 +1933,7 @@ export function App() {
                         <div className="standard-hand" aria-label="내 조커뽑기 손패">
                           {(jokerdrawMe?.hand ?? []).map((card) => (
                             <span className={`standard-card readonly ${card.suit ?? ""}`} key={card.id}>
-                              {standardCardLabel(card)}
+                              <PlayingCardFace card={card} />
                             </span>
                           ))}
                         </div>
@@ -1895,7 +1966,7 @@ export function App() {
                                     disabled={!isMyTurn}
                                     aria-label={`${participantName(currentRoom, player.playerId)} ${index + 1}번째 카드 뽑기`}
                                   >
-                                    ?
+                                    <PlayingCardBack />
                                   </button>
                                 ))}
                               </div>
@@ -2664,7 +2735,9 @@ function onecardRuleSummary(rules: OneCardRules | undefined) {
     rules.defenseMode
   )} · 조커 ${rules.jokerDrawCount ?? 5}장 · 누적 ${rules.stacking === false ? "없음" : "허용"} · 문양 ${onecardChangeSuitLabel(
     rules.changeSuitCards
-  )} · 원카드 ${rules.oneCardPenalty === false ? "벌칙 없음" : `${rules.oneCardPenaltyDraw ?? 2}장 벌칙`}`;
+  )} · 원카드 ${rules.oneCardPenalty === false ? "벌칙 없음" : `${rules.oneCardPenaltyDraw ?? 2}장 벌칙`} · 막카 공격 ${
+    rules.allowFinalAttack === false ? "금지" : "허용"
+  } · 막카 특수 ${rules.allowFinalSpecial === false ? "금지" : "허용"}`;
 }
 
 function onecardPlayPayload(card: HandCard, rules: OneCardRules | undefined, declaredSuit: string, handSize: number) {
@@ -2775,16 +2848,6 @@ function werewolfPhaseLabel(phase: GameSession["state"]["phase"]) {
   return "대기";
 }
 
-function bangCardLabel(type: string) {
-  const labels: Record<string, string> = {
-    bang: "BANG!",
-    missed: "빗맞음",
-    beer: "맥주",
-    gatling: "개틀링"
-  };
-  return labels[type] ?? type;
-}
-
 function bangRoleLabel(role: string) {
   const labels: Record<string, string> = {
     sheriff: "보안관",
@@ -2802,16 +2865,6 @@ function bangWinnerLabel(winner: string) {
     renegade: "배신자"
   };
   return labels[winner] ?? "미정";
-}
-
-function goStopKindLabel(kind: string) {
-  const labels: Record<string, string> = {
-    bright: "광",
-    animal: "열끗",
-    ribbon: "띠",
-    junk: "피"
-  };
-  return labels[kind] ?? kind;
 }
 
 function standardCardLabel(card: HandCard) {

@@ -32,15 +32,16 @@ type PlayerState struct {
 }
 
 type State struct {
-	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
-	Round              int           `json:"round"`
-	Players            []PlayerState `json:"players"`
-	Deck               []Tile        `json:"deck"`
-	PendingTile        *Tile         `json:"pendingTile,omitempty"`
-	PendingOwnerID     string        `json:"pendingOwnerId,omitempty"`
-	CanEndTurn         bool          `json:"canEndTurn"`
-	Log                []string      `json:"log"`
-	Finished           bool          `json:"finished"`
+	CurrentPlayerIndex int            `json:"currentPlayerIndex"`
+	Round              int            `json:"round"`
+	Players            []PlayerState  `json:"players"`
+	Deck               []Tile         `json:"deck"`
+	PendingTile        *Tile          `json:"pendingTile,omitempty"`
+	PendingOwnerID     string         `json:"pendingOwnerId,omitempty"`
+	CanEndTurn         bool           `json:"canEndTurn"`
+	Scores             map[string]int `json:"scores,omitempty"`
+	Log                []string       `json:"log"`
+	Finished           bool           `json:"finished"`
 }
 
 type GuessPayload struct {
@@ -78,6 +79,30 @@ func (m Module) MaxPlayers() int {
 	return 4
 }
 
+func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.RuleResolution {
+	dashTiles, dashTied := resolveChoice(votes, "advancedDashTiles", "off", seed)
+	tournament, tournamentTied := resolveChoice(votes, "tournamentScoring", "off", seed)
+	advancedDashTiles := dashTiles == "on"
+	tournamentScoring := tournament == "on"
+	messages := []string{
+		fmt.Sprintf("다빈치 코드 룰 확정: 대시 타일 %s, 토너먼트 점수 %s", onOffLabel(advancedDashTiles), onOffLabel(tournamentScoring)),
+	}
+	if dashTied {
+		messages = append(messages, "대시 타일 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+	if tournamentTied {
+		messages = append(messages, "토너먼트 점수 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+	return gamecore.RuleResolution{
+		Options: map[string]any{
+			"advancedDashTiles": advancedDashTiles,
+			"tournamentScoring": tournamentScoring,
+			"ruleMessages":      messages,
+		},
+		Announcements: messages,
+	}
+}
+
 func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	deck := shuffledDeck(ctx.RandomSeed, dashTilesEnabled(ctx.Options))
 	handSize := 4
@@ -102,7 +127,8 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 		Round:              1,
 		Players:            players,
 		Deck:               deck,
-		Log:                []string{"다빈치 코드가 시작되었습니다."},
+		Scores:             initialScores(players),
+		Log:                append([]string{"다빈치 코드가 시작되었습니다."}, ruleMessagesFromOptions(ctx.Options)...),
 		Finished:           false,
 	}
 	return beginTurn(state)
@@ -263,8 +289,11 @@ func (m Module) IsFinished(state any, _ gamecore.Context) bool {
 	return asState(state).Finished
 }
 
-func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result {
+func (m Module) CalculateResult(state any, gameCtx gamecore.Context) []gamecore.Result {
 	current := asState(state)
+	if tournamentScoringEnabled(gameCtx.Options) {
+		return calculateTournamentResult(current)
+	}
 	results := make([]gamecore.Result, 0, len(current.Players))
 
 	sort.SliceStable(current.Players, func(i, j int) bool {
@@ -304,10 +333,15 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 func applyGuess(state State, playerID string, payload GuessPayload) State {
 	targetIndex := findPlayerIndex(state, payload.TargetPlayerID)
 	targetTile := &state.Players[targetIndex].Tiles[payload.TileIndex]
+	targetHiddenBefore := hiddenCount(state.Players[targetIndex])
 	correct := matchesGuess(*targetTile, payload)
 
 	if correct {
 		targetTile.Revealed = true
+		addScore(&state, playerID, 1)
+		if targetHiddenBefore == 1 {
+			addScore(&state, playerID, 3)
+		}
 		state.CanEndTurn = true
 		state.Log = append(state.Log, fmt.Sprintf("%s 님의 추측이 성공했습니다.", playerID))
 		state = refreshActivePlayers(state)
@@ -446,6 +480,114 @@ func findPlayerIndex(state State, playerID string) int {
 	return -1
 }
 
+func initialScores(players []PlayerState) map[string]int {
+	scores := make(map[string]int, len(players))
+	for _, player := range players {
+		scores[player.PlayerID] = 0
+	}
+	return scores
+}
+
+func addScore(state *State, playerID string, amount int) {
+	if state.Scores == nil {
+		state.Scores = map[string]int{}
+	}
+	state.Scores[playerID] += amount
+}
+
+func tournamentScoringEnabled(options map[string]any) bool {
+	value, ok := options["tournamentScoring"].(bool)
+	return ok && value
+}
+
+func ruleMessagesFromOptions(options map[string]any) []string {
+	raw, ok := options["ruleMessages"]
+	if !ok {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if value, ok := item.(string); ok {
+				result = append(result, value)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func calculateTournamentResult(state State) []gamecore.Result {
+	scores := map[string]int{}
+	for _, player := range state.Players {
+		scores[player.PlayerID] = state.Scores[player.PlayerID]
+	}
+
+	topHidden := 0
+	for _, player := range state.Players {
+		if hidden := hiddenCount(player); hidden > topHidden {
+			topHidden = hidden
+		}
+	}
+	for _, player := range state.Players {
+		if hiddenCount(player) == topHidden {
+			scores[player.PlayerID] += 5 + hiddenTileValueSum(player)
+		}
+	}
+
+	players := append([]PlayerState(nil), state.Players...)
+	sort.SliceStable(players, func(i, j int) bool {
+		if scores[players[i].PlayerID] != scores[players[j].PlayerID] {
+			return scores[players[i].PlayerID] > scores[players[j].PlayerID]
+		}
+		return hiddenCount(players[i]) > hiddenCount(players[j])
+	})
+
+	results := make([]gamecore.Result, 0, len(players))
+	topScore := 0
+	if len(players) > 0 {
+		topScore = scores[players[0].PlayerID]
+	}
+	tiedAtTop := 0
+	for _, player := range players {
+		if scores[player.PlayerID] == topScore {
+			tiedAtTop++
+		}
+	}
+	for index, player := range players {
+		outcome := gamecore.OutcomeLose
+		if scores[player.PlayerID] == topScore {
+			if tiedAtTop > 1 {
+				outcome = gamecore.OutcomeDraw
+			} else {
+				outcome = gamecore.OutcomeWin
+			}
+		}
+		results = append(results, gamecore.Result{
+			PlayerID: gamecore.PlayerID(player.PlayerID),
+			Rank:     index + 1,
+			Score:    scores[player.PlayerID],
+			Outcome:  outcome,
+		})
+	}
+	return results
+}
+
+func hiddenTileValueSum(player PlayerState) int {
+	sum := 0
+	for _, tile := range player.Tiles {
+		if tile.Revealed || tile.Joker {
+			continue
+		}
+		sum += tile.Value
+	}
+	return sum
+}
+
 func shuffledDeck(seed string, includeDashTiles bool) []Tile {
 	deckSize := 24
 	if includeDashTiles {
@@ -481,6 +623,42 @@ func dashTilesEnabled(options map[string]any) bool {
 		return ok && enabled
 	}
 	return false
+}
+
+func resolveChoice(votes []gamecore.RuleVote, key string, fallback string, seed string) (string, bool) {
+	counts := map[string]int{}
+	for _, vote := range votes {
+		if choice := vote.Choices[key]; choice != "" {
+			counts[choice]++
+		}
+	}
+	if len(counts) == 0 {
+		return fallback, false
+	}
+	choices := make([]string, 0, len(counts))
+	best := 0
+	for choice, count := range counts {
+		if count > best {
+			best = count
+			choices = choices[:0]
+		}
+		if count == best {
+			choices = append(choices, choice)
+		}
+	}
+	sort.Strings(choices)
+	if len(choices) == 1 {
+		return choices[0], false
+	}
+	random := rand.New(rand.NewSource(seedToInt(seed + ":" + key)))
+	return choices[random.Intn(len(choices))], true
+}
+
+func onOffLabel(enabled bool) string {
+	if enabled {
+		return "사용"
+	}
+	return "없음"
 }
 
 func sortTiles(tiles []Tile) {
@@ -559,6 +737,10 @@ func cloneState(state State) State {
 		clone.Players[index].Tiles = append([]Tile(nil), state.Players[index].Tiles...)
 	}
 	clone.Deck = append([]Tile(nil), state.Deck...)
+	clone.Scores = make(map[string]int, len(state.Scores))
+	for playerID, score := range state.Scores {
+		clone.Scores[playerID] = score
+	}
 	clone.Log = append([]string(nil), state.Log...)
 	if state.PendingTile != nil {
 		pending := *state.PendingTile

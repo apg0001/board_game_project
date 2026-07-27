@@ -1,13 +1,24 @@
 /* global self, caches, fetch */
 
-const CACHE_NAME = "board-table-v1";
+const CACHE_NAME = "board-table-v2";
+const PLAYING_CARD_RANKS = ["ace", "2", "3", "4", "5", "6", "7", "8", "9", "10", "jack", "queen", "king"];
+const PLAYING_CARD_SUITS = ["clubs", "diamonds", "hearts", "spades"];
+const PLAYING_CARD_ASSETS = [
+  "/assets/cards/playing/back.png",
+  "/assets/cards/playing/black_joker.svg",
+  "/assets/cards/playing/red_joker.svg",
+  ...PLAYING_CARD_SUITS.flatMap((suit) =>
+    PLAYING_CARD_RANKS.map((rank) => `/assets/cards/playing/${rank}_of_${suit}.svg`)
+  )
+];
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/icons/icon.svg",
   "/icons/maskable-icon.svg",
-  "/assets/table-pattern.svg"
+  "/assets/table-pattern.svg",
+  ...PLAYING_CARD_ASSETS
 ];
 
 self.addEventListener("install", (event) => {

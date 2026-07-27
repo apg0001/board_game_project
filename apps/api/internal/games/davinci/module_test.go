@@ -142,6 +142,21 @@ func TestCreateInitialStateCanEnableAdvancedDashTiles(t *testing.T) {
 	}
 }
 
+func TestResolveRulesConfiguresAdvancedDashAndTournamentScoring(t *testing.T) {
+	module := NewModule()
+	resolution := module.ResolveRules([]gamecore.RuleVote{
+		{UserID: "p1", Choices: map[string]string{"advancedDashTiles": "on", "tournamentScoring": "on"}},
+		{UserID: "p2", Choices: map[string]string{"advancedDashTiles": "on", "tournamentScoring": "on"}},
+	}, "room_seed")
+
+	if resolution.Options["advancedDashTiles"] != true || resolution.Options["tournamentScoring"] != true {
+		t.Fatalf("expected davinci rule options to be enabled, got %#v", resolution.Options)
+	}
+	if len(resolution.Announcements) == 0 {
+		t.Fatal("expected rule announcement")
+	}
+}
+
 func TestPublicStateHidesOpponentJokerFlag(t *testing.T) {
 	module := NewModule()
 	state := State{
@@ -394,6 +409,45 @@ func TestCalculateResultDeclaresSoleRemainingPlayerWinner(t *testing.T) {
 		if result.PlayerID == "p2" && result.Outcome != gamecore.OutcomeLose {
 			t.Fatalf("expected p2 to lose, got %+v", result)
 		}
+	}
+}
+
+func TestTournamentScoringAddsGuessExposeAndWinnerBonuses(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Scores:             map[string]int{"p1": 0, "p2": 0},
+		Players: []PlayerState{
+			{PlayerID: "p1", Tiles: []Tile{{Color: "black", Value: 4}, {Color: "white", Value: 5}}, Active: true},
+			{PlayerID: "p2", Tiles: []Tile{{Color: "white", Value: 7}}, Active: true},
+		},
+		PendingTile:    &Tile{Color: "black", Value: 1},
+		PendingOwnerID: "p1",
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionGuess,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"targetPlayerId": "p2",
+			"tileIndex":      0,
+			"color":          "white",
+			"value":          7,
+		},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Scores["p1"] != 4 {
+		t.Fatalf("expected correct guess plus expose bonus, got scores %#v", next.Scores)
+	}
+
+	ctx := testContext()
+	ctx.Options = map[string]any{"tournamentScoring": true}
+	results := module.CalculateResult(next, ctx)
+	if results[0].PlayerID != "p1" || results[0].Score != 18 || results[0].Outcome != gamecore.OutcomeWin {
+		t.Fatalf("expected p1 tournament score 18, got %+v", results)
 	}
 }
 

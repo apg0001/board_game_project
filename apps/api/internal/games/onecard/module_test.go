@@ -187,14 +187,14 @@ func TestCanPlayMatchesSuitOrRank(t *testing.T) {
 func TestResolveRulesUsesVotesAndTieBreaks(t *testing.T) {
 	module := NewModule()
 	resolution := module.ResolveRules([]gamecore.RuleVote{
-		{UserID: "p1", Choices: map[string]string{"attackCards": "two", "defenseMode": "same-rank", "jokerDrawCount": "7", "stacking": "off", "changeSuitCards": "off", "oneCardPenalty": "off"}},
-		{UserID: "p2", Choices: map[string]string{"attackCards": "two-ace-joker", "defenseMode": "attack-or-joker", "jokerDrawCount": "5", "stacking": "on", "changeSuitCards": "seven-joker", "oneCardPenalty": "on"}},
+		{UserID: "p1", Choices: map[string]string{"attackCards": "two", "defenseMode": "same-rank", "jokerDrawCount": "7", "stacking": "off", "changeSuitCards": "off", "oneCardPenalty": "off", "allowFinalAttack": "off", "allowFinalSpecial": "off"}},
+		{UserID: "p2", Choices: map[string]string{"attackCards": "two-ace-joker", "defenseMode": "attack-or-joker", "jokerDrawCount": "5", "stacking": "on", "changeSuitCards": "seven-joker", "oneCardPenalty": "on", "allowFinalAttack": "on", "allowFinalSpecial": "on"}},
 	}, "room_seed")
 
 	if len(resolution.Announcements) < 2 {
 		t.Fatalf("expected tie announcements, got %#v", resolution.Announcements)
 	}
-	if resolution.Options["jokerDrawCount"] == nil || resolution.Options["stacking"] == nil || resolution.Options["changeSuitCards"] == nil || resolution.Options["oneCardPenalty"] == nil {
+	if resolution.Options["jokerDrawCount"] == nil || resolution.Options["stacking"] == nil || resolution.Options["changeSuitCards"] == nil || resolution.Options["oneCardPenalty"] == nil || resolution.Options["allowFinalAttack"] == nil || resolution.Options["allowFinalSpecial"] == nil {
 		t.Fatalf("expected resolved options, got %#v", resolution.Options)
 	}
 }
@@ -423,6 +423,52 @@ func TestDeclaredSuitControlsNextPlayableSuit(t *testing.T) {
 	}
 	if canPlay(Card{ID: "heart-9", Suit: "heart", Rank: "9"}, next) {
 		t.Fatal("expected previous physical suit to be ignored after declared suit")
+	}
+}
+
+func TestFinalAttackCanBeDisabled(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Direction:          1,
+		Rules:              ruleConfigFromOptions(map[string]any{"allowFinalAttack": false}),
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "heart-2", Suit: "heart", Rank: "2"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "spade-3", Suit: "spade", Rank: "3"}}, Active: true},
+		},
+		DiscardPile: []Card{{ID: "heart-9", Suit: "heart", Rank: "9"}},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "heart-2"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected final attack card to be rejected by room rules")
+	}
+}
+
+func TestFinalSpecialCanBeDisabled(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Direction:          1,
+		Rules:              ruleConfigFromOptions(map[string]any{"allowFinalSpecial": false}),
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "heart-k", Suit: "heart", Rank: "K"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "spade-3", Suit: "spade", Rank: "3"}}, Active: true},
+		},
+		DiscardPile: []Card{{ID: "heart-9", Suit: "heart", Rank: "9"}},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "heart-k"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected final special card to be rejected by room rules")
 	}
 }
 

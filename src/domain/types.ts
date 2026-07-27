@@ -172,6 +172,8 @@ export interface OneCardRules {
   changeSuitCards?: string[];
   oneCardPenalty?: boolean;
   oneCardPenaltyDraw?: number;
+  allowFinalAttack?: boolean;
+  allowFinalSpecial?: boolean;
 }
 
 export interface GameSession {
