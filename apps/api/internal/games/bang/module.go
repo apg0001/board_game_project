@@ -16,6 +16,7 @@ const (
 	ActionEndTurn   = "bang.end_turn"
 	ActionUseMissed = "bang.use_missed"
 	ActionTakeHit   = "bang.take_hit"
+	ActionDiscard   = "bang.discard"
 	CardBang        = "bang"
 	CardMissed      = "missed"
 	CardBeer        = "beer"
@@ -53,20 +54,26 @@ type PendingAttack struct {
 }
 
 type State struct {
-	CurrentPlayerIndex int            `json:"currentPlayerIndex"`
-	Round              int            `json:"round"`
-	Players            []PlayerState  `json:"players"`
-	Deck               []Card         `json:"deck"`
-	Discard            []Card         `json:"discard"`
-	PendingAttack      *PendingAttack `json:"pendingAttack,omitempty"`
-	Winner             string         `json:"winner,omitempty"`
-	Log                []string       `json:"log"`
-	Finished           bool           `json:"finished"`
+	CurrentPlayerIndex  int            `json:"currentPlayerIndex"`
+	Round               int            `json:"round"`
+	Players             []PlayerState  `json:"players"`
+	Deck                []Card         `json:"deck"`
+	Discard             []Card         `json:"discard"`
+	PendingAttack       *PendingAttack `json:"pendingAttack,omitempty"`
+	PendingDiscardID    string         `json:"pendingDiscardPlayerId,omitempty"`
+	PendingDiscardCount int            `json:"pendingDiscardCount,omitempty"`
+	Winner              string         `json:"winner,omitempty"`
+	Log                 []string       `json:"log"`
+	Finished            bool           `json:"finished"`
 }
 
 type PlayPayload struct {
 	CardID         string `json:"cardId"`
 	TargetPlayerID string `json:"targetPlayerId"`
+}
+
+type DiscardPayload struct {
+	CardIDs []string `json:"cardIds"`
 }
 
 type Module struct{}
@@ -149,6 +156,12 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if current.PendingAttack != nil {
 		return errors.New("pending attack response")
 	}
+	if action.Type == ActionDiscard {
+		return validatePendingDiscardAction(current, action)
+	}
+	if current.PendingDiscardID != "" {
+		return errors.New("pending discard")
+	}
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
@@ -204,6 +217,37 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		}
 	default:
 		return errors.New("unsupported action")
+	}
+	return nil
+}
+
+func validatePendingDiscardAction(state State, action gamecore.Action) error {
+	if state.PendingDiscardID == "" || state.PendingDiscardCount <= 0 {
+		return errors.New("no pending discard")
+	}
+	if state.PendingDiscardID != string(action.PlayerID) {
+		return errors.New("not your discard")
+	}
+	playerIndex := findPlayer(state, string(action.PlayerID))
+	if playerIndex < 0 || !state.Players[playerIndex].Alive {
+		return errors.New("player is not active")
+	}
+	payload, err := discardPayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	if len(payload.CardIDs) != state.PendingDiscardCount {
+		return fmt.Errorf("must discard %d cards", state.PendingDiscardCount)
+	}
+	seen := map[string]bool{}
+	for _, cardID := range payload.CardIDs {
+		if seen[cardID] {
+			return errors.New("duplicate discard card")
+		}
+		seen[cardID] = true
+		if _, ok := findCard(state.Players[playerIndex].Hand, cardID); !ok {
+			return errors.New("discard card not found")
+		}
 	}
 	return nil
 }
@@ -268,12 +312,20 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		current = resolvePendingAttackWithMissed(current, string(action.PlayerID))
 	case ActionTakeHit:
 		current = resolvePendingAttackWithDamage(current)
+	case ActionDiscard:
+		payload, err := discardPayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		current = applyPendingDiscard(current, string(action.PlayerID), payload.CardIDs)
 	case ActionEndTurn:
-		player.Drawn = false
-		player.BangUsed = false
-		current.CurrentPlayerIndex = nextAliveIndex(current, current.CurrentPlayerIndex)
-		current.Round++
-		current.Log = append(current.Log, "턴이 넘어갔습니다.")
+		if excess := handLimitExcess(*player); excess > 0 {
+			current.PendingDiscardID = player.PlayerID
+			current.PendingDiscardCount = excess
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 손패 제한으로 카드 %d장을 버려야 합니다.", player.PlayerID, excess))
+		} else {
+			current = finishTurn(current)
+		}
 	}
 	return gamecore.ActionResult{
 		State: current,
@@ -289,13 +341,22 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	current := asState(state)
 	index := findPlayer(current, string(playerID))
 	if index >= 0 && !current.Finished {
+		wasPendingAttackTarget := current.PendingAttack != nil && current.PendingAttack.TargetPlayerID == string(playerID)
 		current.Players[index].HP = 0
 		current.Players[index].Alive = false
 		current.Players[index].Active = false
 		current.Discard = append(current.Discard, current.Players[index].Hand...)
 		current.Players[index].Hand = []Card{}
 		current.Players[index].HandSize = 0
+		if current.PendingDiscardID == string(playerID) {
+			current.PendingDiscardID = ""
+			current.PendingDiscardCount = 0
+		}
 		current = checkEnd(current)
+		if wasPendingAttackTarget && !current.Finished {
+			current.PendingAttack.TargetPlayerID = ""
+			current = advancePendingAttack(current)
+		}
 		if current.CurrentPlayerIndex == index && !current.Finished {
 			current.CurrentPlayerIndex = nextAliveIndex(current, index)
 		}
@@ -323,6 +384,49 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 		})
 	}
 	return results
+}
+
+func applyPendingDiscard(state State, playerID string, cardIDs []string) State {
+	playerIndex := findPlayer(state, playerID)
+	if playerIndex < 0 {
+		return state
+	}
+	player := &state.Players[playerIndex]
+	for _, cardID := range cardIDs {
+		if card, ok := removeCard(player, cardID); ok {
+			state.Discard = append(state.Discard, card)
+		}
+	}
+	if excess := handLimitExcess(*player); excess > 0 {
+		state.PendingDiscardID = player.PlayerID
+		state.PendingDiscardCount = excess
+		state.Log = append(state.Log, fmt.Sprintf("%s 님이 카드 %d장을 더 버려야 합니다.", player.PlayerID, excess))
+		return state
+	}
+	state.PendingDiscardID = ""
+	state.PendingDiscardCount = 0
+	state.Log = append(state.Log, player.PlayerID+" 님이 손패 제한을 맞췄습니다.")
+	return finishTurn(state)
+}
+
+func finishTurn(state State) State {
+	if len(state.Players) == 0 {
+		return state
+	}
+	player := &state.Players[state.CurrentPlayerIndex]
+	player.Drawn = false
+	player.BangUsed = false
+	state.CurrentPlayerIndex = nextAliveIndex(state, state.CurrentPlayerIndex)
+	state.Round++
+	state.Log = append(state.Log, "턴이 넘어갔습니다.")
+	return state
+}
+
+func handLimitExcess(player PlayerState) int {
+	if len(player.Hand) <= player.HP {
+		return 0
+	}
+	return len(player.Hand) - player.HP
 }
 
 func startPendingAttack(state State, sourcePlayerID string, cardType string, targetPlayerIDs []string, damage int) State {
@@ -585,6 +689,33 @@ func playPayload(payload any) (PlayPayload, error) {
 		return PlayPayload{}, errors.New("card is required")
 	}
 	return PlayPayload{CardID: cardID, TargetPlayerID: targetID}, nil
+}
+
+func discardPayload(payload any) (DiscardPayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return DiscardPayload{}, errors.New("invalid discard payload")
+	}
+	value, ok := raw["cardIds"]
+	if !ok {
+		return DiscardPayload{}, errors.New("discard cards are required")
+	}
+	switch typed := value.(type) {
+	case []string:
+		return DiscardPayload{CardIDs: append([]string(nil), typed...)}, nil
+	case []any:
+		cardIDs := make([]string, 0, len(typed))
+		for _, item := range typed {
+			cardID, _ := item.(string)
+			if cardID == "" {
+				return DiscardPayload{}, errors.New("invalid discard card")
+			}
+			cardIDs = append(cardIDs, cardID)
+		}
+		return DiscardPayload{CardIDs: cardIDs}, nil
+	default:
+		return DiscardPayload{}, errors.New("invalid discard cards")
+	}
 }
 
 func findCard(hand []Card, cardID string) (Card, bool) {
