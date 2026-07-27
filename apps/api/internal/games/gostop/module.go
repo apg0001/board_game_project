@@ -157,15 +157,11 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, err
 		}
 		card, _ := removeCard(&player.Hand, payload.CardID)
-		captureMonth(player, &current.Field, card)
-		if len(current.Deck) > 0 {
-			drawn := current.Deck[0]
-			current.Deck = current.Deck[1:]
-			captureMonth(player, &current.Field, drawn)
-		}
+		captureLogs := captureTurn(&current, current.CurrentPlayerIndex, card)
 		player.HandSize = len(player.Hand)
-		player.Score = score(player.Captured)
+		refreshScores(&current)
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 패를 냈습니다.", player.PlayerID))
+		current.Log = append(current.Log, captureLogs...)
 		if len(player.Hand) == 0 || len(current.Deck) == 0 {
 			current = finishWithWinner(current, bestPlayer(current).PlayerID)
 		} else if player.Score >= 3 && player.Score > previousScore {
@@ -325,22 +321,133 @@ func goMultiplier(goCount int) int {
 }
 
 func captureMonth(player *PlayerState, field *[]Card, card Card) {
+	matches := takeMonthCards(field, card.Month)
+	if len(matches) == 0 {
+		*field = append(*field, card)
+		return
+	}
+	player.Captured = append(player.Captured, card)
+	player.Captured = append(player.Captured, matches...)
+}
+
+func captureTurn(state *State, playerIndex int, card Card) []string {
+	player := &state.Players[playerIndex]
+	logs := []string{}
+	capturedThisTurn := 0
+	firstMatches := takeMonthCards(&state.Field, card.Month)
+	if len(firstMatches) > 0 {
+		player.Captured = append(player.Captured, card)
+		player.Captured = append(player.Captured, firstMatches...)
+		capturedThisTurn += 1 + len(firstMatches)
+	} else {
+		state.Field = append(state.Field, card)
+	}
+
+	if len(state.Deck) > 0 {
+		drawn := state.Deck[0]
+		state.Deck = state.Deck[1:]
+		switch {
+		case len(firstMatches) == 1 && drawn.Month == card.Month:
+			player.Captured = player.Captured[:len(player.Captured)-2]
+			capturedThisTurn -= 2
+			state.Field = append(state.Field, card, firstMatches[0], drawn)
+			logs = append(logs, player.PlayerID+" 님이 뻑을 만들었습니다.")
+		case len(firstMatches) == 2 && drawn.Month == card.Month:
+			player.Captured = append(player.Captured, drawn)
+			capturedThisTurn++
+			if stolen := stealJunkFromOpponents(state, playerIndex); stolen > 0 {
+				logs = append(logs, fmt.Sprintf("%s 님이 따닥으로 피 %d장을 가져왔습니다.", player.PlayerID, stolen))
+			} else {
+				logs = append(logs, player.PlayerID+" 님이 따닥을 했습니다.")
+			}
+		default:
+			before := len(player.Captured)
+			drawMatches := takeMonthCards(&state.Field, drawn.Month)
+			if len(drawMatches) > 0 {
+				player.Captured = append(player.Captured, drawn)
+				player.Captured = append(player.Captured, drawMatches...)
+				capturedThisTurn += len(player.Captured) - before
+				if len(firstMatches) == 0 && drawn.Month == card.Month {
+					if stolen := stealJunkFromOpponents(state, playerIndex); stolen > 0 {
+						logs = append(logs, fmt.Sprintf("%s 님이 쪽으로 피 %d장을 가져왔습니다.", player.PlayerID, stolen))
+					} else {
+						logs = append(logs, player.PlayerID+" 님이 쪽을 했습니다.")
+					}
+				}
+			} else {
+				state.Field = append(state.Field, drawn)
+			}
+		}
+	}
+
+	if capturedThisTurn > 0 && len(state.Field) == 0 {
+		if stolen := stealJunkFromOpponents(state, playerIndex); stolen > 0 {
+			logs = append(logs, fmt.Sprintf("%s 님이 싹쓸이로 피 %d장을 가져왔습니다.", player.PlayerID, stolen))
+		} else {
+			logs = append(logs, player.PlayerID+" 님이 싹쓸이를 했습니다.")
+		}
+	}
+	return logs
+}
+
+func takeMonthCards(field *[]Card, month int) []Card {
 	matches := []Card{}
 	rest := []Card{}
 	for _, item := range *field {
-		if item.Month == card.Month {
+		if item.Month == month {
 			matches = append(matches, item)
 		} else {
 			rest = append(rest, item)
 		}
 	}
-	if len(matches) > 0 {
-		player.Captured = append(player.Captured, card)
-		player.Captured = append(player.Captured, matches...)
-		*field = rest
-		return
+	*field = rest
+	return matches
+}
+
+func stealJunkFromOpponents(state *State, playerIndex int) int {
+	stolen := 0
+	for index := range state.Players {
+		if index == playerIndex {
+			continue
+		}
+		card, ok := takeStealableJunk(&state.Players[index])
+		if !ok {
+			continue
+		}
+		state.Players[playerIndex].Captured = append(state.Players[playerIndex].Captured, card)
+		stolen++
 	}
-	*field = append(*field, card)
+	return stolen
+}
+
+func takeStealableJunk(player *PlayerState) (Card, bool) {
+	selected := -1
+	selectedValue := 99
+	for index, card := range player.Captured {
+		if card.Kind != "junk" {
+			continue
+		}
+		value := card.JunkValue
+		if value <= 0 {
+			value = 1
+		}
+		if value < selectedValue {
+			selected = index
+			selectedValue = value
+		}
+	}
+	if selected < 0 {
+		return Card{}, false
+	}
+	card := player.Captured[selected]
+	player.Captured = append(player.Captured[:selected], player.Captured[selected+1:]...)
+	return card, true
+}
+
+func refreshScores(state *State) {
+	for index := range state.Players {
+		state.Players[index].Score = score(state.Players[index].Captured)
+	}
 }
 
 func score(cards []Card) int {
