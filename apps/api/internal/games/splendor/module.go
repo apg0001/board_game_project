@@ -17,6 +17,7 @@ const (
 	ActionTakeToken   = "splendor.take_token"
 	ActionBuyCard     = "splendor.buy_card"
 	ActionReserveCard = "splendor.reserve_card"
+	ActionReturnToken = "splendor.return_tokens"
 )
 
 var (
@@ -63,6 +64,8 @@ type State struct {
 	Finished           bool           `json:"finished"`
 	EndTriggered       bool           `json:"endTriggered,omitempty"`
 	EndTriggerIndex    int            `json:"-"`
+	PendingReturnID    string         `json:"pendingReturnPlayerId,omitempty"`
+	PendingReturnCount int            `json:"pendingReturnCount,omitempty"`
 }
 
 type BuyPayload struct {
@@ -134,6 +137,15 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if current.Finished {
 		return errors.New("game is already finished")
 	}
+	if current.PendingReturnID != "" {
+		if action.Type != ActionReturnToken {
+			return errors.New("excess tokens must be returned first")
+		}
+		if current.PendingReturnID != string(action.PlayerID) {
+			return errors.New("not your token return")
+		}
+		return validateReturnTokens(current, action)
+	}
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
@@ -148,9 +160,6 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		}
 		if err := validateTakeTokens(current, colorList); err != nil {
 			return err
-		}
-		if totalTokens(current.Players[current.CurrentPlayerIndex])+len(colorList) > 10 {
-			return errors.New("token limit is reached")
 		}
 	case ActionReserveCard:
 		payload, err := reservePayload(action.Payload)
@@ -184,6 +193,20 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
 	ensureTieredMarket(&current)
+	if current.PendingReturnID != "" {
+		next, err := applyReturnTokens(current, action)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		return gamecore.ActionResult{
+			State: next,
+			Events: []gamecore.Event{{
+				Type:       "game.state_updated",
+				Visibility: gamecore.VisibilityPublic,
+				Payload:    m.PublicState(next, ""),
+			}},
+		}, nil
+	}
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
 	case ActionTakeToken:
@@ -206,7 +229,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, errors.New("card index out of range")
 		}
 		player.Reserved = append(player.Reserved, card)
-		if current.Bank["gold"] > 0 && totalTokens(*player) < 10 {
+		if current.Bank["gold"] > 0 {
 			player.Tokens["gold"]++
 			current.Bank["gold"]--
 			current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드를 예약하고 금 토큰을 받았습니다.", player.PlayerID))
@@ -236,17 +259,12 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d점 카드를 구매했습니다.", player.PlayerID, card.Points))
 		awardNobleIfQualified(&current, current.CurrentPlayerIndex)
 	}
-	if player.Score >= 15 && !current.EndTriggered {
-		current.EndTriggered = true
-		current.EndTriggerIndex = current.CurrentPlayerIndex
-		current.Log = append(current.Log, fmt.Sprintf("%s 님이 15점을 달성해 이번 라운드가 마지막 라운드가 됩니다.", player.PlayerID))
-	}
-	if !current.Finished {
-		current = advanceTurn(current)
-		if current.EndTriggered && current.CurrentPlayerIndex == current.EndTriggerIndex {
-			current.Finished = true
-			current.Log = append(current.Log, "스플랜더가 종료되었습니다.")
-		}
+	if overflow := totalTokens(*player) - 10; overflow > 0 {
+		current.PendingReturnID = player.PlayerID
+		current.PendingReturnCount = overflow
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 토큰 %d개를 반납해야 합니다.", player.PlayerID, overflow))
+	} else {
+		current = completeTurn(current, current.CurrentPlayerIndex)
 	}
 	return gamecore.ActionResult{
 		State: current,
@@ -266,6 +284,10 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	}
 	current.Players[index].Active = false
 	returnTokensToBank(&current, index)
+	if current.PendingReturnID == string(playerID) {
+		current.PendingReturnID = ""
+		current.PendingReturnCount = 0
+	}
 	current.Log = append(current.Log, string(playerID)+" 님의 재접속 시간이 만료되어 자동 기권 처리되었습니다.")
 	if current.CurrentPlayerIndex == index {
 		current = advanceTurn(current)
@@ -324,6 +346,22 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 	return results
 }
 
+func completeTurn(state State, playerIndex int) State {
+	if playerIndex >= 0 && playerIndex < len(state.Players) && state.Players[playerIndex].Score >= 15 && !state.EndTriggered {
+		state.EndTriggered = true
+		state.EndTriggerIndex = playerIndex
+		state.Log = append(state.Log, fmt.Sprintf("%s 님이 15점을 달성해 이번 라운드가 마지막 라운드가 됩니다.", state.Players[playerIndex].PlayerID))
+	}
+	if !state.Finished {
+		state = advanceTurn(state)
+		if state.EndTriggered && state.CurrentPlayerIndex == state.EndTriggerIndex {
+			state.Finished = true
+			state.Log = append(state.Log, "스플랜더가 종료되었습니다.")
+		}
+	}
+	return state
+}
+
 func advanceTurn(state State) State {
 	for step := 1; step <= len(state.Players); step++ {
 		next := (state.CurrentPlayerIndex + step) % len(state.Players)
@@ -334,6 +372,53 @@ func advanceTurn(state State) State {
 		}
 	}
 	return state
+}
+
+func validateReturnTokens(state State, action gamecore.Action) error {
+	index := findPlayer(state, string(action.PlayerID))
+	if index < 0 {
+		return errors.New("player not found")
+	}
+	tokens, err := returnTokensPayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	total := 0
+	for color, count := range tokens {
+		if !validTokenColor(color) {
+			return errors.New("invalid token color")
+		}
+		if count <= 0 {
+			return errors.New("return token count must be positive")
+		}
+		if state.Players[index].Tokens[color] < count {
+			return errors.New("not enough tokens to return")
+		}
+		total += count
+	}
+	if total != state.PendingReturnCount {
+		return errors.New("must return exact excess token count")
+	}
+	return nil
+}
+
+func applyReturnTokens(state State, action gamecore.Action) (State, error) {
+	if err := validateReturnTokens(state, action); err != nil {
+		return state, err
+	}
+	index := findPlayer(state, string(action.PlayerID))
+	tokens, err := returnTokensPayload(action.Payload)
+	if err != nil {
+		return state, err
+	}
+	for color, count := range tokens {
+		state.Players[index].Tokens[color] -= count
+		state.Bank[color] += count
+	}
+	state.PendingReturnID = ""
+	state.PendingReturnCount = 0
+	state.Log = append(state.Log, fmt.Sprintf("%s 님이 초과 토큰을 반납했습니다.", action.PlayerID))
+	return completeTurn(state, state.CurrentPlayerIndex), nil
 }
 
 func canAfford(player PlayerState, card Card) bool {
@@ -624,6 +709,31 @@ func buyPayload(payload any) (BuyPayload, error) {
 	return result, nil
 }
 
+func returnTokensPayload(payload any) (map[string]int, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return nil, errors.New("invalid return payload")
+	}
+	rawTokens, ok := raw["tokens"].(map[string]any)
+	if !ok {
+		return nil, errors.New("return tokens are required")
+	}
+	tokens := map[string]int{}
+	for color, value := range rawTokens {
+		count, ok := gameutil.Int(value)
+		if !ok {
+			return nil, errors.New("invalid return token count")
+		}
+		if count > 0 {
+			tokens[color] = count
+		}
+	}
+	if len(tokens) == 0 {
+		return nil, errors.New("return tokens are required")
+	}
+	return tokens, nil
+}
+
 func validColor(color string) bool {
 	for _, item := range colors {
 		if item == color {
@@ -631,6 +741,10 @@ func validColor(color string) bool {
 		}
 	}
 	return false
+}
+
+func validTokenColor(color string) bool {
+	return color == "gold" || validColor(color)
 }
 
 func emptyCounter() map[string]int {

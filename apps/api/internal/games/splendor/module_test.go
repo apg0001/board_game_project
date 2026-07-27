@@ -95,6 +95,61 @@ func TestSingleTokenTakeIsRejected(t *testing.T) {
 	}
 }
 
+func TestTakingTokensOverLimitRequiresReturnBeforeTurnAdvances(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Players[0].Tokens["white"] = 4
+	state.Players[0].Tokens["blue"] = 3
+	state.Players[0].Tokens["green"] = 1
+	state.Bank["white"] -= 4
+	state.Bank["blue"] -= 3
+	state.Bank["green"]--
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionTakeToken,
+		PlayerID: "p1",
+		Payload:  map[string]any{"colors": []any{"red", "green", "black"}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pending := result.State.(State)
+	if pending.PendingReturnID != "p1" || pending.PendingReturnCount != 1 {
+		t.Fatalf("expected p1 to return one token, got id=%q count=%d", pending.PendingReturnID, pending.PendingReturnCount)
+	}
+	if pending.CurrentPlayerIndex != 0 || totalTokens(pending.Players[0]) != 11 {
+		t.Fatalf("expected turn to wait with 11 tokens, got turn=%d tokens=%d", pending.CurrentPlayerIndex, totalTokens(pending.Players[0]))
+	}
+	err = module.ValidateAction(context.Background(), pending, gamecore.Action{
+		Type:     ActionTakeToken,
+		PlayerID: "p2",
+		Payload:  map[string]any{"colors": []any{"white", "blue", "green"}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected other actions to be blocked while token return is pending")
+	}
+
+	returned, err := module.ApplyAction(context.Background(), pending, gamecore.Action{
+		Type:     ActionReturnToken,
+		PlayerID: "p1",
+		Payload:  map[string]any{"tokens": map[string]any{"red": 1}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := returned.State.(State)
+	if next.PendingReturnID != "" || next.PendingReturnCount != 0 {
+		t.Fatalf("expected pending return cleared, got id=%q count=%d", next.PendingReturnID, next.PendingReturnCount)
+	}
+	if totalTokens(next.Players[0]) != 10 || next.Bank["red"] != state.Bank["red"] {
+		t.Fatalf("expected one red returned, got tokens=%d bankRed=%d", totalTokens(next.Players[0]), next.Bank["red"])
+	}
+	if next.CurrentPlayerIndex != 1 {
+		t.Fatalf("expected turn to advance after return, got %d", next.CurrentPlayerIndex)
+	}
+}
+
 func TestBuyCardUsesTokens(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
@@ -149,6 +204,44 @@ func TestReserveCardTakesGoldAndRefillsMarket(t *testing.T) {
 	}
 	if len(next.Market) != 12 || len(next.Markets[1]) != 4 || next.Markets[1][3].ID != nextDeckID {
 		t.Fatalf("expected tier 1 market refill with next deck card %s, got %+v", nextDeckID, next.Markets[1])
+	}
+}
+
+func TestReserveAtTokenLimitTakesGoldThenRequiresReturn(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Players[0].Tokens["white"] = 4
+	state.Players[0].Tokens["blue"] = 3
+	state.Players[0].Tokens["green"] = 3
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionReserveCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"marketTier": 1, "marketIndex": 0},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pending := result.State.(State)
+	if pending.Players[0].Tokens["gold"] != 1 || pending.Bank["gold"] != 4 {
+		t.Fatalf("expected gold to be taken before excess return, got player=%d bank=%d", pending.Players[0].Tokens["gold"], pending.Bank["gold"])
+	}
+	if pending.PendingReturnID != "p1" || pending.PendingReturnCount != 1 {
+		t.Fatalf("expected one-token return after reservation, got id=%q count=%d", pending.PendingReturnID, pending.PendingReturnCount)
+	}
+
+	returned, err := module.ApplyAction(context.Background(), pending, gamecore.Action{
+		Type:     ActionReturnToken,
+		PlayerID: "p1",
+		Payload:  map[string]any{"tokens": map[string]any{"gold": 1}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := returned.State.(State)
+	if next.Players[0].Tokens["gold"] != 0 || next.Bank["gold"] != 5 || next.CurrentPlayerIndex != 1 {
+		t.Fatalf("expected returned gold and turn advance, got playerGold=%d bankGold=%d turn=%d", next.Players[0].Tokens["gold"], next.Bank["gold"], next.CurrentPlayerIndex)
 	}
 }
 

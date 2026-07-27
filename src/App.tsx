@@ -525,6 +525,9 @@ export function App() {
   const turnBadgeLabel = isSessionFinished ? "게임 종료" : isMyTurn ? "내 차례" : "상대 차례";
   const splendorColors = ["white", "blue", "green", "red", "black"];
   const splendorMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const splendorReturnCount = currentSession?.state.pendingReturnCount ?? 0;
+  const splendorMustReturnTokens = Boolean(currentSession?.state.pendingReturnPlayerId === playerID && splendorReturnCount > 0);
+  const splendorTokenColors = splendorMustReturnTokens ? [...splendorColors, "gold"] : splendorColors;
   const splendorTierRows = [3, 2, 1]
     .map((tier) => ({
       tier,
@@ -1347,18 +1350,32 @@ export function App() {
                     ) : currentSession.gameId === "splendor" ? (
                       <div className="room-actions">
                         <div className="splendor-bank" aria-label="보석 은행">
-                          {splendorColors.map((color) => {
+                          {splendorTokenColors.map((color) => {
                             const selectedCount = selectedGemColors.filter((selected) => selected === color).length;
+                            const availableCount = splendorMustReturnTokens
+                              ? (splendorMe?.tokens?.[color] ?? 0)
+                              : (currentSession.state.bank?.[color] ?? 0);
                             return (
                               <button
                                 className={`gem-button ${color} ${selectedCount > 0 ? "selected" : ""}`}
                                 key={color}
-                                onClick={() => setSelectedGemColors((previous) => toggleGemColor(previous, color))}
-                                disabled={!isMyTurn || (currentSession.state.bank?.[color] ?? 0) <= 0}
+                                onClick={() =>
+                                  setSelectedGemColors((previous) =>
+                                    splendorMustReturnTokens
+                                      ? toggleReturnGemColor(previous, color, splendorReturnCount, availableCount)
+                                      : toggleGemColor(previous, color)
+                                  )
+                                }
+                                disabled={
+                                  splendorMustReturnTokens
+                                    ? (availableCount <= 0 && selectedCount === 0) ||
+                                      (selectedGemColors.length >= splendorReturnCount && selectedCount === 0)
+                                    : !isMyTurn || availableCount <= 0
+                                }
                               >
                                 <span>{gemLabel(color)}</span>
                                 <strong>
-                                  {currentSession.state.bank?.[color] ?? 0}
+                                  {availableCount}
                                   {selectedCount > 0 ? ` · 선택 ${selectedCount}` : ""}
                                 </strong>
                               </button>
@@ -1372,18 +1389,26 @@ export function App() {
                               sendGameAction(
                                 currentSession.id,
                                 currentRoom?.id,
-                                "splendor.take_token",
+                                splendorMustReturnTokens ? "splendor.return_tokens" : "splendor.take_token",
                                 (session) => {
                                   setCurrentSession(session);
                                   setSelectedGemColors([]);
                                 },
                                 setRoomMessage,
-                                { colors: selectedGemColors }
+                                splendorMustReturnTokens
+                                  ? { tokens: countSelectedColors(selectedGemColors) }
+                                  : { colors: selectedGemColors }
                               )
                             }
-                            disabled={!isMyTurn || !isValidGemSelection(selectedGemColors)}
+                            disabled={
+                              splendorMustReturnTokens
+                                ? !isValidReturnGemSelection(selectedGemColors, splendorReturnCount)
+                                : !isMyTurn || !isValidGemSelection(selectedGemColors)
+                            }
                           >
-                            보석 가져가기 (다른 색 3개 또는 같은 색 2개)
+                            {splendorMustReturnTokens
+                              ? `초과 토큰 ${splendorReturnCount}개 반납`
+                              : "보석 가져가기 (다른 색 3개 또는 같은 색 2개)"}
                             <ChevronRight size={18} />
                           </button>
                           <button
@@ -1417,7 +1442,7 @@ export function App() {
                                           { marketTier: row.tier, marketIndex: index }
                                         )
                                       }
-                                      disabled={!isMyTurn}
+                                      disabled={!isMyTurn || splendorReturnCount > 0}
                                     >
                                       구매
                                     </button>
@@ -1433,7 +1458,7 @@ export function App() {
                                           { marketTier: row.tier, marketIndex: index }
                                         )
                                       }
-                                      disabled={!isMyTurn || (splendorMe?.reserved?.length ?? 0) >= 3}
+                                      disabled={!isMyTurn || splendorReturnCount > 0 || (splendorMe?.reserved?.length ?? 0) >= 3}
                                     >
                                       예약
                                     </button>
@@ -1460,7 +1485,7 @@ export function App() {
                                       { reservedIndex: index }
                                     )
                                   }
-                                  disabled={!isMyTurn}
+                                  disabled={!isMyTurn || splendorReturnCount > 0}
                                 >
                                   구매
                                 </button>
@@ -2836,7 +2861,8 @@ function gemLabel(color: string) {
     blue: "파랑",
     green: "초록",
     red: "빨강",
-    black: "검정"
+    black: "검정",
+    gold: "금"
   };
   return labels[color] ?? color;
 }
@@ -2955,6 +2981,23 @@ function toggleGemColor(selected: string[], color: string): string[] {
   return selected;
 }
 
+function toggleReturnGemColor(selected: string[], color: string, limit: number, available: number): string[] {
+  const selectedCount = selected.filter((item) => item === color).length;
+  if (selectedCount >= available || selected.length >= limit) {
+    const index = selected.indexOf(color);
+    if (index < 0) return selected;
+    return [...selected.slice(0, index), ...selected.slice(index + 1)];
+  }
+  return [...selected, color];
+}
+
+function countSelectedColors(selected: string[]) {
+  return selected.reduce<Record<string, number>>((counts, color) => {
+    counts[color] = (counts[color] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
 function isValidGemSelection(selected: string[]): boolean {
   if (selected.length === 3) {
     return new Set(selected).size === 3;
@@ -2963,4 +3006,8 @@ function isValidGemSelection(selected: string[]): boolean {
     return selected[0] === selected[1];
   }
   return false;
+}
+
+function isValidReturnGemSelection(selected: string[], requiredCount: number): boolean {
+  return requiredCount > 0 && selected.length === requiredCount;
 }
