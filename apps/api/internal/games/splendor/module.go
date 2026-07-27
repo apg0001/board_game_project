@@ -28,12 +28,19 @@ type Card struct {
 	Cost   map[string]int `json:"cost"`
 }
 
+type Noble struct {
+	ID     string         `json:"id"`
+	Points int            `json:"points"`
+	Cost   map[string]int `json:"cost"`
+}
+
 type PlayerState struct {
 	PlayerID string         `json:"playerId"`
 	Tokens   map[string]int `json:"tokens"`
 	Bonuses  map[string]int `json:"bonuses"`
 	Cards    []Card         `json:"cards"`
 	Reserved []Card         `json:"reserved"`
+	Nobles   []Noble        `json:"nobles"`
 	Score    int            `json:"score"`
 	Active   bool           `json:"active"`
 }
@@ -44,6 +51,7 @@ type State struct {
 	Bank               map[string]int `json:"bank"`
 	Market             []Card         `json:"market"`
 	Deck               []Card         `json:"deck"`
+	Nobles             []Noble        `json:"nobles"`
 	Players            []PlayerState  `json:"players"`
 	Log                []string       `json:"log"`
 	Finished           bool           `json:"finished"`
@@ -90,6 +98,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 			Bonuses:  emptyCounter(),
 			Cards:    []Card{},
 			Reserved: []Card{},
+			Nobles:   []Noble{},
 			Active:   true,
 		})
 	}
@@ -99,6 +108,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 		Bank:               startingBank(len(ctx.Players)),
 		Market:             market,
 		Deck:               deck,
+		Nobles:             startingNobles(ctx.RandomSeed, len(ctx.Players)),
 		Players:            players,
 		Log:                []string{"스플랜더가 시작되었습니다."},
 	}
@@ -218,6 +228,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			}
 		}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d점 카드를 구매했습니다.", player.PlayerID, card.Points))
+		awardNobleIfQualified(&current, current.CurrentPlayerIndex)
 	}
 	if player.Score >= 15 && !current.EndTriggered {
 		current.EndTriggered = true
@@ -356,6 +367,32 @@ func payCost(player *PlayerState, state *State, card Card) {
 			state.Bank["gold"] += goldPayment
 		}
 	}
+}
+
+func awardNobleIfQualified(state *State, playerIndex int) {
+	if playerIndex < 0 || playerIndex >= len(state.Players) {
+		return
+	}
+	player := &state.Players[playerIndex]
+	for nobleIndex, noble := range state.Nobles {
+		if !canReceiveNoble(*player, noble) {
+			continue
+		}
+		player.Nobles = append(player.Nobles, noble)
+		player.Score += noble.Points
+		state.Nobles = append(state.Nobles[:nobleIndex], state.Nobles[nobleIndex+1:]...)
+		state.Log = append(state.Log, fmt.Sprintf("%s 님에게 귀족이 방문했습니다.", player.PlayerID))
+		return
+	}
+}
+
+func canReceiveNoble(player PlayerState, noble Noble) bool {
+	for color, required := range noble.Cost {
+		if player.Bonuses[color] < required {
+			return false
+		}
+	}
+	return true
 }
 
 func selectedBuyCard(player PlayerState, market []Card, payload BuyPayload) (Card, bool) {
@@ -543,11 +580,36 @@ func startingBank(playerCount int) map[string]int {
 	return bank
 }
 
+func startingNobles(seed string, playerCount int) []Noble {
+	nobles := []Noble{
+		{ID: "noble-1", Points: 3, Cost: map[string]int{"white": 4, "blue": 4}},
+		{ID: "noble-2", Points: 3, Cost: map[string]int{"blue": 4, "green": 4}},
+		{ID: "noble-3", Points: 3, Cost: map[string]int{"green": 4, "red": 4}},
+		{ID: "noble-4", Points: 3, Cost: map[string]int{"red": 4, "black": 4}},
+		{ID: "noble-5", Points: 3, Cost: map[string]int{"black": 4, "white": 4}},
+		{ID: "noble-6", Points: 3, Cost: map[string]int{"white": 3, "blue": 3, "green": 3}},
+		{ID: "noble-7", Points: 3, Cost: map[string]int{"blue": 3, "green": 3, "red": 3}},
+		{ID: "noble-8", Points: 3, Cost: map[string]int{"green": 3, "red": 3, "black": 3}},
+		{ID: "noble-9", Points: 3, Cost: map[string]int{"red": 3, "black": 3, "white": 3}},
+		{ID: "noble-10", Points: 3, Cost: map[string]int{"black": 3, "white": 3, "blue": 3}},
+	}
+	random := rand.New(rand.NewSource(seedToInt(seed + ":nobles")))
+	random.Shuffle(len(nobles), func(i, j int) {
+		nobles[i], nobles[j] = nobles[j], nobles[i]
+	})
+	count := playerCount + 1
+	if count > len(nobles) {
+		count = len(nobles)
+	}
+	return cloneNobles(nobles[:count])
+}
+
 func cloneState(state State) State {
 	clone := state
 	clone.Bank = copyCounter(state.Bank)
 	clone.Market = cloneCards(state.Market)
 	clone.Deck = cloneCards(state.Deck)
+	clone.Nobles = cloneNobles(state.Nobles)
 	clone.Players = make([]PlayerState, len(state.Players))
 	for index := range state.Players {
 		clone.Players[index] = state.Players[index]
@@ -555,6 +617,7 @@ func cloneState(state State) State {
 		clone.Players[index].Bonuses = copyCounter(state.Players[index].Bonuses)
 		clone.Players[index].Cards = cloneCards(state.Players[index].Cards)
 		clone.Players[index].Reserved = cloneCards(state.Players[index].Reserved)
+		clone.Players[index].Nobles = cloneNobles(state.Players[index].Nobles)
 	}
 	clone.Log = append([]string(nil), state.Log...)
 	return clone
@@ -565,6 +628,15 @@ func cloneCards(cards []Card) []Card {
 	for index := range cards {
 		result[index] = cards[index]
 		result[index].Cost = copyCounter(cards[index].Cost)
+	}
+	return result
+}
+
+func cloneNobles(nobles []Noble) []Noble {
+	result := make([]Noble, len(nobles))
+	for index := range nobles {
+		result[index] = nobles[index]
+		result[index].Cost = copyCounter(nobles[index].Cost)
 	}
 	return result
 }
