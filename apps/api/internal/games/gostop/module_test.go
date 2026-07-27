@@ -30,6 +30,63 @@ func TestScoreBrightAndJunk(t *testing.T) {
 	}
 }
 
+func TestScoreRainBrightThreeGwang(t *testing.T) {
+	cards := []Card{
+		{Kind: "bright"},
+		{Kind: "bright"},
+		{Kind: "bright", Tags: []string{"rain"}},
+	}
+	if score(cards) != 2 {
+		t.Fatalf("expected rain three-gwang to score 2, got %d", score(cards))
+	}
+}
+
+func TestScoreGodoriAndRibbonSets(t *testing.T) {
+	cards := []Card{
+		{Month: 2, Kind: "animal", Tags: []string{"bird"}},
+		{Month: 4, Kind: "animal", Tags: []string{"bird"}},
+		{Month: 8, Kind: "animal", Tags: []string{"bird"}},
+		{Kind: "ribbon", Tags: []string{"red"}},
+		{Kind: "ribbon", Tags: []string{"red"}},
+		{Kind: "ribbon", Tags: []string{"red"}},
+		{Kind: "ribbon", Tags: []string{"blue"}},
+		{Kind: "ribbon", Tags: []string{"blue"}},
+		{Kind: "ribbon", Tags: []string{"blue"}},
+	}
+	if score(cards) != 13 {
+		t.Fatalf("expected godori 5 + six ribbons 2 + two ribbon sets 6 = 13, got %d", score(cards))
+	}
+}
+
+func TestScoreDoubleJunk(t *testing.T) {
+	cards := []Card{
+		{Kind: "junk", JunkValue: 2},
+		{Kind: "junk", JunkValue: 2},
+		{Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"}, {Kind: "junk"},
+	}
+	if score(cards) != 1 {
+		t.Fatalf("expected double junk to count as ten junk and score 1, got %d", score(cards))
+	}
+}
+
+func TestStandardDeckHasTaggedScoringCards(t *testing.T) {
+	deck := standardDeck()
+	if len(deck) != 48 {
+		t.Fatalf("expected 48 cards, got %d", len(deck))
+	}
+	required := map[string]bool{"2-animal": false, "3-ribbon": false, "12-bright": false, "11-junk-double": false}
+	for _, card := range deck {
+		if _, ok := required[card.ID]; ok {
+			required[card.ID] = true
+		}
+	}
+	for id, ok := range required {
+		if !ok {
+			t.Fatalf("expected standard deck to include %s", id)
+		}
+	}
+}
+
 func TestScoringPlayWaitsForGoStopDecision(t *testing.T) {
 	module := NewModule()
 	state := State{

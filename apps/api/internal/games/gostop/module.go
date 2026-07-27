@@ -17,9 +17,11 @@ const (
 )
 
 type Card struct {
-	ID    string `json:"id"`
-	Month int    `json:"month"`
-	Kind  string `json:"kind"`
+	ID        string   `json:"id"`
+	Month     int      `json:"month"`
+	Kind      string   `json:"kind"`
+	Tags      []string `json:"tags,omitempty"`
+	JunkValue int      `json:"junkValue,omitempty"`
 }
 
 type PlayerState struct {
@@ -270,25 +272,43 @@ func captureMonth(player *PlayerState, field *[]Card, card Card) {
 
 func score(cards []Card) int {
 	bright, animal, ribbon, junk := 0, 0, 0, 0
+	rainBright := false
 	birds := map[int]bool{}
+	ribbonSets := map[string]int{}
 	for _, card := range cards {
 		switch card.Kind {
 		case "bright":
 			bright++
+			if hasTag(card, "rain") {
+				rainBright = true
+			}
 		case "animal":
 			animal++
-			if card.Month == 2 || card.Month == 4 || card.Month == 8 {
+			if hasTag(card, "bird") || card.Month == 2 || card.Month == 4 || card.Month == 8 {
 				birds[card.Month] = true
 			}
 		case "ribbon":
 			ribbon++
+			for _, tag := range card.Tags {
+				if tag == "red" || tag == "blue" || tag == "poetry" {
+					ribbonSets[tag]++
+				}
+			}
 		default:
-			junk++
+			if card.JunkValue > 0 {
+				junk += card.JunkValue
+			} else {
+				junk++
+			}
 		}
 	}
 	total := 0
 	if bright == 3 {
-		total += 3
+		if rainBright {
+			total += 2
+		} else {
+			total += 3
+		}
 	}
 	if bright == 4 {
 		total += 4
@@ -304,6 +324,11 @@ func score(cards []Card) int {
 	}
 	if ribbon >= 5 {
 		total += ribbon - 4
+	}
+	for _, tag := range []string{"red", "blue", "poetry"} {
+		if ribbonSets[tag] >= 3 {
+			total += 3
+		}
 	}
 	if junk >= 10 {
 		total += junk - 9
@@ -385,15 +410,7 @@ func rankForOutcome(outcome gamecore.Outcome) int {
 }
 
 func shuffledDeck(seed string) []Card {
-	deck := []Card{}
-	for month := 1; month <= 12; month++ {
-		deck = append(deck,
-			Card{ID: fmt.Sprintf("%d-bright", month), Month: month, Kind: brightKind(month)},
-			Card{ID: fmt.Sprintf("%d-animal", month), Month: month, Kind: "animal"},
-			Card{ID: fmt.Sprintf("%d-ribbon", month), Month: month, Kind: "ribbon"},
-			Card{ID: fmt.Sprintf("%d-junk", month), Month: month, Kind: "junk"},
-		)
-	}
+	deck := standardDeck()
 	random := rand.New(rand.NewSource(seedToInt(seed)))
 	random.Shuffle(len(deck), func(i, j int) {
 		deck[i], deck[j] = deck[j], deck[i]
@@ -401,11 +418,66 @@ func shuffledDeck(seed string) []Card {
 	return deck
 }
 
-func brightKind(month int) string {
-	if month == 1 || month == 3 || month == 8 || month == 11 || month == 12 {
-		return "bright"
+func standardDeck() []Card {
+	return []Card{
+		{ID: "1-bright", Month: 1, Kind: "bright"},
+		{ID: "1-ribbon", Month: 1, Kind: "ribbon", Tags: []string{"red"}},
+		{ID: "1-junk-a", Month: 1, Kind: "junk"},
+		{ID: "1-junk-b", Month: 1, Kind: "junk"},
+		{ID: "2-animal", Month: 2, Kind: "animal", Tags: []string{"bird"}},
+		{ID: "2-ribbon", Month: 2, Kind: "ribbon", Tags: []string{"red"}},
+		{ID: "2-junk-a", Month: 2, Kind: "junk"},
+		{ID: "2-junk-b", Month: 2, Kind: "junk"},
+		{ID: "3-bright", Month: 3, Kind: "bright"},
+		{ID: "3-ribbon", Month: 3, Kind: "ribbon", Tags: []string{"red"}},
+		{ID: "3-junk-a", Month: 3, Kind: "junk"},
+		{ID: "3-junk-b", Month: 3, Kind: "junk"},
+		{ID: "4-animal", Month: 4, Kind: "animal", Tags: []string{"bird"}},
+		{ID: "4-ribbon", Month: 4, Kind: "ribbon", Tags: []string{"poetry"}},
+		{ID: "4-junk-a", Month: 4, Kind: "junk"},
+		{ID: "4-junk-b", Month: 4, Kind: "junk"},
+		{ID: "5-animal", Month: 5, Kind: "animal"},
+		{ID: "5-ribbon", Month: 5, Kind: "ribbon", Tags: []string{"poetry"}},
+		{ID: "5-junk-a", Month: 5, Kind: "junk"},
+		{ID: "5-junk-b", Month: 5, Kind: "junk"},
+		{ID: "6-animal", Month: 6, Kind: "animal"},
+		{ID: "6-ribbon", Month: 6, Kind: "ribbon", Tags: []string{"blue"}},
+		{ID: "6-junk-a", Month: 6, Kind: "junk"},
+		{ID: "6-junk-b", Month: 6, Kind: "junk"},
+		{ID: "7-animal", Month: 7, Kind: "animal"},
+		{ID: "7-ribbon", Month: 7, Kind: "ribbon", Tags: []string{"poetry"}},
+		{ID: "7-junk-a", Month: 7, Kind: "junk"},
+		{ID: "7-junk-b", Month: 7, Kind: "junk"},
+		{ID: "8-bright", Month: 8, Kind: "bright"},
+		{ID: "8-animal", Month: 8, Kind: "animal", Tags: []string{"bird"}},
+		{ID: "8-junk-a", Month: 8, Kind: "junk"},
+		{ID: "8-junk-b", Month: 8, Kind: "junk"},
+		{ID: "9-animal", Month: 9, Kind: "animal"},
+		{ID: "9-ribbon", Month: 9, Kind: "ribbon", Tags: []string{"blue"}},
+		{ID: "9-junk-a", Month: 9, Kind: "junk"},
+		{ID: "9-junk-b", Month: 9, Kind: "junk"},
+		{ID: "10-animal", Month: 10, Kind: "animal"},
+		{ID: "10-ribbon", Month: 10, Kind: "ribbon", Tags: []string{"blue"}},
+		{ID: "10-junk-a", Month: 10, Kind: "junk"},
+		{ID: "10-junk-b", Month: 10, Kind: "junk"},
+		{ID: "11-bright", Month: 11, Kind: "bright"},
+		{ID: "11-animal", Month: 11, Kind: "animal"},
+		{ID: "11-junk-double", Month: 11, Kind: "junk", JunkValue: 2},
+		{ID: "11-junk", Month: 11, Kind: "junk"},
+		{ID: "12-bright", Month: 12, Kind: "bright", Tags: []string{"rain"}},
+		{ID: "12-animal", Month: 12, Kind: "animal"},
+		{ID: "12-ribbon", Month: 12, Kind: "ribbon"},
+		{ID: "12-junk-double", Month: 12, Kind: "junk", JunkValue: 2},
 	}
-	return "junk"
+}
+
+func hasTag(card Card, tag string) bool {
+	for _, item := range card.Tags {
+		if item == tag {
+			return true
+		}
+	}
+	return false
 }
 
 func seedToInt(seed string) int64 {
