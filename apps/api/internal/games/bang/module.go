@@ -976,7 +976,9 @@ func resolveStartOfTurnCards(state State, playerIndex int) (State, bool) {
 	playerID := state.Players[playerIndex].PlayerID
 	if hasEquipment(state.Players[playerIndex], CardDynamite) {
 		dynamite, _ := removeEquipment(&state.Players[playerIndex], firstEquipmentID(state.Players[playerIndex], CardDynamite))
-		check, ok := drawCheck(&state)
+		check, ok := drawCheckForPlayer(&state, playerIndex, func(card Card) bool {
+			return !dynamiteExplodes(card)
+		})
 		if ok && dynamiteExplodes(check) {
 			state.Discard = append(state.Discard, dynamite)
 			state.Log = append(state.Log, playerID+" 님의 다이너마이트가 폭발했습니다.")
@@ -996,7 +998,7 @@ func resolveStartOfTurnCards(state State, playerIndex int) (State, bool) {
 	}
 	if hasEquipment(state.Players[playerIndex], CardJail) {
 		jail, _ := removeEquipment(&state.Players[playerIndex], firstEquipmentID(state.Players[playerIndex], CardJail))
-		check, ok := drawCheck(&state)
+		check, ok := drawCheckForPlayer(&state, playerIndex, drawCheckIsHeart)
 		state.Discard = append(state.Discard, jail)
 		if ok && drawCheckIsHeart(check) {
 			state.Log = append(state.Log, playerID+" 님이 감옥에서 풀려났습니다.")
@@ -1048,7 +1050,7 @@ func advancePendingAttack(state State) State {
 			barrelAttempts := barrelAttemptCount(state.Players[targetIndex])
 			avoided := false
 			for attempt := 0; attempt < barrelAttempts; attempt++ {
-				check, ok := drawCheck(&state)
+				check, ok := drawCheckForPlayer(&state, targetIndex, drawCheckIsHeart)
 				if ok && drawCheckIsHeart(check) {
 					state.Log = append(state.Log, targetPlayerID+" 님이 술통으로 공격을 피했습니다.")
 					avoided = true
@@ -1372,12 +1374,24 @@ func drawCards(state *State, count int) []Card {
 	return drawn
 }
 
-func drawCheck(state *State) (Card, bool) {
-	drawn := drawCards(state, 1)
+func drawCheckForPlayer(state *State, playerIndex int, prefer func(Card) bool) (Card, bool) {
+	count := 1
+	if playerIndex >= 0 && playerIndex < len(state.Players) && hasCharacter(state.Players[playerIndex], CharacterLucky) {
+		count = 2
+	}
+	drawn := drawCards(state, count)
 	if len(drawn) == 0 {
 		return Card{}, false
 	}
-	state.Discard = append(state.Discard, drawn[0])
+	state.Discard = append(state.Discard, drawn...)
+	if len(drawn) > 1 {
+		for _, card := range drawn {
+			if prefer(card) {
+				state.Log = append(state.Log, state.Players[playerIndex].PlayerID+" 님이 럭키 듀크 능력으로 유리한 Draw! 결과를 선택했습니다.")
+				return card, true
+			}
+		}
+	}
 	return drawn[0], true
 }
 
