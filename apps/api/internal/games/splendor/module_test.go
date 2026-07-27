@@ -365,6 +365,63 @@ func TestNobleVisitsQualifiedPlayerAfterAction(t *testing.T) {
 	}
 }
 
+func TestMultipleEligibleNoblesRequirePlayerChoice(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Nobles = []Noble{
+		{ID: "noble-white", Points: 3, Cost: map[string]int{"white": 1}},
+		{ID: "noble-blue", Points: 3, Cost: map[string]int{"white": 1}},
+	}
+	setVisibleCard(&state, 1, 0, Card{ID: "white-free", Tier: 1, Color: "white", Points: 0, Cost: map[string]int{}})
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionBuyCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"marketTier": 1, "marketIndex": 0},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pending := result.State.(State)
+	if pending.PendingNobleID != "p1" || len(pending.PendingNobles) != 2 {
+		t.Fatalf("expected pending noble choice for p1, got id=%q choices=%+v", pending.PendingNobleID, pending.PendingNobles)
+	}
+	if len(pending.Players[0].Nobles) != 0 || pending.Players[0].Score != 0 || pending.CurrentPlayerIndex != 0 {
+		t.Fatalf("expected no noble awarded before choice and turn to wait, got player=%+v turn=%d", pending.Players[0], pending.CurrentPlayerIndex)
+	}
+	err = module.ValidateAction(context.Background(), pending, gamecore.Action{
+		Type:     ActionTakeToken,
+		PlayerID: "p2",
+		Payload:  map[string]any{"colors": []any{"white", "blue", "green"}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected other actions to be blocked while noble choice is pending")
+	}
+
+	chosen, err := module.ApplyAction(context.Background(), pending, gamecore.Action{
+		Type:     ActionChooseNoble,
+		PlayerID: "p1",
+		Payload:  map[string]any{"nobleId": "noble-blue"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := chosen.State.(State)
+	if next.PendingNobleID != "" || len(next.PendingNobles) != 0 {
+		t.Fatalf("expected pending noble choice cleared, got id=%q choices=%+v", next.PendingNobleID, next.PendingNobles)
+	}
+	if len(next.Players[0].Nobles) != 1 || next.Players[0].Nobles[0].ID != "noble-blue" || next.Players[0].Score != 3 {
+		t.Fatalf("expected selected noble awarded, got %+v", next.Players[0])
+	}
+	if len(next.Nobles) != 1 || next.Nobles[0].ID != "noble-white" {
+		t.Fatalf("expected unchosen noble to remain, got %+v", next.Nobles)
+	}
+	if next.CurrentPlayerIndex != 1 {
+		t.Fatalf("expected turn to advance after noble choice, got %d", next.CurrentPlayerIndex)
+	}
+}
+
 func TestNobleDoesNotVisitAfterNonBuyAction(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)

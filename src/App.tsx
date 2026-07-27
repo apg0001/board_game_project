@@ -527,6 +527,11 @@ export function App() {
   const splendorMe = davinciPlayers.find((player) => player.playerId === playerID);
   const splendorReturnCount = currentSession?.state.pendingReturnCount ?? 0;
   const splendorMustReturnTokens = Boolean(currentSession?.state.pendingReturnPlayerId === playerID && splendorReturnCount > 0);
+  const splendorPendingNobleChoices = currentSession?.state.pendingNobleChoices ?? [];
+  const splendorMustChooseNoble = Boolean(
+    currentSession?.state.pendingNoblePlayerId === playerID && splendorPendingNobleChoices.length > 0
+  );
+  const splendorActionBlocked = splendorReturnCount > 0 || splendorPendingNobleChoices.length > 0;
   const splendorTokenColors = splendorMustReturnTokens ? [...splendorColors, "gold"] : splendorColors;
   const splendorTierRows = [3, 2, 1]
     .map((tier) => ({
@@ -1370,7 +1375,7 @@ export function App() {
                                   splendorMustReturnTokens
                                     ? (availableCount <= 0 && selectedCount === 0) ||
                                       (selectedGemColors.length >= splendorReturnCount && selectedCount === 0)
-                                    : !isMyTurn || availableCount <= 0
+                                    : !isMyTurn || splendorActionBlocked || availableCount <= 0
                                 }
                               >
                                 <span>{gemLabel(color)}</span>
@@ -1403,7 +1408,7 @@ export function App() {
                             disabled={
                               splendorMustReturnTokens
                                 ? !isValidReturnGemSelection(selectedGemColors, splendorReturnCount)
-                                : !isMyTurn || !isValidGemSelection(selectedGemColors)
+                                : !isMyTurn || splendorActionBlocked || !isValidGemSelection(selectedGemColors)
                             }
                           >
                             {splendorMustReturnTokens
@@ -1439,7 +1444,7 @@ export function App() {
                                   }
                                   disabled={
                                     !isMyTurn ||
-                                    splendorReturnCount > 0 ||
+                                    splendorActionBlocked ||
                                     row.deckSize <= 0 ||
                                     (splendorMe?.reserved?.length ?? 0) >= 3
                                   }
@@ -1463,7 +1468,7 @@ export function App() {
                                           { marketTier: row.tier, marketIndex: index }
                                         )
                                       }
-                                      disabled={!isMyTurn || splendorReturnCount > 0}
+                                      disabled={!isMyTurn || splendorActionBlocked}
                                     >
                                       구매
                                     </button>
@@ -1479,7 +1484,7 @@ export function App() {
                                           { marketTier: row.tier, marketIndex: index }
                                         )
                                       }
-                                      disabled={!isMyTurn || splendorReturnCount > 0 || (splendorMe?.reserved?.length ?? 0) >= 3}
+                                      disabled={!isMyTurn || splendorActionBlocked || (splendorMe?.reserved?.length ?? 0) >= 3}
                                     >
                                       예약
                                     </button>
@@ -1506,7 +1511,7 @@ export function App() {
                                       { reservedIndex: index }
                                     )
                                   }
-                                  disabled={!isMyTurn || splendorReturnCount > 0}
+                                  disabled={!isMyTurn || splendorActionBlocked}
                                 >
                                   구매
                                 </button>
@@ -1521,6 +1526,34 @@ export function App() {
                             </div>
                           ))}
                         </div>
+                        {splendorPendingNobleChoices.length > 0 ? (
+                          <div className="splendor-choice-panel" aria-label="귀족 선택">
+                            <strong>
+                              {splendorMustChooseNoble ? "방문할 귀족 선택" : "귀족 선택 대기 중"}
+                            </strong>
+                            <div className="splendor-nobles">
+                              {splendorPendingNobleChoices.map((noble) => (
+                                <button
+                                  className="splendor-noble-choice"
+                                  key={`choice-${noble.id}`}
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "splendor.choose_noble",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { nobleId: noble.id }
+                                    )
+                                  }
+                                  disabled={!splendorMustChooseNoble}
+                                >
+                                  <SplendorNobleFace noble={noble} />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                         <div className="splendor-players">
                           {davinciPlayers.map((player) => (
                             <div className="halli-player" key={player.playerId}>
