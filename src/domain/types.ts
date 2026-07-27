@@ -226,6 +226,13 @@ export interface GameSession {
     field?: HandCard[];
     discardPile?: HandCard[];
     drawPile?: HandCard[];
+    pendingAttack?: {
+      sourcePlayerId: string;
+      targetPlayerId: string;
+      cardType: string;
+      damage: number;
+      remainingTargetIds?: string[];
+    };
     deck?: DavinciTile[];
     pendingTile?: DavinciTile;
     pendingOwnerId?: string;
@@ -325,6 +332,8 @@ export type GameActionType =
   | "rummikub.draw"
   | "bang.draw"
   | "bang.play"
+  | "bang.use_missed"
+  | "bang.take_hit"
   | "bang.end_turn"
   | "sutda.call"
   | "sutda.fold"

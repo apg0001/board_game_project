@@ -222,6 +222,163 @@ func TestGatlingDoesNotRequireSingleTarget(t *testing.T) {
 	}
 }
 
+func TestBangPlayWaitsForTargetMissedResponse(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if next.PendingAttack == nil || next.PendingAttack.TargetPlayerID != "p2" {
+		t.Fatalf("expected pending missed response for p2, got %+v", next.PendingAttack)
+	}
+	if next.Players[1].HP != 4 || len(next.Players[1].Hand) != 1 {
+		t.Fatalf("expected p2 damage to wait for response, got %+v", next.Players[1])
+	}
+	if len(next.Discard) != 1 || next.Discard[0].Type != CardBang {
+		t.Fatalf("expected bang card to be discarded, got %+v", next.Discard)
+	}
+}
+
+func TestOnlyPendingTargetCanRespondToAttack(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID: "p1",
+		TargetPlayerID: "p2",
+		CardType:       CardBang,
+		Damage:         1,
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p3",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected non-target response to be rejected")
+	}
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected normal turn action to be blocked while response is pending")
+	}
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected target missed response to be valid, got %v", err)
+	}
+}
+
+func TestPendingTargetCanUseMissed(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID: "p1",
+		TargetPlayerID: "p2",
+		CardType:       CardBang,
+		Damage:         1,
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack != nil {
+		t.Fatalf("expected pending attack to resolve, got %+v", next.PendingAttack)
+	}
+	if next.Players[1].HP != 4 || len(next.Players[1].Hand) != 0 {
+		t.Fatalf("expected missed to avoid damage and leave hand, got %+v", next.Players[1])
+	}
+	if len(next.Discard) != 1 || next.Discard[0].Type != CardMissed {
+		t.Fatalf("expected missed in discard pile, got %+v", next.Discard)
+	}
+}
+
+func TestPendingTargetMayTakeHitWithoutSpendingMissed(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID: "p1",
+		TargetPlayerID: "p2",
+		CardType:       CardBang,
+		Damage:         1,
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionTakeHit,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack != nil {
+		t.Fatalf("expected pending attack to resolve, got %+v", next.PendingAttack)
+	}
+	if next.Players[1].HP != 3 || len(next.Players[1].Hand) != 1 {
+		t.Fatalf("expected p2 to take damage without spending missed, got %+v", next.Players[1])
+	}
+	if len(next.Discard) != 0 {
+		t.Fatalf("expected missed card to stay in hand, got discard %+v", next.Discard)
+	}
+}
+
+func TestGatlingProcessesPendingResponsesInOrder(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "gatling-1", Type: CardGatling}}
+	state.Players[3].Hand = []Card{{ID: "missed-4", Type: CardMissed}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "gatling-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := result.State.(State)
+	if first.PendingAttack == nil || first.PendingAttack.TargetPlayerID != "p2" {
+		t.Fatalf("expected p2 to respond first, got %+v", first.PendingAttack)
+	}
+
+	result, err = module.ApplyAction(context.Background(), first, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := result.State.(State)
+	if second.Players[2].HP != 3 {
+		t.Fatalf("expected p3 without missed to take damage, got %+v", second.Players[2])
+	}
+	if second.PendingAttack == nil || second.PendingAttack.TargetPlayerID != "p4" {
+		t.Fatalf("expected p4 to respond after p3 damage, got %+v", second.PendingAttack)
+	}
+}
+
 func fixedState() State {
 	return State{
 		Players: []PlayerState{

@@ -2058,6 +2058,34 @@ button.rummikub-tile:disabled {
   background: #fff0df;
 }
 
+.bang-reaction-panel {
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(140, 63, 42, 0.24);
+  border-radius: 12px;
+  padding: 10px;
+  color: #17212b;
+  background: #fff0df;
+}
+
+.bang-reaction-panel > span,
+.bang-reaction-panel > small {
+  color: #68727e;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.bang-reaction-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dark-mini-action {
+  background: #17212b;
+  color: #fff8e8;
+}
+
 .standard-hand {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));

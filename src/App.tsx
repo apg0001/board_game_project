@@ -560,6 +560,9 @@ export function App() {
     ? selectedBangTargetId
     : (bangTargets[0]?.playerId ?? "");
   const bangAliveCount = davinciPlayers.filter((player) => player.alive !== false).length;
+  const bangPendingAttack = currentSession?.gameId === "bang" ? currentSession.state.pendingAttack : undefined;
+  const bangMustRespond = Boolean(bangPendingAttack?.targetPlayerId === playerID);
+  const bangHasMissed = Boolean((bangMe?.hand ?? []).some((card) => card.type === "missed"));
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
   const gostopMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1768,6 +1771,50 @@ export function App() {
                       </div>
                     ) : currentSession.gameId === "bang" ? (
                       <div className="room-actions">
+                        {bangPendingAttack ? (
+                          <div className="bang-reaction-panel" aria-label="공격 반응">
+                            <strong>{bangCardLabel(bangPendingAttack.cardType)} 반응</strong>
+                            <span>
+                              {participantName(currentRoom, bangPendingAttack.sourcePlayerId)} →{" "}
+                              {participantName(currentRoom, bangPendingAttack.targetPlayerId)}
+                            </span>
+                            {bangMustRespond ? (
+                              <div className="bang-reaction-actions">
+                                <button
+                                  className="mini-action-button"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "bang.use_missed",
+                                      setCurrentSession,
+                                      setRoomMessage
+                                    )
+                                  }
+                                  disabled={!bangHasMissed}
+                                >
+                                  빗맞음 사용
+                                </button>
+                                <button
+                                  className="mini-action-button dark-mini-action"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "bang.take_hit",
+                                      setCurrentSession,
+                                      setRoomMessage
+                                    )
+                                  }
+                                >
+                                  피해 받기
+                                </button>
+                              </div>
+                            ) : (
+                              <small>{participantName(currentRoom, bangPendingAttack.targetPlayerId)} 님 선택 대기</small>
+                            )}
+                          </div>
+                        ) : null}
                         <div className="bang-hand" aria-label="내 카드">
                           {(bangMe?.hand ?? []).map((card) => (
                             <button
@@ -1783,7 +1830,16 @@ export function App() {
                                   bangPlayPayload(card, bangSelectedTargetId)
                                 )
                               }
-                              disabled={!bangCardPlayable(card, isMyTurn, bangMe, bangSelectedTargetId, bangAliveCount)}
+                              disabled={
+                                !bangCardPlayable(
+                                  card,
+                                  isMyTurn,
+                                  bangMe,
+                                  bangSelectedTargetId,
+                                  bangAliveCount,
+                                  Boolean(bangPendingAttack)
+                                )
+                              }
                             >
                               <BangCardFace card={card} />
                             </button>
@@ -1797,7 +1853,7 @@ export function App() {
                                 className={`bang-target-chip ${bangSelectedTargetId === player.playerId ? "selected" : ""}`}
                                 key={player.playerId}
                                 onClick={() => setSelectedBangTargetId(player.playerId)}
-                                disabled={!isMyTurn}
+                                disabled={!isMyTurn || Boolean(bangPendingAttack)}
                               >
                                 {participantName(currentRoom, player.playerId)}
                                 <span>
@@ -3105,6 +3161,16 @@ function bangWinnerLabel(winner: string) {
   return labels[winner] ?? "미정";
 }
 
+function bangCardLabel(cardType: string) {
+  const labels: Record<string, string> = {
+    bang: "BANG!",
+    gatling: "개틀링",
+    missed: "빗맞음",
+    beer: "맥주"
+  };
+  return labels[cardType] ?? cardType;
+}
+
 function bangPlayPayload(card: HandCard, targetPlayerId: string) {
   const payload: Record<string, string> = { cardId: card.id };
   if (card.type === "bang") {
@@ -3118,8 +3184,10 @@ function bangCardPlayable(
   isMyTurn: boolean,
   player: DavinciPlayer | undefined,
   targetPlayerId: string,
-  aliveCount: number
+  aliveCount: number,
+  hasPendingAttack: boolean
 ) {
+  if (hasPendingAttack) return false;
   if (!isMyTurn || !player?.drawn) return false;
   if (card.type === "bang") return Boolean(targetPlayerId) && !player.bangUsed;
   if (card.type === "gatling") return true;

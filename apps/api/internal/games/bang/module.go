@@ -11,17 +11,19 @@ import (
 )
 
 const (
-	ActionDraw    = "bang.draw"
-	ActionPlay    = "bang.play"
-	ActionEndTurn = "bang.end_turn"
-	CardBang      = "bang"
-	CardMissed    = "missed"
-	CardBeer      = "beer"
-	CardGatling   = "gatling"
-	RoleSheriff   = "sheriff"
-	RoleDeputy    = "deputy"
-	RoleOutlaw    = "outlaw"
-	RoleRenegade  = "renegade"
+	ActionDraw      = "bang.draw"
+	ActionPlay      = "bang.play"
+	ActionEndTurn   = "bang.end_turn"
+	ActionUseMissed = "bang.use_missed"
+	ActionTakeHit   = "bang.take_hit"
+	CardBang        = "bang"
+	CardMissed      = "missed"
+	CardBeer        = "beer"
+	CardGatling     = "gatling"
+	RoleSheriff     = "sheriff"
+	RoleDeputy      = "deputy"
+	RoleOutlaw      = "outlaw"
+	RoleRenegade    = "renegade"
 )
 
 type Card struct {
@@ -42,15 +44,24 @@ type PlayerState struct {
 	Active   bool   `json:"active"`
 }
 
+type PendingAttack struct {
+	SourcePlayerID     string   `json:"sourcePlayerId"`
+	TargetPlayerID     string   `json:"targetPlayerId"`
+	CardType           string   `json:"cardType"`
+	Damage             int      `json:"damage"`
+	RemainingTargetIDs []string `json:"remainingTargetIds"`
+}
+
 type State struct {
-	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
-	Round              int           `json:"round"`
-	Players            []PlayerState `json:"players"`
-	Deck               []Card        `json:"deck"`
-	Discard            []Card        `json:"discard"`
-	Winner             string        `json:"winner,omitempty"`
-	Log                []string      `json:"log"`
-	Finished           bool          `json:"finished"`
+	CurrentPlayerIndex int            `json:"currentPlayerIndex"`
+	Round              int            `json:"round"`
+	Players            []PlayerState  `json:"players"`
+	Deck               []Card         `json:"deck"`
+	Discard            []Card         `json:"discard"`
+	PendingAttack      *PendingAttack `json:"pendingAttack,omitempty"`
+	Winner             string         `json:"winner,omitempty"`
+	Log                []string       `json:"log"`
+	Finished           bool           `json:"finished"`
 }
 
 type PlayPayload struct {
@@ -132,6 +143,12 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	if current.Finished {
 		return errors.New("game is already finished")
 	}
+	if action.Type == ActionUseMissed || action.Type == ActionTakeHit {
+		return validatePendingAttackAction(current, action)
+	}
+	if current.PendingAttack != nil {
+		return errors.New("pending attack response")
+	}
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
 	}
@@ -191,6 +208,30 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	return nil
 }
 
+func validatePendingAttackAction(state State, action gamecore.Action) error {
+	if state.PendingAttack == nil || state.PendingAttack.TargetPlayerID == "" {
+		return errors.New("no pending attack")
+	}
+	if state.PendingAttack.TargetPlayerID != string(action.PlayerID) {
+		return errors.New("not your attack response")
+	}
+	targetIndex := findPlayer(state, string(action.PlayerID))
+	if targetIndex < 0 || !state.Players[targetIndex].Alive {
+		return errors.New("target is not active")
+	}
+	switch action.Type {
+	case ActionUseMissed:
+		if _, ok := findCardByType(state.Players[targetIndex].Hand, CardMissed); !ok {
+			return errors.New("missed card not found")
+		}
+	case ActionTakeHit:
+		return nil
+	default:
+		return errors.New("unsupported pending action")
+	}
+	return nil
+}
+
 func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
 	player := &current.Players[current.CurrentPlayerIndex]
@@ -216,17 +257,17 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Log = append(current.Log, player.PlayerID+" 님이 맥주로 회복했습니다.")
 		case CardBang:
 			player.BangUsed = true
-			current = damageTargetBy(current, payload.TargetPlayerID, 1, player.PlayerID)
 			current.Log = append(current.Log, player.PlayerID+" 님이 BANG!을 사용했습니다.")
+			current = startPendingAttack(current, player.PlayerID, card.Type, []string{payload.TargetPlayerID}, 1)
 		case CardGatling:
-			for _, target := range current.Players {
-				if target.Alive && target.PlayerID != player.PlayerID {
-					current = damageTargetBy(current, target.PlayerID, 1, player.PlayerID)
-				}
-			}
 			current.Log = append(current.Log, player.PlayerID+" 님이 개틀링을 사용했습니다.")
+			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1)
 		}
 		current = checkEnd(current)
+	case ActionUseMissed:
+		current = resolvePendingAttackWithMissed(current, string(action.PlayerID))
+	case ActionTakeHit:
+		current = resolvePendingAttackWithDamage(current)
 	case ActionEndTurn:
 		player.Drawn = false
 		player.BangUsed = false
@@ -284,20 +325,113 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 	return results
 }
 
+func startPendingAttack(state State, sourcePlayerID string, cardType string, targetPlayerIDs []string, damage int) State {
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID:     sourcePlayerID,
+		CardType:           cardType,
+		Damage:             damage,
+		RemainingTargetIDs: append([]string(nil), targetPlayerIDs...),
+	}
+	return advancePendingAttack(state)
+}
+
+func advancePendingAttack(state State) State {
+	for state.PendingAttack != nil {
+		if len(state.PendingAttack.RemainingTargetIDs) == 0 {
+			state.PendingAttack = nil
+			return state
+		}
+		targetPlayerID := state.PendingAttack.RemainingTargetIDs[0]
+		state.PendingAttack.RemainingTargetIDs = state.PendingAttack.RemainingTargetIDs[1:]
+		targetIndex := findPlayer(state, targetPlayerID)
+		if targetIndex < 0 || !state.Players[targetIndex].Alive {
+			continue
+		}
+		if _, ok := findCardByType(state.Players[targetIndex].Hand, CardMissed); ok {
+			state.PendingAttack.TargetPlayerID = targetPlayerID
+			state.Log = append(state.Log, targetPlayerID+" 님의 빗맞음 반응을 기다립니다.")
+			return state
+		}
+		pending := *state.PendingAttack
+		state = damageTargetWithoutMissed(state, targetPlayerID, pending.Damage, pending.SourcePlayerID)
+		state = checkEnd(state)
+		if state.Finished {
+			state.PendingAttack = nil
+			return state
+		}
+	}
+	return state
+}
+
+func resolvePendingAttackWithMissed(state State, playerID string) State {
+	if state.PendingAttack == nil || state.PendingAttack.TargetPlayerID != playerID {
+		return state
+	}
+	targetIndex := findPlayer(state, playerID)
+	if targetIndex < 0 {
+		return state
+	}
+	missed, ok := removeFirstType(&state.Players[targetIndex], CardMissed)
+	if !ok {
+		return state
+	}
+	pending := *state.PendingAttack
+	state.Discard = append(state.Discard, missed)
+	state.Log = append(state.Log, playerID+" 님이 빗맞음으로 피했습니다.")
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID:     pending.SourcePlayerID,
+		CardType:           pending.CardType,
+		Damage:             pending.Damage,
+		RemainingTargetIDs: append([]string(nil), pending.RemainingTargetIDs...),
+	}
+	return advancePendingAttack(state)
+}
+
+func resolvePendingAttackWithDamage(state State) State {
+	if state.PendingAttack == nil {
+		return state
+	}
+	pending := *state.PendingAttack
+	targetPlayerID := pending.TargetPlayerID
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID:     pending.SourcePlayerID,
+		CardType:           pending.CardType,
+		Damage:             pending.Damage,
+		RemainingTargetIDs: append([]string(nil), pending.RemainingTargetIDs...),
+	}
+	state = damageTargetWithoutMissed(state, targetPlayerID, pending.Damage, pending.SourcePlayerID)
+	state = checkEnd(state)
+	if state.Finished {
+		state.PendingAttack = nil
+		return state
+	}
+	return advancePendingAttack(state)
+}
+
 func damageTarget(state State, targetPlayerID string, amount int) State {
 	return damageTargetBy(state, targetPlayerID, amount, "")
 }
 
 func damageTargetBy(state State, targetPlayerID string, amount int, sourcePlayerID string) State {
+	return damageTargetInternal(state, targetPlayerID, amount, sourcePlayerID, true)
+}
+
+func damageTargetWithoutMissed(state State, targetPlayerID string, amount int, sourcePlayerID string) State {
+	return damageTargetInternal(state, targetPlayerID, amount, sourcePlayerID, false)
+}
+
+func damageTargetInternal(state State, targetPlayerID string, amount int, sourcePlayerID string, allowMissed bool) State {
 	targetIndex := findPlayer(state, targetPlayerID)
 	if targetIndex < 0 {
 		return state
 	}
 	target := &state.Players[targetIndex]
-	if missed, ok := removeFirstType(target, CardMissed); ok {
-		state.Discard = append(state.Discard, missed)
-		state.Log = append(state.Log, target.PlayerID+" 님이 빗맞음으로 피했습니다.")
-		return state
+	if allowMissed {
+		if missed, ok := removeFirstType(target, CardMissed); ok {
+			state.Discard = append(state.Discard, missed)
+			state.Log = append(state.Log, target.PlayerID+" 님이 빗맞음으로 피했습니다.")
+			return state
+		}
 	}
 	target.HP -= amount
 	if target.HP <= 0 {
@@ -462,6 +596,15 @@ func findCard(hand []Card, cardID string) (Card, bool) {
 	return Card{}, false
 }
 
+func findCardByType(hand []Card, cardType string) (Card, bool) {
+	for _, card := range hand {
+		if card.Type == cardType {
+			return card, true
+		}
+	}
+	return Card{}, false
+}
+
 func removeCard(player *PlayerState, cardID string) (Card, bool) {
 	next := []Card{}
 	removed := Card{}
@@ -506,6 +649,16 @@ func findPlayer(state State, playerID string) int {
 		}
 	}
 	return -1
+}
+
+func attackTargets(state State, sourcePlayerID string) []string {
+	targets := []string{}
+	for _, player := range state.Players {
+		if player.Alive && player.PlayerID != sourcePlayerID {
+			targets = append(targets, player.PlayerID)
+		}
+	}
+	return targets
 }
 
 func alivePlayerCount(state State) int {
