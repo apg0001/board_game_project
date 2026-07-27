@@ -176,6 +176,37 @@ func TestRaiseLimitAndAmountValidation(t *testing.T) {
 	}
 }
 
+func TestShowdownRequiresMatchedBets(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Pot:                5,
+		CurrentBet:         3,
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{Month: 1}, {Month: 2}}, Bet: 3, Ready: true, Active: true},
+			{PlayerID: "p2", Hand: []Card{{Month: 3}, {Month: 4}}, Bet: 1, Ready: false, Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionShowdown,
+		PlayerID: "p1",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected showdown to wait until active bets are matched")
+	}
+
+	state.Players[1].Bet = 3
+	state.Players[1].Ready = true
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionShowdown,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected showdown after bets match, got %v", err)
+	}
+}
+
 func TestTimeoutCurrentPlayerAdvancesTurn(t *testing.T) {
 	module := NewModule()
 	state := State{

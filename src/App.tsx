@@ -596,6 +596,10 @@ export function App() {
     bangPendingAttack || bangPendingGeneralStore || bangPendingCharacterChoice || bangPendingDiscardPlayerId
   );
   const sutdaMe = davinciPlayers.find((player) => player.playerId === playerID);
+  const sutdaCurrentBet = currentSession?.gameId === "sutda" ? (currentSession.state.currentBet ?? 1) : 1;
+  const sutdaBetsMatched = davinciPlayers.every(
+    (player) => player.folded || player.active === false || (player.ready === true && (player.bet ?? 0) >= sutdaCurrentBet)
+  );
   const gostopMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardMe = davinciPlayers.find((player) => player.playerId === playerID);
   const onecardTopCard = currentSession?.state.discardPile?.[(currentSession.state.discardPile?.length ?? 0) - 1];
@@ -2239,7 +2243,7 @@ export function App() {
                         <div className="werewolf-panel">
                           <strong>{sutdaMe?.rankName ?? "족보 대기"}</strong>
                           <span>
-                            판돈 {currentSession.state.pot ?? 0} · 현재 베팅 {currentSession.state.currentBet ?? 1}
+                            판돈 {currentSession.state.pot ?? 0} · 현재 베팅 {sutdaCurrentBet}
                           </span>
                           {currentSession.state.finished ? (
                             <small>
@@ -2270,7 +2274,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn}
+                          disabled={!isMyTurn || !sutdaBetsMatched}
                         >
                           콜
                           <ChevronRight size={18} />

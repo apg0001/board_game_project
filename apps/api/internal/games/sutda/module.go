@@ -122,7 +122,12 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		return errors.New("player is not active")
 	}
 	switch action.Type {
-	case ActionCall, ActionFold, ActionShowdown:
+	case ActionCall, ActionFold:
+		return nil
+	case ActionShowdown:
+		if activeCount(current) > 1 && !allActiveReady(current) {
+			return errors.New("bets are not matched")
+		}
 		return nil
 	case ActionRaise:
 		payload, err := raisePayload(action.Payload)
