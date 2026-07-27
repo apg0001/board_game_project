@@ -2265,6 +2265,9 @@ export function App() {
                             </div>
                           ))}
                         </div>
+                        {!sutdaBetsMatched && !currentSession.state.finished ? (
+                          <p className="helper-copy">모든 활성 플레이어의 베팅이 맞춰져야 쇼다운할 수 있습니다.</p>
+                        ) : null}
                         <button
                           className="wide-button"
                           onClick={() =>
@@ -2325,7 +2328,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn}
+                          disabled={!isMyTurn || !sutdaBetsMatched}
                         >
                           쇼다운
                           <ChevronRight size={18} />
