@@ -234,6 +234,7 @@ export interface GameSession {
       targetPlayerId: string;
       cardType: string;
       damage: number;
+      requiredResponseCount?: number;
       remainingTargetIds?: string[];
     };
     pendingGeneralStore?: {
