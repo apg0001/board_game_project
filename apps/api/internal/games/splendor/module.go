@@ -37,16 +37,16 @@ type PlayerState struct {
 }
 
 type State struct {
-	CurrentPlayerIndex  int            `json:"currentPlayerIndex"`
-	Round               int            `json:"round"`
-	Bank                map[string]int `json:"bank"`
-	Market              []Card         `json:"market"`
-	Deck                []Card         `json:"deck"`
-	Players             []PlayerState  `json:"players"`
-	Log                 []string       `json:"log"`
-	Finished            bool           `json:"finished"`
-	EndTriggered        bool           `json:"endTriggered,omitempty"`
-	EndTriggerIndex     int            `json:"-"`
+	CurrentPlayerIndex int            `json:"currentPlayerIndex"`
+	Round              int            `json:"round"`
+	Bank               map[string]int `json:"bank"`
+	Market             []Card         `json:"market"`
+	Deck               []Card         `json:"deck"`
+	Players            []PlayerState  `json:"players"`
+	Log                []string       `json:"log"`
+	Finished           bool           `json:"finished"`
+	EndTriggered       bool           `json:"endTriggered,omitempty"`
+	EndTriggerIndex    int            `json:"-"`
 }
 
 type Module struct{}
@@ -354,19 +354,22 @@ func tokenPayload(payload any) ([]string, error) {
 }
 
 func colorListFromAny(value any) []string {
-	items, ok := value.([]any)
-	if !ok {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		colors := make([]string, 0, len(typed))
+		for _, item := range typed {
+			color, ok := item.(string)
+			if !ok {
+				return nil
+			}
+			colors = append(colors, color)
+		}
+		return colors
+	default:
 		return nil
 	}
-	colors := make([]string, 0, len(items))
-	for _, item := range items {
-		color, ok := item.(string)
-		if !ok {
-			return nil
-		}
-		colors = append(colors, color)
-	}
-	return colors
 }
 
 func validateTakeTokens(state State, colors []string) error {
