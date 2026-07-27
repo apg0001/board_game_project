@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	ActionPlay = "onecard.play"
-	ActionDraw = "onecard.draw"
+	ActionPlay       = "onecard.play"
+	ActionDraw       = "onecard.draw"
+	ActionDeclareOne = "onecard.declare_one"
+	ActionCalloutOne = "onecard.callout_one"
 )
 
 type Card struct {
@@ -34,31 +36,42 @@ type PlayerState struct {
 }
 
 type State struct {
-	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
-	Round              int           `json:"round"`
-	Direction          int           `json:"direction"`
-	Players            []PlayerState `json:"players"`
-	DrawPile           []Card        `json:"drawPile"`
-	DiscardPile        []Card        `json:"discardPile"`
-	Rules              RuleConfig    `json:"rules"`
-	RuleMessages       []string      `json:"ruleMessages,omitempty"`
-	PendingDraw        int           `json:"pendingDraw"`
-	PendingAttackRank  string        `json:"pendingAttackRank,omitempty"`
-	WinnerID           string        `json:"winnerId,omitempty"`
-	Log                []string      `json:"log"`
-	Finished           bool          `json:"finished"`
+	CurrentPlayerIndex int             `json:"currentPlayerIndex"`
+	Round              int             `json:"round"`
+	Direction          int             `json:"direction"`
+	Players            []PlayerState   `json:"players"`
+	DrawPile           []Card          `json:"drawPile"`
+	DiscardPile        []Card          `json:"discardPile"`
+	Rules              RuleConfig      `json:"rules"`
+	RuleMessages       []string        `json:"ruleMessages,omitempty"`
+	PendingDraw        int             `json:"pendingDraw"`
+	PendingAttackRank  string          `json:"pendingAttackRank,omitempty"`
+	DeclaredSuit       string          `json:"declaredSuit,omitempty"`
+	DeclaredOne        map[string]bool `json:"declaredOne,omitempty"`
+	WinnerID           string          `json:"winnerId,omitempty"`
+	Log                []string        `json:"log"`
+	Finished           bool            `json:"finished"`
 }
 
 type PlayPayload struct {
-	CardID string `json:"cardId"`
+	CardID       string `json:"cardId"`
+	DeclaredSuit string `json:"declaredSuit,omitempty"`
+	DeclareOne   bool   `json:"declareOne,omitempty"`
+}
+
+type CalloutOnePayload struct {
+	TargetPlayerID string `json:"targetPlayerId"`
 }
 
 type RuleConfig struct {
-	AttackCards    []string `json:"attackCards"`
-	DefenseMode    string   `json:"defenseMode"`
-	JokerDrawCount int      `json:"jokerDrawCount"`
-	TwoDrawCount   int      `json:"twoDrawCount"`
-	Stacking       bool     `json:"stacking"`
+	AttackCards        []string `json:"attackCards"`
+	DefenseMode        string   `json:"defenseMode"`
+	JokerDrawCount     int      `json:"jokerDrawCount"`
+	TwoDrawCount       int      `json:"twoDrawCount"`
+	Stacking           bool     `json:"stacking"`
+	ChangeSuitCards    []string `json:"changeSuitCards"`
+	OneCardPenalty     bool     `json:"oneCardPenalty"`
+	OneCardPenaltyDraw int      `json:"oneCardPenaltyDraw"`
 }
 
 type Module struct{}
@@ -88,16 +101,29 @@ func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.Ru
 	defenseMode, defenseTied := resolveChoice(votes, "defenseMode", "attack-or-joker", seed)
 	jokerDraw, jokerTied := resolveChoice(votes, "jokerDrawCount", "5", seed)
 	stacking, stackingTied := resolveChoice(votes, "stacking", "on", seed)
+	changeSuit, changeSuitTied := resolveChoice(votes, "changeSuitCards", "seven-joker", seed)
+	oneCardPenalty, oneCardPenaltyTied := resolveChoice(votes, "oneCardPenalty", "on", seed)
 
 	config := RuleConfig{
-		AttackCards:    attackCardsForChoice(attackCards),
-		DefenseMode:    defenseMode,
-		JokerDrawCount: intChoice(jokerDraw, 5),
-		TwoDrawCount:   2,
-		Stacking:       stacking != "off",
+		AttackCards:        attackCardsForChoice(attackCards),
+		DefenseMode:        defenseMode,
+		JokerDrawCount:     intChoice(jokerDraw, 5),
+		TwoDrawCount:       2,
+		Stacking:           stacking != "off",
+		ChangeSuitCards:    changeSuitCardsForChoice(changeSuit),
+		OneCardPenalty:     oneCardPenalty != "off",
+		OneCardPenaltyDraw: 2,
 	}
 	messages := []string{
-		fmt.Sprintf("원카드 룰 확정: 공격 %s, 방어 %s, 조커 %d장, 공격 누적 %s", attackChoiceLabel(attackCards), defenseChoiceLabel(defenseMode), config.JokerDrawCount, onOffLabel(config.Stacking)),
+		fmt.Sprintf(
+			"원카드 룰 확정: 공격 %s, 방어 %s, 조커 %d장, 공격 누적 %s, 문양 변경 %s, 원카드 벌칙 %s",
+			attackChoiceLabel(attackCards),
+			defenseChoiceLabel(defenseMode),
+			config.JokerDrawCount,
+			onOffLabel(config.Stacking),
+			changeSuitChoiceLabel(changeSuit),
+			onOffLabel(config.OneCardPenalty),
+		),
 	}
 	if attackTied {
 		messages = append(messages, "공격카드 투표가 동률이라 랜덤으로 결정했습니다.")
@@ -111,15 +137,24 @@ func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.Ru
 	if stackingTied {
 		messages = append(messages, "공격 누적 투표가 동률이라 랜덤으로 결정했습니다.")
 	}
+	if changeSuitTied {
+		messages = append(messages, "문양 변경 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+	if oneCardPenaltyTied {
+		messages = append(messages, "원카드 선언 벌칙 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
 
 	return gamecore.RuleResolution{
 		Options: map[string]any{
-			"attackCards":    config.AttackCards,
-			"defenseMode":    config.DefenseMode,
-			"jokerDrawCount": config.JokerDrawCount,
-			"twoDrawCount":   config.TwoDrawCount,
-			"stacking":       config.Stacking,
-			"ruleMessages":   messages,
+			"attackCards":        config.AttackCards,
+			"defenseMode":        config.DefenseMode,
+			"jokerDrawCount":     config.JokerDrawCount,
+			"twoDrawCount":       config.TwoDrawCount,
+			"stacking":           config.Stacking,
+			"changeSuitCards":    config.ChangeSuitCards,
+			"oneCardPenalty":     config.OneCardPenalty,
+			"oneCardPenaltyDraw": config.OneCardPenaltyDraw,
+			"ruleMessages":       messages,
 		},
 		Announcements: messages,
 	}
@@ -142,7 +177,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	discard := []Card{deck[firstCardIndex]}
 	deck = append(deck[:firstCardIndex], deck[firstCardIndex+1:]...)
 	log := append([]string{"원카드가 시작되었습니다."}, ruleMessagesFromOptions(ctx.Options)...)
-	return State{Direction: 1, Players: players, DrawPile: deck, DiscardPile: discard, Rules: rules, RuleMessages: ruleMessagesFromOptions(ctx.Options), Log: log}
+	return State{Direction: 1, Players: players, DrawPile: deck, DiscardPile: discard, Rules: rules, RuleMessages: ruleMessagesFromOptions(ctx.Options), DeclaredOne: map[string]bool{}, Log: log}
 }
 
 func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
@@ -162,6 +197,16 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	current := asState(state)
 	if current.Finished {
 		return errors.New("game is already finished")
+	}
+	switch action.Type {
+	case ActionDeclareOne:
+		return validateDeclareOne(current, string(action.PlayerID))
+	case ActionCalloutOne:
+		payload, err := calloutOnePayload(action.Payload)
+		if err != nil {
+			return err
+		}
+		return validateCalloutOne(current, string(action.PlayerID), payload.TargetPlayerID)
 	}
 	if len(current.Players) == 0 || current.Players[current.CurrentPlayerIndex].PlayerID != string(action.PlayerID) {
 		return errors.New("not your turn")
@@ -186,6 +231,17 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if !canPlay(card, current) {
 			return errors.New("card cannot be played now")
 		}
+		if payload.DeclaredSuit != "" {
+			if !isStandardSuit(payload.DeclaredSuit) {
+				return errors.New("declared suit must be spade, heart, diamond or club")
+			}
+			if !canChangeSuit(card, current.Rules) {
+				return errors.New("this card cannot change suit")
+			}
+		}
+		if canChangeSuit(card, current.Rules) && payload.DeclaredSuit == "" {
+			return errors.New("declared suit is required for this card")
+		}
 	default:
 		return errors.New("unsupported action")
 	}
@@ -194,6 +250,35 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 
 func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
+	switch action.Type {
+	case ActionDeclareOne:
+		playerIndex := findPlayer(current, string(action.PlayerID))
+		if playerIndex < 0 {
+			return gamecore.ActionResult{}, errors.New("player not found")
+		}
+		ensureDeclaredOne(&current)
+		current.DeclaredOne[current.Players[playerIndex].PlayerID] = true
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 원카드를 선언했습니다.", current.Players[playerIndex].PlayerID))
+		return stateUpdatedResult(m, current), nil
+	case ActionCalloutOne:
+		payload, err := calloutOnePayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		targetIndex := findPlayer(current, payload.TargetPlayerID)
+		if targetIndex < 0 {
+			return gamecore.ActionResult{}, errors.New("target player not found")
+		}
+		drawn := drawCards(&current, current.Rules.OneCardPenaltyDraw)
+		current.Players[targetIndex].Hand = append(current.Players[targetIndex].Hand, drawn...)
+		current.Players[targetIndex].HandSize = len(current.Players[targetIndex].Hand)
+		if current.DeclaredOne != nil {
+			delete(current.DeclaredOne, current.Players[targetIndex].PlayerID)
+		}
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 원카드 미선언으로 카드 %d장을 받았습니다.", current.Players[targetIndex].PlayerID, len(drawn)))
+		return stateUpdatedResult(m, current), nil
+	}
+
 	player := &current.Players[current.CurrentPlayerIndex]
 	advance := true
 	switch action.Type {
@@ -205,6 +290,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		drawn := drawCards(&current, drawCount)
 		player.Hand = append(player.Hand, drawn...)
 		player.HandSize = len(player.Hand)
+		clearDeclaredOne(&current, player.PlayerID)
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", player.PlayerID, len(drawn)))
 		current.PendingDraw = 0
 		current.PendingAttackRank = ""
@@ -215,8 +301,13 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 		card, _ := removeCard(player, payload.CardID)
 		current.DiscardPile = append(current.DiscardPile, card)
+		current.DeclaredSuit = ""
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %s %s 카드를 냈습니다.", player.PlayerID, card.Suit, card.Rank))
-		if card.Rank == "A" {
+		if payload.DeclaredSuit != "" {
+			current.DeclaredSuit = payload.DeclaredSuit
+			current.Log = append(current.Log, fmt.Sprintf("%s 문양을 선언했습니다.", suitLabel(payload.DeclaredSuit)))
+		}
+		if card.Rank == "Q" {
 			current.Direction *= -1
 		}
 		if card.Rank == "J" {
@@ -241,23 +332,27 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.PendingAttackRank = ""
 		}
 		if len(player.Hand) == 0 {
+			clearDeclaredOne(&current, player.PlayerID)
 			current.WinnerID = player.PlayerID
 			current.Finished = true
 			current.Log = append(current.Log, "원카드가 종료되었습니다.")
+		} else if len(player.Hand) == 1 && current.Rules.OneCardPenalty {
+			ensureDeclaredOne(&current)
+			current.DeclaredOne[player.PlayerID] = payload.DeclareOne
+			if payload.DeclareOne {
+				current.Log = append(current.Log, fmt.Sprintf("%s 님이 원카드를 선언했습니다.", player.PlayerID))
+			} else {
+				current.Log = append(current.Log, fmt.Sprintf("%s 님의 손패가 한 장 남았습니다.", player.PlayerID))
+			}
+		} else {
+			clearDeclaredOne(&current, player.PlayerID)
 		}
 	}
 	if !current.Finished && advance {
 		current.CurrentPlayerIndex = nextActiveIndex(current, current.CurrentPlayerIndex)
 		current.Round++
 	}
-	return gamecore.ActionResult{
-		State: current,
-		Events: []gamecore.Event{{
-			Type:       "game.state_updated",
-			Visibility: gamecore.VisibilityPublic,
-			Payload:    m.PublicState(current, ""),
-		}},
-	}, nil
+	return stateUpdatedResult(m, current), nil
 }
 
 func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.PlayerID, _ gamecore.Context) (gamecore.ActionResult, error) {
@@ -267,6 +362,7 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 			drawn := drawCards(&current, current.PendingDraw)
 			current.Players[index].Hand = append(current.Players[index].Hand, drawn...)
 			current.Players[index].HandSize = len(current.Players[index].Hand)
+			clearDeclaredOne(&current, current.Players[index].PlayerID)
 			current.Log = append(current.Log, fmt.Sprintf("%s 님이 시간 초과로 공격 카드 %d장을 받았습니다.", current.Players[index].PlayerID, len(drawn)))
 			current.PendingDraw = 0
 			current.PendingAttackRank = ""
@@ -307,10 +403,11 @@ func canPlay(card Card, state State) bool {
 		return true
 	}
 	top := topCard(state)
-	if top.Joker {
+	topSuit := activeTopSuit(state)
+	if top.Joker && topSuit == "" {
 		return true
 	}
-	return card.Suit == top.Suit || card.Rank == top.Rank
+	return card.Suit == topSuit || card.Rank == top.Rank
 }
 
 func canDefend(card Card, top Card, state State) bool {
@@ -345,6 +442,71 @@ func topCard(state State) Card {
 	return state.DiscardPile[len(state.DiscardPile)-1]
 }
 
+func activeTopSuit(state State) string {
+	if state.DeclaredSuit != "" {
+		return state.DeclaredSuit
+	}
+	return topCard(state).Suit
+}
+
+func canChangeSuit(card Card, rules RuleConfig) bool {
+	if len(rules.ChangeSuitCards) == 0 {
+		return false
+	}
+	if card.Joker {
+		return containsRuleCard(rules.ChangeSuitCards, "JOKER")
+	}
+	return containsRuleCard(rules.ChangeSuitCards, card.Rank)
+}
+
+func isStandardSuit(suit string) bool {
+	return suit == "spade" || suit == "heart" || suit == "diamond" || suit == "club"
+}
+
+func validateDeclareOne(state State, playerID string) error {
+	if !state.Rules.OneCardPenalty {
+		return errors.New("one-card penalty rule is disabled")
+	}
+	index := findPlayer(state, playerID)
+	if index < 0 {
+		return errors.New("player not found")
+	}
+	if !state.Players[index].Active {
+		return errors.New("player is not active")
+	}
+	if len(state.Players[index].Hand) != 1 {
+		return errors.New("one-card declaration requires exactly one card")
+	}
+	return nil
+}
+
+func validateCalloutOne(state State, actorID string, targetPlayerID string) error {
+	if !state.Rules.OneCardPenalty {
+		return errors.New("one-card penalty rule is disabled")
+	}
+	if actorID == targetPlayerID {
+		return errors.New("cannot call out yourself")
+	}
+	actorIndex := findPlayer(state, actorID)
+	if actorIndex < 0 || !state.Players[actorIndex].Active {
+		return errors.New("player is not active")
+	}
+	targetIndex := findPlayer(state, targetPlayerID)
+	if targetIndex < 0 {
+		return errors.New("target player not found")
+	}
+	if len(state.Players[targetIndex].Hand) != 1 {
+		return errors.New("target does not have exactly one card")
+	}
+	if state.DeclaredOne != nil && state.DeclaredOne[targetPlayerID] {
+		return errors.New("target already declared one-card")
+	}
+	if availableDrawCount(state) == 0 {
+		return errors.New("draw pile is empty")
+	}
+	return nil
+}
+
 func playPayload(payload any) (PlayPayload, error) {
 	raw, ok := payload.(map[string]any)
 	if !ok {
@@ -354,7 +516,26 @@ func playPayload(payload any) (PlayPayload, error) {
 	if cardID == "" {
 		return PlayPayload{}, errors.New("card is required")
 	}
-	return PlayPayload{CardID: cardID}, nil
+	result := PlayPayload{CardID: cardID}
+	if declaredSuit, ok := raw["declaredSuit"].(string); ok {
+		result.DeclaredSuit = declaredSuit
+	}
+	if declareOne, ok := raw["declareOne"].(bool); ok {
+		result.DeclareOne = declareOne
+	}
+	return result, nil
+}
+
+func calloutOnePayload(payload any) (CalloutOnePayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return CalloutOnePayload{}, errors.New("invalid callout payload")
+	}
+	targetPlayerID, _ := raw["targetPlayerId"].(string)
+	if targetPlayerID == "" {
+		return CalloutOnePayload{}, errors.New("target player is required")
+	}
+	return CalloutOnePayload{TargetPlayerID: targetPlayerID}, nil
 }
 
 func findCard(cards []Card, cardID string) (Card, bool) {
@@ -381,6 +562,30 @@ func removeCard(player *PlayerState, cardID string) (Card, bool) {
 	player.Hand = next
 	player.HandSize = len(next)
 	return removed, found
+}
+
+func ensureDeclaredOne(state *State) {
+	if state.DeclaredOne == nil {
+		state.DeclaredOne = map[string]bool{}
+	}
+}
+
+func clearDeclaredOne(state *State, playerID string) {
+	if state.DeclaredOne == nil {
+		return
+	}
+	delete(state.DeclaredOne, playerID)
+}
+
+func stateUpdatedResult(module Module, state State) gamecore.ActionResult {
+	return gamecore.ActionResult{
+		State: state,
+		Events: []gamecore.Event{{
+			Type:       "game.state_updated",
+			Visibility: gamecore.VisibilityPublic,
+			Payload:    module.PublicState(state, ""),
+		}},
+	}
 }
 
 func nextActiveIndex(state State, current int) int {
@@ -443,7 +648,7 @@ func shuffledDeck(seed string) []Card {
 
 func firstDiscardIndex(deck []Card) int {
 	for index, card := range deck {
-		if !card.Joker && card.Rank != "2" && card.Rank != "A" && card.Rank != "J" {
+		if !card.Joker && card.Rank != "2" && card.Rank != "A" && card.Rank != "J" && card.Rank != "Q" && card.Rank != "K" && card.Rank != "7" {
 			return index
 		}
 	}
@@ -489,11 +694,14 @@ func recycleDiscardPile(state *State) {
 
 func ruleConfigFromOptions(options map[string]any) RuleConfig {
 	config := RuleConfig{
-		AttackCards:    []string{"2", "A", "JOKER"},
-		DefenseMode:    "attack-or-joker",
-		JokerDrawCount: 5,
-		TwoDrawCount:   2,
-		Stacking:       true,
+		AttackCards:        []string{"2", "A", "JOKER"},
+		DefenseMode:        "attack-or-joker",
+		JokerDrawCount:     5,
+		TwoDrawCount:       2,
+		Stacking:           true,
+		ChangeSuitCards:    []string{"7", "JOKER"},
+		OneCardPenalty:     true,
+		OneCardPenaltyDraw: 2,
 	}
 	if raw, ok := options["attackCards"]; ok {
 		config.AttackCards = stringList(raw, config.AttackCards)
@@ -506,6 +714,13 @@ func ruleConfigFromOptions(options map[string]any) RuleConfig {
 	if raw, ok := options["stacking"].(bool); ok {
 		config.Stacking = raw
 	}
+	if raw, ok := options["changeSuitCards"]; ok {
+		config.ChangeSuitCards = stringList(raw, config.ChangeSuitCards)
+	}
+	if raw, ok := options["oneCardPenalty"].(bool); ok {
+		config.OneCardPenalty = raw
+	}
+	config.OneCardPenaltyDraw = intOption(options["oneCardPenaltyDraw"], config.OneCardPenaltyDraw)
 	return config
 }
 
@@ -550,6 +765,21 @@ func attackCardsForChoice(choice string) []string {
 		return []string{"2", "A"}
 	default:
 		return []string{"2", "A", "JOKER"}
+	}
+}
+
+func changeSuitCardsForChoice(choice string) []string {
+	switch choice {
+	case "off":
+		return []string{}
+	case "seven":
+		return []string{"7"}
+	case "joker":
+		return []string{"JOKER"}
+	case "queen-joker":
+		return []string{"Q", "JOKER"}
+	default:
+		return []string{"7", "JOKER"}
 	}
 }
 
@@ -611,6 +841,30 @@ func defenseChoiceLabel(choice string) string {
 		"attack-or-joker": "공격카드/조커",
 	}
 	return labels[choice]
+}
+
+func changeSuitChoiceLabel(choice string) string {
+	labels := map[string]string{
+		"off":         "없음",
+		"seven":       "7",
+		"joker":       "조커",
+		"queen-joker": "Q/조커",
+		"seven-joker": "7/조커",
+	}
+	return labels[choice]
+}
+
+func suitLabel(suit string) string {
+	labels := map[string]string{
+		"spade":   "스페이드",
+		"heart":   "하트",
+		"diamond": "다이아",
+		"club":    "클럽",
+	}
+	if label, ok := labels[suit]; ok {
+		return label
+	}
+	return suit
 }
 
 func onOffLabel(enabled bool) string {

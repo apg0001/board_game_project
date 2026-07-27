@@ -63,8 +63,25 @@ func TestPublicStateDoesNotMutatePrivateState(t *testing.T) {
 	}
 }
 
-func TestDeckIncludesDashJokers(t *testing.T) {
-	deck := shuffledDeck("seed")
+func TestStandardDeckExcludesDashJokers(t *testing.T) {
+	deck := shuffledDeck("seed", false)
+	jokers := map[string]int{}
+	for _, tile := range deck {
+		if tile.Joker {
+			jokers[tile.Color]++
+		}
+	}
+
+	if len(deck) != 24 {
+		t.Fatalf("expected 24 numbered tiles in standard rules, got %d", len(deck))
+	}
+	if jokers["black"] != 0 || jokers["white"] != 0 {
+		t.Fatalf("expected no dash panels in standard rules, got %#v", jokers)
+	}
+}
+
+func TestAdvancedDeckIncludesDashJokers(t *testing.T) {
+	deck := shuffledDeck("seed", true)
 	jokers := map[string]int{}
 	for _, tile := range deck {
 		if tile.Joker {
@@ -73,10 +90,55 @@ func TestDeckIncludesDashJokers(t *testing.T) {
 	}
 
 	if len(deck) != 26 {
-		t.Fatalf("expected 26 tiles with dash panels, got %d", len(deck))
+		t.Fatalf("expected 26 tiles with advanced dash panels, got %d", len(deck))
 	}
 	if jokers["black"] != 1 || jokers["white"] != 1 {
-		t.Fatalf("expected one black and one white dash, got %#v", jokers)
+		t.Fatalf("expected one black and one white dash in advanced rules, got %#v", jokers)
+	}
+}
+
+func TestCreateInitialStateUsesStandardDeckByDefault(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	seen := append([]Tile{}, state.Deck...)
+	if state.PendingTile != nil {
+		seen = append(seen, *state.PendingTile)
+	}
+	for _, player := range state.Players {
+		seen = append(seen, player.Tiles...)
+	}
+
+	if len(seen) != 24 {
+		t.Fatalf("expected standard game to use 24 total tiles, got %d", len(seen))
+	}
+	for _, tile := range seen {
+		if tile.Joker {
+			t.Fatalf("standard game should not contain dash panel: %#v", tile)
+		}
+	}
+}
+
+func TestCreateInitialStateCanEnableAdvancedDashTiles(t *testing.T) {
+	module := NewModule()
+	ctx := testContext()
+	ctx.Options = map[string]any{"advancedDashTiles": true}
+	state := module.CreateInitialState(ctx).(State)
+	seen := append([]Tile{}, state.Deck...)
+	if state.PendingTile != nil {
+		seen = append(seen, *state.PendingTile)
+	}
+	for _, player := range state.Players {
+		seen = append(seen, player.Tiles...)
+	}
+
+	jokerCount := 0
+	for _, tile := range seen {
+		if tile.Joker {
+			jokerCount++
+		}
+	}
+	if len(seen) != 26 || jokerCount != 2 {
+		t.Fatalf("expected advanced game to use 26 tiles with two dash panels, got tiles=%d jokers=%d", len(seen), jokerCount)
 	}
 }
 

@@ -115,6 +115,9 @@ export function App() {
   const [onecardDefenseMode, setOnecardDefenseMode] = useState("attack-or-joker");
   const [onecardJokerDrawCount, setOnecardJokerDrawCount] = useState("5");
   const [onecardStacking, setOnecardStacking] = useState("on");
+  const [onecardChangeSuitCards, setOnecardChangeSuitCards] = useState("seven-joker");
+  const [onecardPenalty, setOnecardPenalty] = useState("on");
+  const [onecardDeclaredSuit, setOnecardDeclaredSuit] = useState("spade");
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
@@ -947,6 +950,23 @@ export function App() {
                         <option value="off">없음</option>
                       </select>
                     </label>
+                    <label>
+                      문양 변경
+                      <select value={onecardChangeSuitCards} onChange={(event) => setOnecardChangeSuitCards(event.target.value)}>
+                        <option value="seven-joker">7/조커</option>
+                        <option value="seven">7만</option>
+                        <option value="joker">조커만</option>
+                        <option value="queen-joker">Q/조커</option>
+                        <option value="off">없음</option>
+                      </select>
+                    </label>
+                    <label>
+                      원카드 벌칙
+                      <select value={onecardPenalty} onChange={(event) => setOnecardPenalty(event.target.value)}>
+                        <option value="on">사용</option>
+                        <option value="off">사용 안 함</option>
+                      </select>
+                    </label>
                   </div>
                   <button
                     className="wide-button"
@@ -957,7 +977,9 @@ export function App() {
                           attackCards: onecardAttackCards,
                           defenseMode: onecardDefenseMode,
                           jokerDrawCount: onecardJokerDrawCount,
-                          stacking: onecardStacking
+                          stacking: onecardStacking,
+                          changeSuitCards: onecardChangeSuitCards,
+                          oneCardPenalty: onecardPenalty
                         },
                         setCurrentRoom,
                         setRoomMessage
@@ -1281,33 +1303,78 @@ export function App() {
                         </div>
                         <div className="splendor-market" aria-label="시장 카드">
                           {(currentSession.state.market ?? []).map((card, index) => (
-                            <button
-                              className={`splendor-card ${card.color}`}
-                              key={card.id}
-                              onClick={() =>
-                                sendGameAction(
-                                  currentSession.id,
-                                  currentRoom?.id,
-                                  "splendor.buy_card",
-                                  setCurrentSession,
-                                  setRoomMessage,
-                                  { marketIndex: index }
-                                )
-                              }
-                              disabled={!isMyTurn}
-                            >
+                            <div className={`splendor-card ${card.color}`} key={card.id}>
                               <strong>{card.points}점</strong>
                               <span>{gemLabel(card.color)} 보너스</span>
                               <small>{formatCost(card.cost)}</small>
-                            </button>
+                              <button
+                                className="mini-action-button"
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "splendor.buy_card",
+                                    setCurrentSession,
+                                    setRoomMessage,
+                                    { marketIndex: index }
+                                  )
+                                }
+                                disabled={!isMyTurn}
+                              >
+                                구매
+                              </button>
+                              <button
+                                className="mini-action-button"
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "splendor.reserve_card",
+                                    setCurrentSession,
+                                    setRoomMessage,
+                                    { marketIndex: index }
+                                  )
+                                }
+                                disabled={!isMyTurn || (splendorMe?.reserved?.length ?? 0) >= 3}
+                              >
+                                예약
+                              </button>
+                            </div>
                           ))}
                         </div>
+                        {splendorMe?.reserved?.length ? (
+                          <div className="splendor-market" aria-label="내 예약 카드">
+                            {splendorMe.reserved.map((card, index) => (
+                              <div className={`splendor-card ${card.color}`} key={`reserved-${card.id}`}>
+                                <strong>{card.points}점</strong>
+                                <span>예약 · {gemLabel(card.color)} 보너스</span>
+                                <small>{formatCost(card.cost)}</small>
+                                <button
+                                  className="mini-action-button"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "splendor.buy_card",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { reservedIndex: index }
+                                    )
+                                  }
+                                  disabled={!isMyTurn}
+                                >
+                                  구매
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="splendor-players">
                           {davinciPlayers.map((player) => (
                             <div className="halli-player" key={player.playerId}>
                               <strong>{participantName(currentRoom, player.playerId)}</strong>
                               <span>
-                                {player.score ?? 0}점 · 카드 {player.cards?.length ?? 0}장
+                                {player.score ?? 0}점 · 카드 {player.cards?.length ?? 0}장 · 예약 {player.reserved?.length ?? 0}장
                               </span>
                               <div className="halli-cards">
                                 {splendorColors.map((color) => (
@@ -1673,6 +1740,7 @@ export function App() {
                           <span>
                             더미 {currentSession.state.drawPile?.length ?? 0}장 · 내 손패 {onecardMe?.hand?.length ?? 0}장 · 공격 누적{" "}
                             {currentSession.state.pendingDraw ?? 0}장
+                            {currentSession.state.declaredSuit ? ` · 선언 ${standardSuitLabel(currentSession.state.declaredSuit)}` : ""}
                           </span>
                         </div>
                         <div className="rule-message-list">
@@ -1680,6 +1748,17 @@ export function App() {
                           {currentSession.state.ruleMessages?.map((message) => (
                             <span key={message}>{message}</span>
                           ))}
+                        </div>
+                        <div className="option-grid compact-option-grid">
+                          <label>
+                            선언 문양
+                            <select value={onecardDeclaredSuit} onChange={(event) => setOnecardDeclaredSuit(event.target.value)}>
+                              <option value="spade">스페이드</option>
+                              <option value="heart">하트</option>
+                              <option value="diamond">다이아</option>
+                              <option value="club">클럽</option>
+                            </select>
+                          </label>
                         </div>
                         <div className="standard-hand" aria-label="내 원카드 손패">
                           {(onecardMe?.hand ?? []).map((card) => (
@@ -1693,7 +1772,7 @@ export function App() {
                                   "onecard.play",
                                   setCurrentSession,
                                   setRoomMessage,
-                                  { cardId: card.id }
+                                  onecardPlayPayload(card, currentSession.state.rules, onecardDeclaredSuit, onecardMe?.hand?.length ?? 0)
                                 )
                               }
                               disabled={!isMyTurn}
@@ -1726,6 +1805,54 @@ export function App() {
                           카드 뽑기
                           <ChevronRight size={18} />
                         </button>
+                        <button
+                          className="wide-button"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "onecard.declare_one",
+                              setCurrentSession,
+                              setRoomMessage
+                            )
+                          }
+                          disabled={
+                            !onecardMe ||
+                            (onecardMe.hand?.length ?? onecardMe.handSize ?? 0) !== 1 ||
+                            currentSession.state.declaredOne?.[playerID] === true ||
+                            currentSession.state.rules?.oneCardPenalty === false
+                          }
+                        >
+                          원카드 선언
+                          <ChevronRight size={18} />
+                        </button>
+                        {(currentSession.state.players ?? [])
+                          .filter(
+                            (player) =>
+                              player.playerId !== playerID &&
+                              (player.handSize ?? player.hand?.length ?? 0) === 1 &&
+                              currentSession.state.declaredOne?.[player.playerId] !== true &&
+                              currentSession.state.rules?.oneCardPenalty !== false
+                          )
+                          .map((player) => (
+                            <button
+                              className="wide-button dark"
+                              key={`callout-${player.playerId}`}
+                              onClick={() =>
+                                sendGameAction(
+                                  currentSession.id,
+                                  currentRoom?.id,
+                                  "onecard.callout_one",
+                                  setCurrentSession,
+                                  setRoomMessage,
+                                  { targetPlayerId: player.playerId }
+                                )
+                              }
+                            >
+                              {participantName(currentRoom, player.playerId)} 미선언 지적
+                              <ChevronRight size={18} />
+                            </button>
+                          ))}
                         {currentSession.state.finished ? (
                           <p className="helper-copy">승자 {participantName(currentRoom, currentSession.state.winnerId ?? "")}</p>
                         ) : null}
@@ -2535,7 +2662,27 @@ function onecardRuleSummary(rules: OneCardRules | undefined) {
   if (!rules) return "원카드 기본 룰";
   return `공격 ${onecardAttackLabel(rules.attackCards)} · 방어 ${onecardDefenseLabel(
     rules.defenseMode
-  )} · 조커 ${rules.jokerDrawCount ?? 5}장 · 누적 ${rules.stacking === false ? "없음" : "허용"}`;
+  )} · 조커 ${rules.jokerDrawCount ?? 5}장 · 누적 ${rules.stacking === false ? "없음" : "허용"} · 문양 ${onecardChangeSuitLabel(
+    rules.changeSuitCards
+  )} · 원카드 ${rules.oneCardPenalty === false ? "벌칙 없음" : `${rules.oneCardPenaltyDraw ?? 2}장 벌칙`}`;
+}
+
+function onecardPlayPayload(card: HandCard, rules: OneCardRules | undefined, declaredSuit: string, handSize: number) {
+  const payload: Record<string, unknown> = { cardId: card.id };
+  if (onecardCanChangeSuit(card, rules)) {
+    payload.declaredSuit = declaredSuit;
+  }
+  if (rules?.oneCardPenalty !== false && handSize === 2) {
+    payload.declareOne = true;
+  }
+  return payload;
+}
+
+function onecardCanChangeSuit(card: HandCard, rules: OneCardRules | undefined) {
+  const changeCards = rules?.changeSuitCards ?? ["7", "JOKER"];
+  if (changeCards.length === 0) return false;
+  if (card.joker) return changeCards.includes("JOKER");
+  return changeCards.includes(String(card.rank ?? ""));
 }
 
 function onecardAttackLabel(cards: string[] | undefined) {
@@ -2552,6 +2699,15 @@ function onecardDefenseLabel(mode: string | undefined) {
     "attack-or-joker": "공격카드/조커"
   };
   return labels[mode ?? "attack-or-joker"] ?? "공격카드/조커";
+}
+
+function onecardChangeSuitLabel(cards: string[] | undefined) {
+  const value = (cards ?? ["7", "JOKER"]).join("/");
+  if (value === "") return "없음";
+  if (value === "7") return "7";
+  if (value === "JOKER") return "조커";
+  if (value === "Q/JOKER") return "Q/조커";
+  return "7/조커";
 }
 
 function fruitLabel(fruit: string) {

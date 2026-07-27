@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	ActionTakeToken = "splendor.take_token"
-	ActionBuyCard   = "splendor.buy_card"
+	ActionTakeToken   = "splendor.take_token"
+	ActionBuyCard     = "splendor.buy_card"
+	ActionReserveCard = "splendor.reserve_card"
 )
 
 var colors = []string{"white", "blue", "green", "red", "black"}
@@ -32,6 +33,7 @@ type PlayerState struct {
 	Tokens   map[string]int `json:"tokens"`
 	Bonuses  map[string]int `json:"bonuses"`
 	Cards    []Card         `json:"cards"`
+	Reserved []Card         `json:"reserved"`
 	Score    int            `json:"score"`
 	Active   bool           `json:"active"`
 }
@@ -47,6 +49,11 @@ type State struct {
 	Finished           bool           `json:"finished"`
 	EndTriggered       bool           `json:"endTriggered,omitempty"`
 	EndTriggerIndex    int            `json:"-"`
+}
+
+type BuyPayload struct {
+	MarketIndex   int
+	ReservedIndex int
 }
 
 type Module struct{}
@@ -82,6 +89,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 			Tokens:   emptyCounter(),
 			Bonuses:  emptyCounter(),
 			Cards:    []Card{},
+			Reserved: []Card{},
 			Active:   true,
 		})
 	}
@@ -125,15 +133,27 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if totalTokens(current.Players[current.CurrentPlayerIndex])+len(colorList) > 10 {
 			return errors.New("token limit is reached")
 		}
-	case ActionBuyCard:
-		index, err := buyPayload(action.Payload)
+	case ActionReserveCard:
+		index, err := reservePayload(action.Payload)
 		if err != nil {
 			return err
 		}
 		if index < 0 || index >= len(current.Market) {
 			return errors.New("card index out of range")
 		}
-		if !canAfford(current.Players[current.CurrentPlayerIndex], current.Market[index]) {
+		if len(current.Players[current.CurrentPlayerIndex].Reserved) >= 3 {
+			return errors.New("reserved card limit is reached")
+		}
+	case ActionBuyCard:
+		payload, err := buyPayload(action.Payload)
+		if err != nil {
+			return err
+		}
+		card, ok := selectedBuyCard(current.Players[current.CurrentPlayerIndex], current.Market, payload)
+		if !ok {
+			return errors.New("card index out of range")
+		}
+		if !canAfford(current.Players[current.CurrentPlayerIndex], card) {
 			return errors.New("not enough tokens")
 		}
 	default:
@@ -156,20 +176,46 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Bank[color]--
 		}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %s 보석을 가져갔습니다.", player.PlayerID, strings.Join(colorList, ", ")))
-	case ActionBuyCard:
-		index, err := buyPayload(action.Payload)
+	case ActionReserveCard:
+		index, err := reservePayload(action.Payload)
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
 		card := current.Market[index]
+		player.Reserved = append(player.Reserved, card)
+		current.Market = removeMarketCard(current.Market, index)
+		if len(current.Deck) > 0 {
+			current.Market = append(current.Market, current.Deck[0])
+			current.Deck = current.Deck[1:]
+		}
+		if current.Bank["gold"] > 0 && totalTokens(*player) < 10 {
+			player.Tokens["gold"]++
+			current.Bank["gold"]--
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드를 예약하고 금 토큰을 받았습니다.", player.PlayerID))
+		} else {
+			current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드를 예약했습니다.", player.PlayerID))
+		}
+	case ActionBuyCard:
+		payload, err := buyPayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		card, ok := selectedBuyCard(*player, current.Market, payload)
+		if !ok {
+			return gamecore.ActionResult{}, errors.New("card index out of range")
+		}
 		payCost(player, &current, card)
 		player.Cards = append(player.Cards, card)
 		player.Bonuses[card.Color]++
 		player.Score += card.Points
-		current.Market = append(current.Market[:index], current.Market[index+1:]...)
-		if len(current.Deck) > 0 {
-			current.Market = append(current.Market, current.Deck[0])
-			current.Deck = current.Deck[1:]
+		if payload.ReservedIndex >= 0 {
+			player.Reserved = append(player.Reserved[:payload.ReservedIndex], player.Reserved[payload.ReservedIndex+1:]...)
+		} else {
+			current.Market = removeMarketCard(current.Market, payload.MarketIndex)
+			if len(current.Deck) > 0 {
+				current.Market = append(current.Market, current.Deck[0])
+				current.Deck = current.Deck[1:]
+			}
 		}
 		current.Log = append(current.Log, fmt.Sprintf("%s 님이 %d점 카드를 구매했습니다.", player.PlayerID, card.Points))
 	}
@@ -274,12 +320,18 @@ func advanceTurn(state State) State {
 }
 
 func canAfford(player PlayerState, card Card) bool {
+	gold := player.Tokens["gold"]
 	for color, cost := range card.Cost {
 		required := cost - player.Bonuses[color]
 		if required < 0 {
 			required = 0
 		}
-		if player.Tokens[color] < required {
+		colorTokens := player.Tokens[color]
+		if colorTokens >= required {
+			continue
+		}
+		gold -= required - colorTokens
+		if gold < 0 {
 			return false
 		}
 	}
@@ -292,9 +344,35 @@ func payCost(player *PlayerState, state *State, card Card) {
 		if required < 0 {
 			required = 0
 		}
-		player.Tokens[color] -= required
-		state.Bank[color] += required
+		colorPayment := required
+		if player.Tokens[color] < colorPayment {
+			colorPayment = player.Tokens[color]
+		}
+		player.Tokens[color] -= colorPayment
+		state.Bank[color] += colorPayment
+		goldPayment := required - colorPayment
+		if goldPayment > 0 {
+			player.Tokens["gold"] -= goldPayment
+			state.Bank["gold"] += goldPayment
+		}
 	}
+}
+
+func selectedBuyCard(player PlayerState, market []Card, payload BuyPayload) (Card, bool) {
+	if payload.ReservedIndex >= 0 {
+		if payload.ReservedIndex >= len(player.Reserved) {
+			return Card{}, false
+		}
+		return player.Reserved[payload.ReservedIndex], true
+	}
+	if payload.MarketIndex < 0 || payload.MarketIndex >= len(market) {
+		return Card{}, false
+	}
+	return market[payload.MarketIndex], true
+}
+
+func removeMarketCard(market []Card, index int) []Card {
+	return append(market[:index], market[index+1:]...)
 }
 
 func returnTokensToBank(state *State, playerIndex int) {
@@ -401,16 +479,34 @@ func validateTakeTokens(state State, colors []string) error {
 	return nil
 }
 
-func buyPayload(payload any) (int, error) {
+func reservePayload(payload any) (int, error) {
 	raw, ok := payload.(map[string]any)
 	if !ok {
-		return 0, errors.New("invalid buy payload")
+		return 0, errors.New("invalid reserve payload")
 	}
 	value, ok := gameutil.Int(raw["marketIndex"])
 	if !ok {
 		return 0, errors.New("market index is required")
 	}
 	return value, nil
+}
+
+func buyPayload(payload any) (BuyPayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return BuyPayload{}, errors.New("invalid buy payload")
+	}
+	result := BuyPayload{MarketIndex: -1, ReservedIndex: -1}
+	if value, ok := gameutil.Int(raw["marketIndex"]); ok {
+		result.MarketIndex = value
+	}
+	if value, ok := gameutil.Int(raw["reservedIndex"]); ok {
+		result.ReservedIndex = value
+	}
+	if (result.MarketIndex < 0 && result.ReservedIndex < 0) || (result.MarketIndex >= 0 && result.ReservedIndex >= 0) {
+		return BuyPayload{}, errors.New("exactly one buy index is required")
+	}
+	return result, nil
 }
 
 func validColor(color string) bool {
@@ -427,6 +523,7 @@ func emptyCounter() map[string]int {
 	for _, color := range colors {
 		counter[color] = 0
 	}
+	counter["gold"] = 0
 	return counter
 }
 
@@ -442,6 +539,7 @@ func startingBank(playerCount int) map[string]int {
 	for _, color := range colors {
 		bank[color] = amount
 	}
+	bank["gold"] = 5
 	return bank
 }
 
@@ -456,6 +554,7 @@ func cloneState(state State) State {
 		clone.Players[index].Tokens = copyCounter(state.Players[index].Tokens)
 		clone.Players[index].Bonuses = copyCounter(state.Players[index].Bonuses)
 		clone.Players[index].Cards = cloneCards(state.Players[index].Cards)
+		clone.Players[index].Reserved = cloneCards(state.Players[index].Reserved)
 	}
 	clone.Log = append([]string(nil), state.Log...)
 	return clone

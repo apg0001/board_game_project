@@ -93,6 +93,53 @@ func TestKingCardGrantsExtraTurn(t *testing.T) {
 	}
 }
 
+func TestQueenReversesDirectionAndAceDoesNot(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Direction:          1,
+		Rules:              ruleConfigFromOptions(map[string]any{"attackCards": []string{"2", "A"}, "stacking": true}),
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "heart-q", Suit: "heart", Rank: "Q"}, {ID: "spade-a", Suit: "spade", Rank: "A"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "club-3", Suit: "club", Rank: "3"}}, Active: true},
+			{PlayerID: "p3", Hand: []Card{{ID: "diamond-4", Suit: "diamond", Rank: "4"}}, Active: true},
+		},
+		DiscardPile: []Card{{ID: "heart-5", Suit: "heart", Rank: "5"}},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "heart-q"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Direction != -1 {
+		t.Fatalf("expected Q to reverse direction, got %d", next.Direction)
+	}
+
+	next.CurrentPlayerIndex = 0
+	next.Direction = 1
+	next.DiscardPile = []Card{{ID: "spade-5", Suit: "spade", Rank: "5"}}
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "spade-a"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterAce := result.State.(State)
+	if afterAce.Direction != 1 {
+		t.Fatalf("expected A to keep direction while applying attack, got %d", afterAce.Direction)
+	}
+	if afterAce.PendingDraw != 3 {
+		t.Fatalf("expected A attack to add 3 pending cards, got %d", afterAce.PendingDraw)
+	}
+}
+
 func TestApplyTimeoutResolvesPendingDrawBeforePassingTurn(t *testing.T) {
 	module := NewModule()
 	state := State{
@@ -140,14 +187,14 @@ func TestCanPlayMatchesSuitOrRank(t *testing.T) {
 func TestResolveRulesUsesVotesAndTieBreaks(t *testing.T) {
 	module := NewModule()
 	resolution := module.ResolveRules([]gamecore.RuleVote{
-		{UserID: "p1", Choices: map[string]string{"attackCards": "two", "defenseMode": "same-rank", "jokerDrawCount": "7", "stacking": "off"}},
-		{UserID: "p2", Choices: map[string]string{"attackCards": "two-ace-joker", "defenseMode": "attack-or-joker", "jokerDrawCount": "5", "stacking": "on"}},
+		{UserID: "p1", Choices: map[string]string{"attackCards": "two", "defenseMode": "same-rank", "jokerDrawCount": "7", "stacking": "off", "changeSuitCards": "off", "oneCardPenalty": "off"}},
+		{UserID: "p2", Choices: map[string]string{"attackCards": "two-ace-joker", "defenseMode": "attack-or-joker", "jokerDrawCount": "5", "stacking": "on", "changeSuitCards": "seven-joker", "oneCardPenalty": "on"}},
 	}, "room_seed")
 
 	if len(resolution.Announcements) < 2 {
 		t.Fatalf("expected tie announcements, got %#v", resolution.Announcements)
 	}
-	if resolution.Options["jokerDrawCount"] == nil || resolution.Options["stacking"] == nil {
+	if resolution.Options["jokerDrawCount"] == nil || resolution.Options["stacking"] == nil || resolution.Options["changeSuitCards"] == nil || resolution.Options["oneCardPenalty"] == nil {
 		t.Fatalf("expected resolved options, got %#v", resolution.Options)
 	}
 }
@@ -162,6 +209,21 @@ func TestDeckIncludesJokers(t *testing.T) {
 	}
 	if len(deck) != 54 || jokers != 2 {
 		t.Fatalf("expected 54 cards with two jokers, got len=%d jokers=%d", len(deck), jokers)
+	}
+}
+
+func TestFirstDiscardSkipsSpecialCards(t *testing.T) {
+	deck := []Card{
+		{ID: "heart-2", Suit: "heart", Rank: "2"},
+		{ID: "heart-a", Suit: "heart", Rank: "A"},
+		{ID: "heart-j", Suit: "heart", Rank: "J"},
+		{ID: "heart-q", Suit: "heart", Rank: "Q"},
+		{ID: "heart-k", Suit: "heart", Rank: "K"},
+		{ID: "heart-7", Suit: "heart", Rank: "7"},
+		{ID: "club-9", Suit: "club", Rank: "9"},
+	}
+	if index := firstDiscardIndex(deck); index != 6 {
+		t.Fatalf("expected first non-special card index 6, got %d", index)
 	}
 }
 
@@ -237,6 +299,130 @@ func TestAnyAttackDefenseRequiresConfiguredAttackCard(t *testing.T) {
 	}
 	if !canPlay(Card{ID: "spade-2", Suit: "spade", Rank: "2"}, state) {
 		t.Fatal("expected configured attack card to defend")
+	}
+}
+
+func TestPlayToOneCanDeclareOne(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Direction:          1,
+		Rules:              ruleConfigFromOptions(nil),
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "heart-9", Suit: "heart", Rank: "9"}, {ID: "heart-5", Suit: "heart", Rank: "5"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "spade-3", Suit: "spade", Rank: "3"}}, Active: true},
+		},
+		DiscardPile: []Card{{ID: "heart-7", Suit: "heart", Rank: "7"}},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "heart-9", "declareOne": true},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if !next.DeclaredOne["p1"] {
+		t.Fatalf("expected p1 one-card declaration to be recorded, got %#v", next.DeclaredOne)
+	}
+}
+
+func TestCalloutOnePenaltyDrawsCards(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 1,
+		Direction:          1,
+		Rules:              ruleConfigFromOptions(nil),
+		DeclaredOne:        map[string]bool{"p1": false},
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "heart-5", Suit: "heart", Rank: "5"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "spade-3", Suit: "spade", Rank: "3"}}, Active: true},
+		},
+		DrawPile:    []Card{{ID: "club-4", Suit: "club", Rank: "4"}, {ID: "diamond-6", Suit: "diamond", Rank: "6"}},
+		DiscardPile: []Card{{ID: "heart-7", Suit: "heart", Rank: "7"}},
+	}
+
+	if err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionCalloutOne,
+		PlayerID: "p2",
+		Payload:  map[string]any{"targetPlayerId": "p1"},
+	}, testContext()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionCalloutOne,
+		PlayerID: "p2",
+		Payload:  map[string]any{"targetPlayerId": "p1"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Hand) != 3 {
+		t.Fatalf("expected p1 to draw two penalty cards, got %+v", next.Players[0].Hand)
+	}
+	if next.DeclaredOne["p1"] {
+		t.Fatal("penalized player should no longer be marked as declared")
+	}
+}
+
+func TestChangeSuitRequiresDeclaredSuit(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Direction:          1,
+		Rules:              ruleConfigFromOptions(nil),
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "heart-7", Suit: "heart", Rank: "7"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "spade-3", Suit: "spade", Rank: "3"}}, Active: true},
+		},
+		DiscardPile: []Card{{ID: "heart-5", Suit: "heart", Rank: "5"}},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "heart-7"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected changing-suit card to require a declared suit")
+	}
+}
+
+func TestDeclaredSuitControlsNextPlayableSuit(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		Direction:          1,
+		Rules:              ruleConfigFromOptions(nil),
+		Players: []PlayerState{
+			{PlayerID: "p1", Hand: []Card{{ID: "heart-7", Suit: "heart", Rank: "7"}, {ID: "club-4", Suit: "club", Rank: "4"}}, Active: true},
+			{PlayerID: "p2", Hand: []Card{{ID: "spade-3", Suit: "spade", Rank: "3"}}, Active: true},
+		},
+		DiscardPile: []Card{{ID: "heart-5", Suit: "heart", Rank: "5"}},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "heart-7", "declaredSuit": "spade"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.DeclaredSuit != "spade" {
+		t.Fatalf("expected declared suit spade, got %q", next.DeclaredSuit)
+	}
+	if !canPlay(Card{ID: "spade-9", Suit: "spade", Rank: "9"}, next) {
+		t.Fatal("expected declared suit to allow spade")
+	}
+	if canPlay(Card{ID: "heart-9", Suit: "heart", Rank: "9"}, next) {
+		t.Fatal("expected previous physical suit to be ignored after declared suit")
 	}
 }
 
