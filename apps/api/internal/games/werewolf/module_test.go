@@ -155,6 +155,60 @@ func TestNightRoleOrderBlocksLaterRoles(t *testing.T) {
 	}
 }
 
+func TestMinionSeesWerewolvesAndBlocksSeerUntilComplete(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Phase: PhaseNight,
+		Players: []PlayerState{
+			{PlayerID: "p1", OriginalRole: RoleWerewolf, CurrentRole: RoleWerewolf, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p2", OriginalRole: RoleMinion, CurrentRole: RoleMinion, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p3", OriginalRole: RoleSeer, CurrentRole: RoleSeer, SeenRoles: map[string]string{}, Active: true},
+		},
+		Center:           []string{RoleRobber, RoleDrunk, RoleVillager},
+		CompletedActions: map[string]bool{},
+		Votes:            map[string]string{},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionLoneWolfCenter,
+		PlayerID: "p1",
+		Payload:  map[string]any{"centerIndexes": []any{0}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeCenter,
+		PlayerID: "p3",
+		Payload:  map[string]any{"centerIndexes": []any{0, 1}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected seer to wait for minion")
+	}
+
+	result, err = module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeMinion,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+	if state.Players[1].SeenRoles["player:p1"] != RoleWerewolf {
+		t.Fatalf("expected minion to see werewolf, got %+v", state.Players[1].SeenRoles)
+	}
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeCenter,
+		PlayerID: "p3",
+		Payload:  map[string]any{"centerIndexes": []any{0, 1}},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected seer to act after minion, got %v", err)
+	}
+}
+
 func TestVoteKillsWerewolfAndVillageWins(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
@@ -174,6 +228,9 @@ func TestVoteKillsWerewolfAndVillageWins(t *testing.T) {
 
 	if !state.Finished || state.WinningTeam != "village" {
 		t.Fatalf("expected village win, got %+v", state)
+	}
+	if !contains(state.WinningPlayerIDs, "p1") || contains(state.WinningPlayerIDs, "p2") {
+		t.Fatalf("expected village players to be winners, got %+v", state.WinningPlayerIDs)
 	}
 }
 
@@ -226,15 +283,82 @@ func TestFinishVoteExecutesAllHighestTiedPlayersAboveOneVote(t *testing.T) {
 	}
 }
 
-func TestFinishVoteVillageWinsWhenNoWerewolves(t *testing.T) {
+func TestFinishVoteVillageWinsWhenNoWerewolvesAndNobodyDies(t *testing.T) {
+	state := fixedState()
+	state.Players[1].CurrentRole = RoleVillager
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p2", "p2": "p3", "p3": "p1"}
+
+	result := finishVote(state)
+	if result.WinningTeam != "village" {
+		t.Fatalf("expected village to win when no werewolves exist and nobody dies, got %q", result.WinningTeam)
+	}
+	if len(result.Executed) != 0 || len(result.WinningPlayerIDs) != 3 {
+		t.Fatalf("expected no execution and all villagers to win, got executed=%+v winners=%+v", result.Executed, result.WinningPlayerIDs)
+	}
+}
+
+func TestFinishVoteHasNoWinnersWhenNoWerewolvesAndVillagerDies(t *testing.T) {
 	state := fixedState()
 	state.Players[1].CurrentRole = RoleVillager
 	state.Phase = PhaseDiscussion
 	state.Votes = map[string]string{"p1": "p3", "p2": "p3", "p3": "p1"}
 
 	result := finishVote(state)
-	if result.WinningTeam != "village" {
-		t.Fatalf("expected village to win when no werewolves exist, got %q", result.WinningTeam)
+	if result.WinningTeam != "none" || len(result.WinningPlayerIDs) != 0 {
+		t.Fatalf("expected no winners when villagers execute someone with no werewolves, got team=%q winners=%+v", result.WinningTeam, result.WinningPlayerIDs)
+	}
+}
+
+func TestTannerWinsWhenExecuted(t *testing.T) {
+	state := fixedState()
+	state.Players[2].CurrentRole = RoleTanner
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p3", "p2": "p3", "p3": "p2"}
+
+	result := finishVote(state)
+	if result.WinningTeam != "tanner" || !contains(result.WinningPlayerIDs, "p3") || len(result.WinningPlayerIDs) != 1 {
+		t.Fatalf("expected executed tanner alone to win, got team=%q winners=%+v", result.WinningTeam, result.WinningPlayerIDs)
+	}
+}
+
+func TestHunterExecutionAlsoExecutesVotedTarget(t *testing.T) {
+	state := fixedState()
+	state.Players[0].CurrentRole = RoleHunter
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p2", "p2": "p1", "p3": "p1"}
+
+	result := finishVote(state)
+	if !contains(result.Executed, "p1") || !contains(result.Executed, "p2") {
+		t.Fatalf("expected hunter and hunter target to be executed, got %+v", result.Executed)
+	}
+	if result.WinningTeam != "village" || !contains(result.WinningPlayerIDs, "p1") || contains(result.WinningPlayerIDs, "p2") {
+		t.Fatalf("expected village to win after hunter takes werewolf down, got team=%q winners=%+v", result.WinningTeam, result.WinningPlayerIDs)
+	}
+}
+
+func TestMinionWinsWithWerewolvesEvenIfExecuted(t *testing.T) {
+	state := fixedState()
+	state.Players[0].CurrentRole = RoleMinion
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p1", "p2": "p1", "p3": "p1"}
+
+	result := finishVote(state)
+	if result.WinningTeam != "werewolf" || !contains(result.WinningPlayerIDs, "p1") || !contains(result.WinningPlayerIDs, "p2") {
+		t.Fatalf("expected minion and surviving werewolf to win, got team=%q winners=%+v", result.WinningTeam, result.WinningPlayerIDs)
+	}
+}
+
+func TestMinionWinsWithoutWerewolvesIfVillagerDiesAndMinionSurvives(t *testing.T) {
+	state := fixedState()
+	state.Players[0].CurrentRole = RoleMinion
+	state.Players[1].CurrentRole = RoleVillager
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p3", "p2": "p3", "p3": "p2"}
+
+	result := finishVote(state)
+	if result.WinningTeam != "werewolf" || len(result.WinningPlayerIDs) != 1 || result.WinningPlayerIDs[0] != "p1" {
+		t.Fatalf("expected lone minion to win when a villager dies, got team=%q winners=%+v", result.WinningTeam, result.WinningPlayerIDs)
 	}
 }
 

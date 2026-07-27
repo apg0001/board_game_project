@@ -252,7 +252,7 @@ func playJokerDrawTurn(t *testing.T, service *Service, testRoom room.Room, start
 func playWerewolfRound(t *testing.T, service *Service, testRoom room.Room, started Session) {
 	current := started
 	state := current.State.(werewolf.State)
-	for _, role := range []string{werewolf.RoleWerewolf, werewolf.RoleSeer, werewolf.RoleRobber, werewolf.RoleTroublemaker, werewolf.RoleDrunk} {
+	for _, role := range []string{werewolf.RoleWerewolf, werewolf.RoleMinion, werewolf.RoleSeer, werewolf.RoleRobber, werewolf.RoleTroublemaker, werewolf.RoleDrunk} {
 		for _, player := range state.Players {
 			if player.OriginalRole != role {
 				continue
@@ -264,6 +264,8 @@ func playWerewolfRound(t *testing.T, service *Service, testRoom room.Room, start
 				} else {
 					current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeWerewolves, nil)
 				}
+			case werewolf.RoleMinion:
+				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeMinion, nil)
 			case werewolf.RoleSeer:
 				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeCenter, map[string]any{"centerIndexes": []any{0, 1}})
 			case werewolf.RoleRobber:
