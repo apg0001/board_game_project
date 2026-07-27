@@ -1626,6 +1626,231 @@ button.rummikub-tile {
   box-shadow: 0 0 0 3px rgba(244, 201, 93, 0.35);
 }
 
+.card-face {
+  position: relative;
+  display: grid;
+  width: 100%;
+  max-width: 96px;
+  aspect-ratio: 2.5 / 3.5;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.card-face img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.playing-card-face,
+.playing-card-back {
+  background: #fff;
+}
+
+.playing-card-back {
+  background: #2f78b7;
+}
+
+.card-corner {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  color: currentColor;
+  font-size: 0.66rem;
+  line-height: 1;
+}
+
+.card-corner.top {
+  top: 5px;
+  left: 5px;
+}
+
+.card-corner.bottom {
+  right: 5px;
+  bottom: 5px;
+  transform: rotate(180deg);
+}
+
+.card-center-mark {
+  font-size: 1.8rem;
+}
+
+.card-title {
+  position: absolute;
+  bottom: 22%;
+  font-size: 0.62rem;
+  font-weight: 950;
+}
+
+.bang-card-face,
+.dalmuti-card-face,
+.splendor-card-face,
+.hwatu-card-face {
+  border: 1px solid rgba(23, 33, 43, 0.13);
+  box-shadow: 0 6px 16px rgba(23, 33, 43, 0.11);
+}
+
+.bang-card-face {
+  gap: 4px;
+  padding: 8px;
+  color: #fff8e8;
+  background: linear-gradient(155deg, #8c3f2a, #c95f42);
+}
+
+.bang-card-face.type-missed {
+  color: #17212b;
+  background: linear-gradient(155deg, #fff8e8, #f4c95d);
+}
+
+.bang-card-face.type-beer {
+  background: linear-gradient(155deg, #1d6959, #2f8e74);
+}
+
+.bang-card-face.type-gatling {
+  background: linear-gradient(155deg, #17212b, #46505c);
+}
+
+.bang-card-face strong,
+.bang-card-face small,
+.bang-card-kicker {
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.bang-card-kicker {
+  font-size: 0.62rem;
+  letter-spacing: 0;
+  opacity: 0.8;
+}
+
+.hwatu-card-face {
+  gap: 4px;
+  padding: 6px;
+  color: #17212b;
+  background:
+    radial-gradient(circle at 68% 25%, rgba(201, 95, 66, 0.42) 0 13%, transparent 14%),
+    linear-gradient(160deg, #fffdf7, #f7e8c5);
+}
+
+.hwatu-card-face.kind-bright {
+  background:
+    radial-gradient(circle at 65% 26%, rgba(244, 201, 93, 0.9) 0 14%, transparent 15%),
+    linear-gradient(160deg, #fff8e8, #f4c95d);
+}
+
+.hwatu-card-face.kind-animal {
+  background:
+    radial-gradient(circle at 64% 30%, rgba(47, 142, 116, 0.65) 0 14%, transparent 15%),
+    linear-gradient(160deg, #fffdf7, #bfe8dc);
+}
+
+.hwatu-card-face.kind-ribbon {
+  background:
+    linear-gradient(118deg, transparent 0 34%, rgba(201, 95, 66, 0.88) 35% 58%, transparent 59%),
+    #fffdf7;
+}
+
+.hwatu-month,
+.hwatu-mark {
+  z-index: 1;
+  font-weight: 950;
+}
+
+.hwatu-branch {
+  width: 60%;
+  height: 42%;
+  border-radius: 999px 999px 999px 0;
+  background: rgba(47, 142, 116, 0.42);
+  transform: rotate(-22deg);
+}
+
+.dalmuti-card-fan {
+  position: relative;
+  display: block;
+  min-height: 68px;
+}
+
+.dalmuti-card-fan .card-face {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 48px;
+  color: #17212b;
+  background: linear-gradient(160deg, #fffdf7, #f4c95d);
+  transform: translateX(-50%);
+}
+
+.dalmuti-card-fan .card-face:nth-child(2) {
+  transform: translateX(-30%) rotate(7deg);
+}
+
+.dalmuti-card-fan .card-face:nth-child(3) {
+  transform: translateX(-70%) rotate(-7deg);
+}
+
+.dalmuti-card-fan .card-face:nth-child(4) {
+  transform: translateX(-10%) rotate(13deg);
+}
+
+.dalmuti-card-fan em {
+  position: absolute;
+  right: 4px;
+  bottom: 0;
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: #17212b;
+  color: #fff8e8;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.dalmuti-card-face small,
+.dalmuti-card-face strong {
+  text-align: center;
+}
+
+.splendor-card-face {
+  gap: 5px;
+  max-width: none;
+  padding: 8px;
+}
+
+.splendor-card-face.gem-white {
+  background: linear-gradient(155deg, #fff, #e9edf0);
+}
+
+.splendor-card-face.gem-blue {
+  color: #f5fbff;
+  background: linear-gradient(155deg, #2f78b7, #0e4e82);
+}
+
+.splendor-card-face.gem-green {
+  color: #f5fff9;
+  background: linear-gradient(155deg, #2f8e74, #1d6959);
+}
+
+.splendor-card-face.gem-red {
+  color: #fff8f6;
+  background: linear-gradient(155deg, #c95f42, #8c3f2a);
+}
+
+.splendor-card-face.gem-black {
+  color: #fff8e8;
+  background: linear-gradient(155deg, #17212b, #46505c);
+}
+
+.splendor-points,
+.splendor-badge {
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: rgba(255, 255, 255, 0.25);
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
 .bang-hand {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
@@ -1633,9 +1858,12 @@ button.rummikub-tile {
 }
 
 .bang-card {
+  display: grid;
   min-height: 76px;
+  place-items: center;
   border: 1px solid rgba(23, 33, 43, 0.14);
   border-radius: 12px;
+  padding: 6px;
   color: #fff8e8;
   background: #8c3f2a;
   font-weight: 950;
@@ -1675,8 +1903,16 @@ button.rummikub-tile {
   cursor: pointer;
 }
 
+.standard-card .card-face {
+  max-width: 78px;
+}
+
 .game-session-card .standard-card {
   min-height: clamp(86px, 12vw, 118px);
+}
+
+.game-session-card .standard-card .card-face {
+  max-width: clamp(58px, 10vw, 86px);
 }
 
 .standard-card.readonly {
@@ -1710,14 +1946,21 @@ button.rummikub-tile {
 }
 
 .mini-card-button {
+  display: grid;
   width: 34px;
   height: 46px;
+  place-items: center;
   border: 1px solid rgba(23, 33, 43, 0.14);
   border-radius: 8px;
   color: #fffdf7;
   background: #4d5360;
   font-weight: 950;
   cursor: pointer;
+}
+
+.mini-card-button .card-face {
+  width: 100%;
+  max-width: 30px;
 }
 
 .hwatu-hand,
@@ -1745,6 +1988,11 @@ button.rummikub-tile {
   background: #fff;
   font-size: 0.8rem;
   font-weight: 950;
+}
+
+.hwatu-card .card-face {
+  width: 54px;
+  max-width: 54px;
 }
 
 button.hwatu-card {

@@ -72,6 +72,8 @@ type RuleConfig struct {
 	ChangeSuitCards    []string `json:"changeSuitCards"`
 	OneCardPenalty     bool     `json:"oneCardPenalty"`
 	OneCardPenaltyDraw int      `json:"oneCardPenaltyDraw"`
+	AllowFinalAttack   bool     `json:"allowFinalAttack"`
+	AllowFinalSpecial  bool     `json:"allowFinalSpecial"`
 }
 
 type Module struct{}
@@ -103,6 +105,8 @@ func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.Ru
 	stacking, stackingTied := resolveChoice(votes, "stacking", "on", seed)
 	changeSuit, changeSuitTied := resolveChoice(votes, "changeSuitCards", "seven-joker", seed)
 	oneCardPenalty, oneCardPenaltyTied := resolveChoice(votes, "oneCardPenalty", "on", seed)
+	finalAttack, finalAttackTied := resolveChoice(votes, "allowFinalAttack", "on", seed)
+	finalSpecial, finalSpecialTied := resolveChoice(votes, "allowFinalSpecial", "on", seed)
 
 	config := RuleConfig{
 		AttackCards:        attackCardsForChoice(attackCards),
@@ -113,16 +117,20 @@ func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.Ru
 		ChangeSuitCards:    changeSuitCardsForChoice(changeSuit),
 		OneCardPenalty:     oneCardPenalty != "off",
 		OneCardPenaltyDraw: 2,
+		AllowFinalAttack:   finalAttack != "off",
+		AllowFinalSpecial:  finalSpecial != "off",
 	}
 	messages := []string{
 		fmt.Sprintf(
-			"원카드 룰 확정: 공격 %s, 방어 %s, 조커 %d장, 공격 누적 %s, 문양 변경 %s, 원카드 벌칙 %s",
+			"원카드 룰 확정: 공격 %s, 방어 %s, 조커 %d장, 공격 누적 %s, 문양 변경 %s, 원카드 벌칙 %s, 막카 공격 %s, 막카 특수 %s",
 			attackChoiceLabel(attackCards),
 			defenseChoiceLabel(defenseMode),
 			config.JokerDrawCount,
 			onOffLabel(config.Stacking),
 			changeSuitChoiceLabel(changeSuit),
 			onOffLabel(config.OneCardPenalty),
+			onOffLabel(config.AllowFinalAttack),
+			onOffLabel(config.AllowFinalSpecial),
 		),
 	}
 	if attackTied {
@@ -143,6 +151,12 @@ func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.Ru
 	if oneCardPenaltyTied {
 		messages = append(messages, "원카드 선언 벌칙 투표가 동률이라 랜덤으로 결정했습니다.")
 	}
+	if finalAttackTied {
+		messages = append(messages, "마지막 카드 공격 허용 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
+	if finalSpecialTied {
+		messages = append(messages, "마지막 카드 특수효과 허용 투표가 동률이라 랜덤으로 결정했습니다.")
+	}
 
 	return gamecore.RuleResolution{
 		Options: map[string]any{
@@ -154,6 +168,8 @@ func (m Module) ResolveRules(votes []gamecore.RuleVote, seed string) gamecore.Ru
 			"changeSuitCards":    config.ChangeSuitCards,
 			"oneCardPenalty":     config.OneCardPenalty,
 			"oneCardPenaltyDraw": config.OneCardPenaltyDraw,
+			"allowFinalAttack":   config.AllowFinalAttack,
+			"allowFinalSpecial":  config.AllowFinalSpecial,
 			"ruleMessages":       messages,
 		},
 		Announcements: messages,
@@ -230,6 +246,14 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		}
 		if !canPlay(card, current) {
 			return errors.New("card cannot be played now")
+		}
+		if len(current.Players[current.CurrentPlayerIndex].Hand) == 1 {
+			if attackAmount(card, current.Rules) > 0 && !current.Rules.AllowFinalAttack {
+				return errors.New("final attack card is not allowed by room rules")
+			}
+			if isSpecialCard(card, current.Rules) && !current.Rules.AllowFinalSpecial {
+				return errors.New("final special card is not allowed by room rules")
+			}
 		}
 		if payload.DeclaredSuit != "" {
 			if !isStandardSuit(payload.DeclaredSuit) {
@@ -457,6 +481,13 @@ func canChangeSuit(card Card, rules RuleConfig) bool {
 		return containsRuleCard(rules.ChangeSuitCards, "JOKER")
 	}
 	return containsRuleCard(rules.ChangeSuitCards, card.Rank)
+}
+
+func isSpecialCard(card Card, rules RuleConfig) bool {
+	if card.Joker {
+		return true
+	}
+	return card.Rank == "J" || card.Rank == "Q" || card.Rank == "K" || canChangeSuit(card, rules)
 }
 
 func isStandardSuit(suit string) bool {
@@ -702,6 +733,8 @@ func ruleConfigFromOptions(options map[string]any) RuleConfig {
 		ChangeSuitCards:    []string{"7", "JOKER"},
 		OneCardPenalty:     true,
 		OneCardPenaltyDraw: 2,
+		AllowFinalAttack:   true,
+		AllowFinalSpecial:  true,
 	}
 	if raw, ok := options["attackCards"]; ok {
 		config.AttackCards = stringList(raw, config.AttackCards)
@@ -721,6 +754,12 @@ func ruleConfigFromOptions(options map[string]any) RuleConfig {
 		config.OneCardPenalty = raw
 	}
 	config.OneCardPenaltyDraw = intOption(options["oneCardPenaltyDraw"], config.OneCardPenaltyDraw)
+	if raw, ok := options["allowFinalAttack"].(bool); ok {
+		config.AllowFinalAttack = raw
+	}
+	if raw, ok := options["allowFinalSpecial"].(bool); ok {
+		config.AllowFinalSpecial = raw
+	}
 	return config
 }
 
