@@ -231,6 +231,8 @@ func evaluate(hand []Card) (int, string) {
 		{1, 10}: {670, "장삥"},
 		{4, 10}: {660, "장사"},
 		{4, 6}:  {650, "세륙"},
+		{4, 7}:  {501, "암행어사"},
+		{3, 7}:  {500, "땡잡이"},
 	}
 	if found, ok := specials[[2]int{months[0], months[1]}]; ok {
 		return found.score, found.name
@@ -246,9 +248,56 @@ func evaluate(hand []Card) (int, string) {
 }
 
 func compare(left []Card, right []Card) int {
+	if isAmhaengEosa(left) {
+		if gwang, thirtyEight := isGwangTtaeng(right); gwang && !thirtyEight {
+			return 1
+		}
+	}
+	if isAmhaengEosa(right) {
+		if gwang, thirtyEight := isGwangTtaeng(left); gwang && !thirtyEight {
+			return -1
+		}
+	}
+	if isTtaengJabi(left) && isOrdinaryTtaeng(right) {
+		return 1
+	}
+	if isTtaengJabi(right) && isOrdinaryTtaeng(left) {
+		return -1
+	}
 	leftRank, _ := evaluate(left)
 	rightRank, _ := evaluate(right)
 	return leftRank - rightRank
+}
+
+func isAmhaengEosa(hand []Card) bool {
+	return hasMonths(hand, 4, 7)
+}
+
+func isTtaengJabi(hand []Card) bool {
+	return hasMonths(hand, 3, 7)
+}
+
+func isGwangTtaeng(hand []Card) (bool, bool) {
+	if len(hand) != 2 || !hand[0].Gwang || !hand[1].Gwang {
+		return false, false
+	}
+	return true, hasMonths(hand, 3, 8)
+}
+
+func isOrdinaryTtaeng(hand []Card) bool {
+	if len(hand) != 2 || hand[0].Month != hand[1].Month {
+		return false
+	}
+	return !(hand[0].Gwang && hand[1].Gwang)
+}
+
+func hasMonths(hand []Card, first int, second int) bool {
+	if len(hand) != 2 {
+		return false
+	}
+	months := []int{hand[0].Month, hand[1].Month}
+	sort.Ints(months)
+	return months[0] == first && months[1] == second
 }
 
 func activeCount(state State) int {
