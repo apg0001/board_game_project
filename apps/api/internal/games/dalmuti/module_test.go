@@ -20,6 +20,25 @@ func TestCreateInitialStateDealsWholeDeck(t *testing.T) {
 	}
 }
 
+func TestShuffledDeckKeepsOfficialRankCounts(t *testing.T) {
+	deck := shuffledDeck("rank-counts")
+	if len(deck) != 80 {
+		t.Fatalf("expected 80 card dalmuti deck, got %d", len(deck))
+	}
+	counts := map[int]int{}
+	for _, card := range deck {
+		counts[card.Rank]++
+	}
+	for rank := 1; rank <= 12; rank++ {
+		if counts[rank] != rank {
+			t.Fatalf("expected rank %d to have %d copies, got %d", rank, rank, counts[rank])
+		}
+	}
+	if counts[13] != 2 {
+		t.Fatalf("expected two jesters, got %d", counts[13])
+	}
+}
+
 func TestOpeningTaxExchangesPeonBestCardsForDalmutiSelectedCards(t *testing.T) {
 	state := applyOpeningTaxAndRevolution(State{
 		Players: []PlayerState{
