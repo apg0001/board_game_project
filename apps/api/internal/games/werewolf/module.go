@@ -413,7 +413,9 @@ func finishVote(state State) State {
 		}
 	}
 	executed := []string{}
-	if highest > 0 {
+	if highest == 1 && len(counts) == len(state.Players) {
+		executed = []string{}
+	} else if highest > 0 {
 		for playerID, count := range counts {
 			if count == highest {
 				executed = append(executed, playerID)

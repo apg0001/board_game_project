@@ -167,14 +167,29 @@ func TestFinishNightRequiresRequiredRoleActions(t *testing.T) {
 	}
 }
 
-func TestFinishVoteExecutesAllOnEvenSplitTie(t *testing.T) {
+func TestFinishVoteExecutesNobodyWhenEveryoneReceivesOneVote(t *testing.T) {
 	state := fixedState()
 	state.Phase = PhaseDiscussion
 	state.Votes = map[string]string{"p1": "p2", "p2": "p3", "p3": "p1"}
 
 	result := finishVote(state)
-	if len(result.Executed) != 3 {
-		t.Fatalf("expected all three tied players executed, got %+v", result.Executed)
+	if len(result.Executed) != 0 {
+		t.Fatalf("expected no execution when every player receives one vote, got %+v", result.Executed)
+	}
+	if result.WinningTeam != "werewolf" {
+		t.Fatalf("expected werewolf to win when no werewolf is executed, got %q", result.WinningTeam)
+	}
+}
+
+func TestFinishVoteExecutesAllHighestTiedPlayersAboveOneVote(t *testing.T) {
+	state := fixedState()
+	state.Players = append(state.Players, PlayerState{PlayerID: "p4", OriginalRole: RoleVillager, CurrentRole: RoleVillager, SeenRoles: map[string]string{}, Active: true})
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p2", "p2": "p3", "p3": "p2", "p4": "p3"}
+
+	result := finishVote(state)
+	if len(result.Executed) != 2 || result.Executed[0] != "p2" || result.Executed[1] != "p3" {
+		t.Fatalf("expected p2 and p3 tied at two votes to be executed, got %+v", result.Executed)
 	}
 }
 
