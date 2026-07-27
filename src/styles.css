@@ -1480,6 +1480,17 @@ button.davinci-tile {
   gap: 8px;
 }
 
+.splendor-nobles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.splendor-noble {
+  display: grid;
+  place-items: center;
+}
+
 .splendor-card {
   display: grid;
   min-height: 112px;
@@ -1840,6 +1851,16 @@ button.rummikub-tile {
 .splendor-card-face.gem-black {
   color: #fff8e8;
   background: linear-gradient(155deg, #17212b, #46505c);
+}
+
+.splendor-noble-face {
+  max-width: none;
+  gap: 5px;
+  padding: 8px;
+  color: #fff8e8;
+  background:
+    linear-gradient(155deg, rgba(23, 33, 43, 0.92), rgba(70, 80, 92, 0.82)),
+    #17212b;
 }
 
 .splendor-points,

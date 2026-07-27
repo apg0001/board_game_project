@@ -32,6 +32,8 @@ type State struct {
 	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
 	Round              int           `json:"round"`
 	Players            []PlayerState `json:"players"`
+	BellSettled        bool          `json:"bellSettled"`
+	LastBellWinnerID   string        `json:"lastBellWinnerId,omitempty"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
 }
@@ -104,6 +106,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 			return errors.New("player has no cards to flip")
 		}
 	case ActionRing:
+		if current.BellSettled {
+			return errors.New("bell is already resolved for the current table")
+		}
 		index := findPlayer(current, string(action.PlayerID))
 		if index < 0 {
 			return errors.New("player not found")
@@ -197,6 +202,8 @@ func flip(state State, playerID string) State {
 	card := state.Players[index].Deck[0]
 	state.Players[index].Deck = state.Players[index].Deck[1:]
 	state.Players[index].FaceUp = append(state.Players[index].FaceUp, card)
+	state.BellSettled = false
+	state.LastBellWinnerID = ""
 	state.Log = append(state.Log, playerID+" 님이 카드를 펼쳤습니다.")
 	state.CurrentPlayerIndex = nextActiveIndex(state, state.CurrentPlayerIndex)
 	state.Round++
@@ -204,12 +211,17 @@ func flip(state State, playerID string) State {
 }
 
 func ring(state State, playerID string) State {
+	if state.BellSettled {
+		return state
+	}
 	if hasFiveFruit(state) {
 		index := findPlayer(state, playerID)
 		if index >= 0 {
 			won := collectFaceUp(&state)
 			state.Players[index].Deck = append(state.Players[index].Deck, won...)
 			state.Players[index].Score += len(won)
+			state.BellSettled = true
+			state.LastBellWinnerID = playerID
 			state.Log = append(state.Log, playerID+" 님이 종을 맞게 눌렀습니다.")
 		}
 	} else {

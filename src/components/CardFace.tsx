@@ -1,4 +1,4 @@
-import type { HandCard, SplendorCard } from "../domain/types";
+import type { HandCard, SplendorCard, SplendorNoble } from "../domain/types";
 import { playingCardAsset, playingCardBackAsset } from "../domain/cardAssets";
 
 const suitSymbol: Record<string, string> = {
@@ -53,6 +53,10 @@ interface DalmutiCardFanProps {
 interface SplendorCardFaceProps {
   card: SplendorCard;
   badge?: string;
+}
+
+interface SplendorNobleFaceProps {
+  noble: SplendorNoble;
 }
 
 export function PlayingCardFace({ card, hidden = false }: CardFaceProps) {
@@ -140,6 +144,16 @@ export function SplendorCardFace({ card, badge }: SplendorCardFaceProps) {
       <strong>{gemLabel[card.color] ?? card.color}</strong>
       <small>{formatCost(card.cost)}</small>
       {badge ? <span className="splendor-badge">{badge}</span> : null}
+    </span>
+  );
+}
+
+export function SplendorNobleFace({ noble }: SplendorNobleFaceProps) {
+  return (
+    <span className="card-face splendor-noble-face">
+      <span className="splendor-points">{noble.points}점</span>
+      <strong>귀족</strong>
+      <small>{formatCost(noble.cost)}</small>
     </span>
   );
 }

@@ -17,6 +17,9 @@ func TestCreateInitialStateBuildsMarket(t *testing.T) {
 	if state.Bank["white"] != 4 {
 		t.Fatalf("expected two-player bank amount 4, got %d", state.Bank["white"])
 	}
+	if len(state.Nobles) != 3 {
+		t.Fatalf("expected player count plus one noble tiles, got %d", len(state.Nobles))
+	}
 }
 
 func TestTakeThreeDifferentTokensAdvancesTurn(t *testing.T) {
@@ -187,6 +190,57 @@ func TestBuyReservedCardCanSpendGold(t *testing.T) {
 	}
 }
 
+func TestNobleVisitsQualifiedPlayerAfterAction(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Nobles = []Noble{{ID: "noble-test", Points: 3, Cost: map[string]int{"white": 1}}}
+	state.Market[0] = Card{ID: "white-free", Color: "white", Points: 0, Cost: map[string]int{}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionBuyCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"marketIndex": 0},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Nobles) != 1 || next.Players[0].Nobles[0].ID != "noble-test" {
+		t.Fatalf("expected noble visit, got %+v", next.Players[0].Nobles)
+	}
+	if next.Players[0].Score != 3 {
+		t.Fatalf("expected noble points added to score, got %d", next.Players[0].Score)
+	}
+	if len(next.Nobles) != 0 {
+		t.Fatalf("expected visited noble removed from board, got %+v", next.Nobles)
+	}
+}
+
+func TestNobleDoesNotVisitAfterNonBuyAction(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Nobles = []Noble{{ID: "noble-test", Points: 3, Cost: map[string]int{"white": 1}}}
+	state.Players[0].Bonuses["white"] = 1
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionTakeToken,
+		PlayerID: "p1",
+		Payload:  map[string]any{"colors": []any{"white", "blue", "green"}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Nobles) != 0 || next.Players[0].Score != 0 {
+		t.Fatalf("noble should only visit after buying a card, got player=%+v", next.Players[0])
+	}
+	if len(next.Nobles) != 1 {
+		t.Fatalf("expected noble to remain on board, got %+v", next.Nobles)
+	}
+}
+
 func TestPublicStateMasksDeckAndDoesNotMutatePrivateState(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
@@ -204,7 +258,8 @@ func TestPublicStateMasksDeckAndDoesNotMutatePrivateState(t *testing.T) {
 
 	public.Bank["white"] = 99
 	public.Market[0].Cost["blue"] = 99
-	if state.Bank["white"] == 99 || state.Market[0].Cost["blue"] == 99 {
+	public.Nobles[0].Cost["white"] = 99
+	if state.Bank["white"] == 99 || state.Market[0].Cost["blue"] == 99 || state.Nobles[0].Cost["white"] == 99 {
 		t.Fatal("public state must not share mutable maps with private state")
 	}
 }

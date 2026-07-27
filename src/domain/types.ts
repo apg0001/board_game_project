@@ -112,6 +112,7 @@ export interface DavinciPlayer {
   bonuses?: Record<string, number>;
   cards?: SplendorCard[];
   reserved?: SplendorCard[];
+  nobles?: SplendorNoble[];
   hand?: HandCard[];
   handSize?: number;
   rack?: RummikubTile[];
@@ -163,6 +164,12 @@ export interface SplendorCard {
   cost: Record<string, number>;
 }
 
+export interface SplendorNoble {
+  id: string;
+  points: number;
+  cost: Record<string, number>;
+}
+
 export interface OneCardRules {
   attackCards?: string[];
   defenseMode?: string;
@@ -191,6 +198,7 @@ export interface GameSession {
     players?: DavinciPlayer[];
     bank?: Record<string, number>;
     market?: SplendorCard[];
+    nobles?: SplendorNoble[];
     currentTrick?: {
       rank?: number;
       count?: number;

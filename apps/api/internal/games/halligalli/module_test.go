@@ -75,6 +75,48 @@ func TestCorrectRingCollectsFaceUpIntoDeck(t *testing.T) {
 	if len(next.Players[0].Deck) != 3 || len(next.Players[0].FaceUp) != 0 || len(next.Players[1].FaceUp) != 0 {
 		t.Fatalf("expected p1 to collect face-up piles, got %+v", next.Players)
 	}
+	if !next.BellSettled || next.LastBellWinnerID != "p1" {
+		t.Fatalf("expected bell settlement to record first winner, got settled=%v winner=%q", next.BellSettled, next.LastBellWinnerID)
+	}
+}
+
+func TestLateRingAfterCorrectBellIsRejectedWithoutPenalty(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Deck: []Card{{Fruit: "banana", Count: 1}}, FaceUp: []Card{{Fruit: "banana", Count: 2}}, Active: true},
+			{PlayerID: "p2", Deck: []Card{{Fruit: "lime", Count: 1}}, FaceUp: []Card{{Fruit: "banana", Count: 3}}, Active: true},
+		},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled := result.State.(State)
+	beforeP2Deck := len(settled.Players[1].Deck)
+
+	err = module.ValidateAction(context.Background(), settled, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p2",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected late bell after settlement to be rejected")
+	}
+	late, err := module.ApplyAction(context.Background(), settled, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := late.State.(State)
+	if len(next.Players[1].Deck) != beforeP2Deck {
+		t.Fatalf("late ring should not apply wrong-ring penalty after bell settlement, got p2 deck %d want %d", len(next.Players[1].Deck), beforeP2Deck)
+	}
 }
 
 func TestWrongRingPaysOneCardToEachActiveOpponent(t *testing.T) {

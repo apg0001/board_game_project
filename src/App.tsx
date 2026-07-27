@@ -20,7 +20,15 @@ import {
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { BangCardFace, DalmutiCardFan, HwatuCardFace, PlayingCardBack, PlayingCardFace, SplendorCardFace } from "./components/CardFace";
+import {
+  BangCardFace,
+  DalmutiCardFan,
+  HwatuCardFace,
+  PlayingCardBack,
+  PlayingCardFace,
+  SplendorCardFace,
+  SplendorNobleFace
+} from "./components/CardFace";
 import { FlowOptionCard } from "./components/FlowOptionCard";
 import { fallbackRecommendedGames, games, playerCount } from "./domain/gameCatalog";
 import type {
@@ -1439,12 +1447,20 @@ export function App() {
                             ))}
                           </div>
                         ) : null}
+                        <div className="splendor-nobles" aria-label="공개 귀족 타일">
+                          {(currentSession.state.nobles ?? []).map((noble) => (
+                            <div className="splendor-noble" key={noble.id}>
+                              <SplendorNobleFace noble={noble} />
+                            </div>
+                          ))}
+                        </div>
                         <div className="splendor-players">
                           {davinciPlayers.map((player) => (
                             <div className="halli-player" key={player.playerId}>
                               <strong>{participantName(currentRoom, player.playerId)}</strong>
                               <span>
-                                {player.score ?? 0}점 · 카드 {player.cards?.length ?? 0}장 · 예약 {player.reserved?.length ?? 0}장
+                                {player.score ?? 0}점 · 카드 {player.cards?.length ?? 0}장 · 예약 {player.reserved?.length ?? 0}장 · 귀족{" "}
+                                {player.nobles?.length ?? 0}명
                               </span>
                               <div className="halli-cards">
                                 {splendorColors.map((color) => (
