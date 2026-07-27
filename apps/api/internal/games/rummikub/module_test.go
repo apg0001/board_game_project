@@ -167,6 +167,31 @@ func TestCalculateResultDoesNotRankForfeitedPlayerAsWinner(t *testing.T) {
 	}
 }
 
+func TestCalculateResultAwardsWinnerSumOfOpponentPenalties(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Finished: true,
+		Players: []PlayerState{
+			{PlayerID: "p1", Rack: []Tile{}, Active: true},
+			{PlayerID: "p2", Rack: []Tile{{Color: "blue", Number: 1}, {Color: "red", Number: 5}}, Active: true},
+			{PlayerID: "p3", Rack: []Tile{{Joker: true}}, Active: true},
+		},
+	}
+
+	results := module.CalculateResult(state, testContext())
+	if results[0].PlayerID != "p1" || results[0].Score != 36 || results[0].Outcome != gamecore.OutcomeWin {
+		t.Fatalf("expected rack-empty winner to gain opponent penalties, got %+v", results[0])
+	}
+	for _, result := range results {
+		if result.PlayerID == "p2" && result.Score != -6 {
+			t.Fatalf("expected p2 score -6, got %+v", result)
+		}
+		if result.PlayerID == "p3" && result.Score != -30 {
+			t.Fatalf("expected p3 joker penalty -30, got %+v", result)
+		}
+	}
+}
+
 func testContext() gamecore.Context {
 	return gamecore.Context{
 		GameID: "rummikub",

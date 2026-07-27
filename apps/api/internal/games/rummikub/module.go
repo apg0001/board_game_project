@@ -218,15 +218,25 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 		return rackPenalty(players[i].Rack) < rackPenalty(players[j].Rack)
 	})
 	results := make([]gamecore.Result, 0, len(players))
+	winnerScore := 0
+	if len(players) > 0 && players[0].Active && len(players[0].Rack) == 0 {
+		for _, player := range players[1:] {
+			winnerScore += rackPenalty(player.Rack)
+		}
+	}
 	for index, player := range players {
 		outcome := gamecore.OutcomeLose
+		score := -rackPenalty(player.Rack)
 		if index == 0 {
 			outcome = gamecore.OutcomeWin
+			if winnerScore > 0 {
+				score = winnerScore
+			}
 		}
 		results = append(results, gamecore.Result{
 			PlayerID: gamecore.PlayerID(player.PlayerID),
 			Rank:     index + 1,
-			Score:    -rackPenalty(player.Rack),
+			Score:    score,
 			Outcome:  outcome,
 		})
 	}
