@@ -227,6 +227,8 @@ export interface GameSession {
     };
     finishOrder?: string[];
     center?: string[];
+    doppelgangerPlayerId?: string;
+    doppelgangerCopiedRole?: string;
     executed?: string[];
     winningTeam?: string;
     winningPlayerIds?: string[];
@@ -352,9 +354,11 @@ export type GameActionType =
   | "dalmuti.play"
   | "dalmuti.pass"
   | "dalmuti.tax"
+  | "werewolf.doppelganger"
   | "werewolf.see_werewolves"
   | "werewolf.lone_wolf_center"
   | "werewolf.see_minion"
+  | "werewolf.see_masons"
   | "werewolf.see_player"
   | "werewolf.see_center"
   | "werewolf.rob"

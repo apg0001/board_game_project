@@ -558,6 +558,9 @@ export function App() {
   const dalmutiTaxSelectedIds = selectedDalmutiTaxIds.filter((id) => (dalmutiMe?.hand ?? []).some((card) => card.id === id));
   const werewolfMe = davinciPlayers.find((player) => player.playerId === playerID);
   const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== playerID);
+  const werewolfCopiedRole = currentSession?.gameId === "werewolf" ? currentSession.state.doppelgangerCopiedRole : undefined;
+  const werewolfActingRole =
+    werewolfMe?.originalRole === "doppelganger" && werewolfCopiedRole ? werewolfCopiedRole : werewolfMe?.originalRole;
   const rummikubMe = davinciPlayers.find((player) => player.playerId === playerID);
   const rummikubPendingTileIds = new Set(pendingRummikubGroups.flat());
   const rummikubSubmitGroups = [...pendingRummikubGroups, ...(selectedTileIds.length >= 3 ? [selectedTileIds] : [])];
@@ -2559,6 +2562,9 @@ export function App() {
                           <span>
                             현재 단계 {werewolfPhaseLabel(currentSession.state.phase)} · 현재 역할{" "}
                             {werewolfRoleLabel(werewolfMe?.currentRole ?? "hidden")}
+                            {werewolfMe?.originalRole === "doppelganger" && werewolfCopiedRole
+                              ? ` · 복사 ${werewolfRoleLabel(werewolfCopiedRole)}`
+                              : ""}
                           </span>
                           <div className="halli-cards">
                             {Object.entries(werewolfMe?.seenRoles ?? {}).map(([key, role]) => (
@@ -2570,7 +2576,28 @@ export function App() {
                         </div>
                         {currentSession.state.phase === "NIGHT" ? (
                           <div className="werewolf-actions">
-                            {werewolfMe?.originalRole === "werewolf" ? (
+                            {werewolfMe?.originalRole === "doppelganger" && !werewolfCopiedRole
+                              ? werewolfOthers.map((player) => (
+                                  <button
+                                    className="wide-button"
+                                    key={player.playerId}
+                                    onClick={() =>
+                                      sendGameAction(
+                                        currentSession.id,
+                                        currentRoom?.id,
+                                        "werewolf.doppelganger",
+                                        setCurrentSession,
+                                        setRoomMessage,
+                                        { targetPlayerId: player.playerId }
+                                      )
+                                    }
+                                  >
+                                    {participantName(currentRoom, player.playerId)} 복사
+                                    <ChevronRight size={18} />
+                                  </button>
+                                ))
+                              : null}
+                            {werewolfActingRole === "werewolf" ? (
                               <>
                                 <button
                                   className="wide-button"
@@ -2608,7 +2635,7 @@ export function App() {
                                 ))}
                               </>
                             ) : null}
-                            {werewolfMe?.originalRole === "minion" ? (
+                            {werewolfActingRole === "minion" ? (
                               <button
                                 className="wide-button"
                                 onClick={() =>
@@ -2625,7 +2652,24 @@ export function App() {
                                 <ChevronRight size={18} />
                               </button>
                             ) : null}
-                            {werewolfMe?.originalRole === "seer" ? (
+                            {werewolfActingRole === "mason" ? (
+                              <button
+                                className="wide-button"
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "werewolf.see_masons",
+                                    setCurrentSession,
+                                    setRoomMessage
+                                  )
+                                }
+                              >
+                                석공 동료 확인
+                                <ChevronRight size={18} />
+                              </button>
+                            ) : null}
+                            {werewolfActingRole === "seer" ? (
                               <>
                                 {werewolfOthers.map((player) => (
                                   <button
@@ -2664,7 +2708,7 @@ export function App() {
                                 </button>
                               </>
                             ) : null}
-                            {werewolfMe?.originalRole === "robber"
+                            {werewolfActingRole === "robber"
                               ? werewolfOthers.map((player) => (
                                   <button
                                     className="wide-button"
@@ -2685,7 +2729,7 @@ export function App() {
                                   </button>
                                 ))
                               : null}
-                            {werewolfMe?.originalRole === "troublemaker" && werewolfOthers.length >= 2 ? (
+                            {werewolfActingRole === "troublemaker" && werewolfOthers.length >= 2 ? (
                               <button
                                 className="wide-button"
                                 onClick={() =>
@@ -2706,7 +2750,7 @@ export function App() {
                                 <ChevronRight size={18} />
                               </button>
                             ) : null}
-                            {werewolfMe?.originalRole === "drunk" ? (
+                            {werewolfActingRole === "drunk" ? (
                               <button
                                 className="wide-button"
                                 onClick={() =>
@@ -3483,8 +3527,10 @@ function dalmutiRankLabel(rank: number) {
 
 function werewolfRoleLabel(role: string) {
   const labels: Record<string, string> = {
+    doppelganger: "도플갱어",
     werewolf: "늑대인간",
     minion: "앞잡이",
+    mason: "석공",
     seer: "예언자",
     robber: "강도",
     troublemaker: "말썽쟁이",

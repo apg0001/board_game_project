@@ -66,7 +66,7 @@ func defaultGuides() map[string]Guide {
 			},
 			Steps: []Step{
 				{Title: "역할 확인", Description: "각 플레이어는 비밀 역할 1장을 받고 중앙에는 역할 3장이 놓입니다.", ActionHint: "내 역할 확인"},
-				{Title: "밤 행동", Description: "늑대인간, 예언자, 강도, 말썽쟁이 등 역할별 효과를 정해진 순서로 해결합니다.", ActionHint: "역할 행동"},
+				{Title: "밤 행동", Description: "도플갱어, 늑대인간, 석공, 예언자, 강도, 말썽쟁이 등 역할별 효과를 정해진 순서로 해결합니다.", ActionHint: "역할 행동"},
 				{Title: "토론", Description: "아침이 되면 모든 플레이어가 발언하며 현재 자기 역할과 늑대 위치를 추리합니다.", ActionHint: "채팅/이모지"},
 				{Title: "투표와 승패", Description: "동시에 투표하고 최다 득표자를 처형합니다. 처형 결과에 따라 마을 또는 늑대 팀 승패가 결정됩니다.", ActionHint: "투표"},
 			},
