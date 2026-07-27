@@ -29,13 +29,14 @@ type PlayerState struct {
 }
 
 type State struct {
-	CurrentPlayerIndex int           `json:"currentPlayerIndex"`
-	Round              int           `json:"round"`
-	Players            []PlayerState `json:"players"`
-	BellSettled        bool          `json:"bellSettled"`
-	LastBellWinnerID   string        `json:"lastBellWinnerId,omitempty"`
-	Log                []string      `json:"log"`
-	Finished           bool          `json:"finished"`
+	CurrentPlayerIndex int             `json:"currentPlayerIndex"`
+	Round              int             `json:"round"`
+	Players            []PlayerState   `json:"players"`
+	BellSettled        bool            `json:"bellSettled"`
+	LastBellWinnerID   string          `json:"lastBellWinnerId,omitempty"`
+	RingAttempts       map[string]bool `json:"ringAttempts,omitempty"`
+	Log                []string        `json:"log"`
+	Finished           bool            `json:"finished"`
 }
 
 type Module struct{}
@@ -80,6 +81,7 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 		CurrentPlayerIndex: 0,
 		Round:              1,
 		Players:            players,
+		RingAttempts:       map[string]bool{},
 		Log:                []string{"할리갈리가 시작되었습니다."},
 	}
 }
@@ -115,6 +117,9 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		}
 		if current.Players[index].Forfeited || !current.Players[index].Active || totalCards(current.Players[index]) == 0 {
 			return errors.New("player cannot ring")
+		}
+		if current.RingAttempts[string(action.PlayerID)] {
+			return errors.New("player already rang for the current table")
 		}
 		return nil
 	default:
@@ -204,6 +209,7 @@ func flip(state State, playerID string) State {
 	state.Players[index].FaceUp = append(state.Players[index].FaceUp, card)
 	state.BellSettled = false
 	state.LastBellWinnerID = ""
+	state.RingAttempts = map[string]bool{}
 	state.Log = append(state.Log, playerID+" 님이 카드를 펼쳤습니다.")
 	state.CurrentPlayerIndex = nextActiveIndex(state, state.CurrentPlayerIndex)
 	state.Round++
@@ -214,6 +220,13 @@ func ring(state State, playerID string) State {
 	if state.BellSettled {
 		return state
 	}
+	if state.RingAttempts == nil {
+		state.RingAttempts = map[string]bool{}
+	}
+	if state.RingAttempts[playerID] {
+		return state
+	}
+	state.RingAttempts[playerID] = true
 	if hasFiveFruit(state) {
 		index := findPlayer(state, playerID)
 		if index >= 0 {
@@ -381,6 +394,12 @@ func cloneState(state State) State {
 		clone.Players[index].FaceUp = append([]Card(nil), state.Players[index].FaceUp...)
 	}
 	clone.Log = append([]string(nil), state.Log...)
+	if state.RingAttempts != nil {
+		clone.RingAttempts = map[string]bool{}
+		for playerID, attempted := range state.RingAttempts {
+			clone.RingAttempts[playerID] = attempted
+		}
+	}
 	return clone
 }
 

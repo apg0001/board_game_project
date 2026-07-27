@@ -143,6 +143,73 @@ func TestWrongRingPaysOneCardToEachActiveOpponent(t *testing.T) {
 	}
 }
 
+func TestWrongRingCanOnlyBeAttemptedOncePerTableBySamePlayer(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{PlayerID: "p1", Deck: []Card{{Fruit: "banana", Count: 1}, {Fruit: "lime", Count: 1}, {Fruit: "plum", Count: 1}}, FaceUp: []Card{{Fruit: "banana", Count: 2}}, Active: true},
+			{PlayerID: "p2", Deck: []Card{{Fruit: "plum", Count: 1}}, FaceUp: []Card{{Fruit: "banana", Count: 2}}, Active: true},
+		},
+		RingAttempts: map[string]bool{},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterFirst := result.State.(State)
+	if !afterFirst.RingAttempts["p1"] {
+		t.Fatalf("expected p1 ring attempt to be recorded, got %+v", afterFirst.RingAttempts)
+	}
+	beforeDeck := len(afterFirst.Players[0].Deck)
+
+	err = module.ValidateAction(context.Background(), afterFirst, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p1",
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected repeated ring on the same table to be rejected")
+	}
+	result, err = module.ApplyAction(context.Background(), afterFirst, gamecore.Action{
+		Type:     ActionRing,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterSecond := result.State.(State)
+	if len(afterSecond.Players[0].Deck) != beforeDeck {
+		t.Fatalf("repeated ring should not apply a second penalty, got deck=%d want %d", len(afterSecond.Players[0].Deck), beforeDeck)
+	}
+}
+
+func TestFlipClearsRingAttemptsForNewTable(t *testing.T) {
+	module := NewModule()
+	state := State{
+		CurrentPlayerIndex: 0,
+		RingAttempts:       map[string]bool{"p1": true},
+		Players: []PlayerState{
+			{PlayerID: "p1", Deck: []Card{{Fruit: "banana", Count: 1}}, Active: true},
+			{PlayerID: "p2", Deck: []Card{{Fruit: "plum", Count: 1}}, Active: true},
+		},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionFlip,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.RingAttempts) != 0 {
+		t.Fatalf("expected ring attempts to reset after a new flip, got %+v", next.RingAttempts)
+	}
+}
+
 func TestInactivePlayerCannotRing(t *testing.T) {
 	module := NewModule()
 	state := State{
