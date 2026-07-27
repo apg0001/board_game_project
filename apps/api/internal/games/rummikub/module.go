@@ -333,6 +333,10 @@ func validRun(tiles []Tile) bool {
 }
 
 func meldValue(tiles []Tile) int {
+	value, ok := setValue(tiles)
+	if ok {
+		return value
+	}
 	total := 0
 	for _, tile := range tiles {
 		if tile.Joker {
@@ -342,6 +346,84 @@ func meldValue(tiles []Tile) int {
 		}
 	}
 	return total
+}
+
+func setValue(tiles []Tile) (int, bool) {
+	if validGroup(tiles) {
+		return groupValue(tiles)
+	}
+	if validRun(tiles) {
+		return runValue(tiles)
+	}
+	return 0, false
+}
+
+func groupValue(tiles []Tile) (int, bool) {
+	number := 0
+	for _, tile := range tiles {
+		if tile.Joker {
+			continue
+		}
+		number = tile.Number
+		break
+	}
+	if number == 0 {
+		return 0, false
+	}
+	return number * len(tiles), true
+}
+
+func runValue(tiles []Tile) (int, bool) {
+	nonJokers := []Tile{}
+	for _, tile := range tiles {
+		if !tile.Joker {
+			nonJokers = append(nonJokers, tile)
+		}
+	}
+	if len(nonJokers) == 0 || len(tiles) > 13 {
+		return 0, false
+	}
+	sort.SliceStable(nonJokers, func(i, j int) bool {
+		return nonJokers[i].Number < nonJokers[j].Number
+	})
+	minNumber := nonJokers[0].Number
+	maxNumber := nonJokers[len(nonJokers)-1].Number
+	startMin := maxInt(1, maxNumber-len(tiles)+1)
+	startMax := minInt(minNumber, 14-len(tiles))
+	for start := startMin; start <= startMax; start++ {
+		if runStartCoversTiles(start, len(tiles), nonJokers) {
+			return arithmeticRunSum(start, len(tiles)), true
+		}
+	}
+	return 0, false
+}
+
+func runStartCoversTiles(start int, length int, tiles []Tile) bool {
+	end := start + length - 1
+	for _, tile := range tiles {
+		if tile.Number < start || tile.Number > end {
+			return false
+		}
+	}
+	return true
+}
+
+func arithmeticRunSum(start int, length int) int {
+	return length * (start + start + length - 1) / 2
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func meldGroupsValue(groups [][]Tile) int {
