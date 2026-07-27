@@ -31,6 +31,38 @@ func TestCompareHands(t *testing.T) {
 	}
 }
 
+func TestAmhaengEosaBeatsNonThirtyEightGwangTtaeng(t *testing.T) {
+	amhaeng := []Card{{Month: 4}, {Month: 7}}
+	gwang := []Card{{Month: 1, Gwang: true}, {Month: 3, Gwang: true}}
+	thirtyEight := []Card{{Month: 3, Gwang: true}, {Month: 8, Gwang: true}}
+
+	if rank, name := evaluate(amhaeng); name != "암행어사" || rank != 501 {
+		t.Fatalf("expected amhaeng-eosa label, got %s %d", name, rank)
+	}
+	if compare(amhaeng, gwang) <= 0 {
+		t.Fatal("expected amhaeng-eosa to beat non-38 gwang-ttaeng")
+	}
+	if compare(amhaeng, thirtyEight) >= 0 {
+		t.Fatal("expected amhaeng-eosa to lose to 38 gwang-ttaeng")
+	}
+}
+
+func TestTtaengJabiBeatsOrdinaryTtaengOnly(t *testing.T) {
+	ttaengJabi := []Card{{Month: 3}, {Month: 7}}
+	ordinaryTtaeng := []Card{{Month: 9}, {Month: 9}}
+	gwangTtaeng := []Card{{Month: 1, Gwang: true}, {Month: 8, Gwang: true}}
+
+	if rank, name := evaluate(ttaengJabi); name != "땡잡이" || rank != 500 {
+		t.Fatalf("expected ttaeng-jabi label, got %s %d", name, rank)
+	}
+	if compare(ttaengJabi, ordinaryTtaeng) <= 0 {
+		t.Fatal("expected ttaeng-jabi to beat ordinary ttaeng")
+	}
+	if compare(ttaengJabi, gwangTtaeng) >= 0 {
+		t.Fatal("expected ttaeng-jabi to lose to gwang-ttaeng")
+	}
+}
+
 func TestTimeoutCurrentPlayerAdvancesTurn(t *testing.T) {
 	module := NewModule()
 	state := State{
