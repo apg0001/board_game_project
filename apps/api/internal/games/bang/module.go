@@ -91,11 +91,12 @@ type PlayerState struct {
 }
 
 type PendingAttack struct {
-	SourcePlayerID     string   `json:"sourcePlayerId"`
-	TargetPlayerID     string   `json:"targetPlayerId"`
-	CardType           string   `json:"cardType"`
-	Damage             int      `json:"damage"`
-	RemainingTargetIDs []string `json:"remainingTargetIds"`
+	SourcePlayerID        string   `json:"sourcePlayerId"`
+	TargetPlayerID        string   `json:"targetPlayerId"`
+	CardType              string   `json:"cardType"`
+	Damage                int      `json:"damage"`
+	RequiredResponseCount int      `json:"requiredResponseCount,omitempty"`
+	RemainingTargetIDs    []string `json:"remainingTargetIds"`
 }
 
 type PendingGeneralStore struct {
@@ -455,15 +456,15 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 				player.BangUsed = true
 			}
 			current.Log = append(current.Log, player.PlayerID+" 님이 BANG!을 사용했습니다.")
-			current = startPendingAttack(current, player.PlayerID, card.Type, []string{payload.TargetPlayerID}, 1)
+			current = startPendingAttack(current, player.PlayerID, card.Type, []string{payload.TargetPlayerID}, 1, missedResponsesRequired(*player, card.Type))
 		case CardGatling:
 			current.Discard = append(current.Discard, card)
 			current.Log = append(current.Log, player.PlayerID+" 님이 개틀링을 사용했습니다.")
-			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1)
+			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1, 1)
 		case CardIndians:
 			current.Discard = append(current.Discard, card)
 			current.Log = append(current.Log, player.PlayerID+" 님이 인디언!을 사용했습니다.")
-			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1)
+			current = startPendingAttack(current, player.PlayerID, card.Type, attackTargets(current, player.PlayerID), 1, 1)
 		case CardDuel:
 			current.Discard = append(current.Discard, card)
 			current.Log = append(current.Log, player.PlayerID+" 님이 결투를 신청했습니다.")
@@ -1010,22 +1011,31 @@ func resolveStartOfTurnCards(state State, playerIndex int) (State, bool) {
 	return state, true
 }
 
-func startPendingAttack(state State, sourcePlayerID string, cardType string, targetPlayerIDs []string, damage int) State {
+func missedResponsesRequired(source PlayerState, cardType string) int {
+	if cardType == CardBang && hasCharacter(source, CharacterSlab) {
+		return 2
+	}
+	return 1
+}
+
+func startPendingAttack(state State, sourcePlayerID string, cardType string, targetPlayerIDs []string, damage int, requiredResponseCount int) State {
 	state.PendingAttack = &PendingAttack{
-		SourcePlayerID:     sourcePlayerID,
-		CardType:           cardType,
-		Damage:             damage,
-		RemainingTargetIDs: append([]string(nil), targetPlayerIDs...),
+		SourcePlayerID:        sourcePlayerID,
+		CardType:              cardType,
+		Damage:                damage,
+		RequiredResponseCount: requiredResponseCount,
+		RemainingTargetIDs:    append([]string(nil), targetPlayerIDs...),
 	}
 	return advancePendingAttack(state)
 }
 
 func startPendingDuel(state State, challengerID string, challengedID string) State {
 	state.PendingAttack = &PendingAttack{
-		SourcePlayerID: challengerID,
-		TargetPlayerID: challengedID,
-		CardType:       CardDuel,
-		Damage:         1,
+		SourcePlayerID:        challengerID,
+		TargetPlayerID:        challengedID,
+		CardType:              CardDuel,
+		Damage:                1,
+		RequiredResponseCount: 1,
 	}
 	return advancePendingAttack(state)
 }
@@ -1046,6 +1056,10 @@ func advancePendingAttack(state State) State {
 			continue
 		}
 		responseCard := requiredPendingResponseCard(state.PendingAttack.CardType)
+		requiredCount := state.PendingAttack.RequiredResponseCount
+		if requiredCount <= 0 {
+			requiredCount = 1
+		}
 		if responseCard == CardMissed && canUseBarrelForAttack(state.PendingAttack.CardType) {
 			barrelAttempts := barrelAttemptCount(state.Players[targetIndex])
 			avoided := false
@@ -1053,8 +1067,12 @@ func advancePendingAttack(state State) State {
 				check, ok := drawCheckForPlayer(&state, targetIndex, drawCheckIsHeart)
 				if ok && drawCheckIsHeart(check) {
 					state.Log = append(state.Log, targetPlayerID+" 님이 술통으로 공격을 피했습니다.")
-					avoided = true
-					break
+					requiredCount--
+					if requiredCount <= 0 {
+						avoided = true
+						break
+					}
+					continue
 				}
 				state.Log = append(state.Log, targetPlayerID+" 님의 술통 판정이 실패했습니다.")
 			}
@@ -1064,6 +1082,7 @@ func advancePendingAttack(state State) State {
 		}
 		if responseAvailable(state.Players[targetIndex], responseCard) {
 			state.PendingAttack.TargetPlayerID = targetPlayerID
+			state.PendingAttack.RequiredResponseCount = requiredCount
 			state.Log = append(state.Log, fmt.Sprintf("%s 님의 %s 반응을 기다립니다.", targetPlayerID, bangCardName(responseCard)))
 			return state
 		}
@@ -1136,19 +1155,21 @@ func resolvePendingAttackWithBang(state State, playerID string) State {
 	if pending.CardType == CardDuel {
 		state.Log = append(state.Log, playerID+" 님이 결투에 BANG!으로 응수했습니다.")
 		state.PendingAttack = &PendingAttack{
-			SourcePlayerID: playerID,
-			TargetPlayerID: pending.SourcePlayerID,
-			CardType:       CardDuel,
-			Damage:         pending.Damage,
+			SourcePlayerID:        playerID,
+			TargetPlayerID:        pending.SourcePlayerID,
+			CardType:              CardDuel,
+			Damage:                pending.Damage,
+			RequiredResponseCount: 1,
 		}
 		return advancePendingAttack(state)
 	}
 	state.Log = append(state.Log, playerID+" 님이 BANG!으로 인디언을 막았습니다.")
 	state.PendingAttack = &PendingAttack{
-		SourcePlayerID:     pending.SourcePlayerID,
-		CardType:           pending.CardType,
-		Damage:             pending.Damage,
-		RemainingTargetIDs: append([]string(nil), pending.RemainingTargetIDs...),
+		SourcePlayerID:        pending.SourcePlayerID,
+		CardType:              pending.CardType,
+		Damage:                pending.Damage,
+		RequiredResponseCount: pending.RequiredResponseCount,
+		RemainingTargetIDs:    append([]string(nil), pending.RemainingTargetIDs...),
 	}
 	return advancePendingAttack(state)
 }
@@ -1169,11 +1190,18 @@ func resolvePendingAttackWithMissed(state State, playerID string) State {
 	pending := *state.PendingAttack
 	state.Discard = append(state.Discard, missed)
 	state.Log = append(state.Log, playerID+" 님이 빗맞음으로 피했습니다.")
+	if pending.RequiredResponseCount > 1 {
+		pending.RequiredResponseCount--
+		state.PendingAttack = &pending
+		state.Log = append(state.Log, fmt.Sprintf("%s 님이 빗맞음 %d장을 더 내야 합니다.", playerID, pending.RequiredResponseCount))
+		return state
+	}
 	state.PendingAttack = &PendingAttack{
-		SourcePlayerID:     pending.SourcePlayerID,
-		CardType:           pending.CardType,
-		Damage:             pending.Damage,
-		RemainingTargetIDs: append([]string(nil), pending.RemainingTargetIDs...),
+		SourcePlayerID:        pending.SourcePlayerID,
+		CardType:              pending.CardType,
+		Damage:                pending.Damage,
+		RequiredResponseCount: pending.RequiredResponseCount,
+		RemainingTargetIDs:    append([]string(nil), pending.RemainingTargetIDs...),
 	}
 	return advancePendingAttack(state)
 }
@@ -1185,10 +1213,11 @@ func resolvePendingAttackWithDamage(state State) State {
 	pending := *state.PendingAttack
 	targetPlayerID := pending.TargetPlayerID
 	state.PendingAttack = &PendingAttack{
-		SourcePlayerID:     pending.SourcePlayerID,
-		CardType:           pending.CardType,
-		Damage:             pending.Damage,
-		RemainingTargetIDs: append([]string(nil), pending.RemainingTargetIDs...),
+		SourcePlayerID:        pending.SourcePlayerID,
+		CardType:              pending.CardType,
+		Damage:                pending.Damage,
+		RequiredResponseCount: pending.RequiredResponseCount,
+		RemainingTargetIDs:    append([]string(nil), pending.RemainingTargetIDs...),
 	}
 	state = damageTargetWithoutMissed(state, targetPlayerID, pending.Damage, pending.SourcePlayerID)
 	state = checkEnd(state)

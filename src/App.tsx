@@ -1790,6 +1790,9 @@ export function App() {
                             <span>
                               {participantName(currentRoom, bangPendingAttack.sourcePlayerId)} →{" "}
                               {participantName(currentRoom, bangPendingAttack.targetPlayerId)}
+                              {(bangPendingAttack.requiredResponseCount ?? 1) > 1
+                                ? ` · ${bangPendingAttack.requiredResponseCount}장 필요`
+                                : ""}
                             </span>
                             {bangMustRespond ? (
                               <div className="bang-reaction-actions">

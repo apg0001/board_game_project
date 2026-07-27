@@ -927,6 +927,112 @@ func TestCalamityJanetUsesMissedAsBangAndBangAsMissed(t *testing.T) {
 	}
 }
 
+func TestSlabTheKillerRequiresTwoMissedCards(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterSlab
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[1].Hand = []Card{{ID: "missed-1", Type: CardMissed}, {ID: "missed-2", Type: CardMissed}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack == nil || next.PendingAttack.RequiredResponseCount != 2 {
+		t.Fatalf("expected two missed responses, got %+v", next.PendingAttack)
+	}
+
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next = result.State.(State)
+	if next.PendingAttack == nil || next.PendingAttack.RequiredResponseCount != 1 || len(next.Players[1].Hand) != 1 {
+		t.Fatalf("expected one more missed response, got pending=%+v player=%+v", next.PendingAttack, next.Players[1])
+	}
+
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := result.State.(State)
+	if done.PendingAttack != nil || done.Players[1].HP != 4 || len(done.Players[1].Hand) != 0 {
+		t.Fatalf("expected two missed cards to avoid slab bang, got pending=%+v player=%+v", done.PendingAttack, done.Players[1])
+	}
+}
+
+func TestSlabTheKillerBarrelSuccessCountsAsOneMissedOnly(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterSlab
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[1].Hand = []Card{{ID: "missed-1", Type: CardMissed}}
+	state.Players[1].Equipment = []Card{{ID: "barrel-1", Type: CardBarrel}}
+	state.Deck = []Card{{ID: "check-1", Type: CardBeer, Suit: SuitHeart, Rank: 6}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack == nil || next.PendingAttack.RequiredResponseCount != 1 {
+		t.Fatalf("expected barrel to satisfy one of two missed responses, got %+v", next.PendingAttack)
+	}
+
+	result, err = module.ApplyAction(context.Background(), next, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := result.State.(State)
+	if done.PendingAttack != nil || done.Players[1].HP != 4 {
+		t.Fatalf("expected barrel plus missed to avoid slab bang, got pending=%+v player=%+v", done.PendingAttack, done.Players[1])
+	}
+}
+
+func TestSlabTheKillerBarrelAloneStillDealsDamage(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterSlab
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[1].Hand = []Card{}
+	state.Players[1].Equipment = []Card{{ID: "barrel-1", Type: CardBarrel}}
+	state.Deck = []Card{{ID: "check-1", Type: CardBeer, Suit: SuitHeart, Rank: 6}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack != nil || next.Players[1].HP != 3 {
+		t.Fatalf("expected barrel alone not to stop slab bang, got pending=%+v player=%+v", next.PendingAttack, next.Players[1])
+	}
+}
+
 func TestEndTurnRequiresDiscardDownToCurrentHP(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
