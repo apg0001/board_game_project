@@ -8,6 +8,49 @@ import (
 	"board-game-platform/apps/api/internal/gamecore"
 )
 
+func TestFullDeckKeepsOfficialCardDataInvariants(t *testing.T) {
+	deck := fullDeck()
+	if len(deck) != 90 {
+		t.Fatalf("expected 90 development cards, got %d", len(deck))
+	}
+
+	expectedByTier := map[int]int{1: 40, 2: 30, 3: 20}
+	countsByTier := map[int]int{}
+	seenIDs := map[string]bool{}
+
+	for _, card := range deck {
+		if seenIDs[card.ID] {
+			t.Fatalf("duplicate card id %q", card.ID)
+		}
+		seenIDs[card.ID] = true
+		countsByTier[card.Tier]++
+
+		if !validColor(card.Color) {
+			t.Fatalf("invalid card color %q on %s", card.Color, card.ID)
+		}
+		if card.Points < 0 || card.Points > 5 {
+			t.Fatalf("invalid point value %d on %s", card.Points, card.ID)
+		}
+		if len(card.Cost) == 0 {
+			t.Fatalf("card %s must have a cost", card.ID)
+		}
+		for color, amount := range card.Cost {
+			if !validColor(color) {
+				t.Fatalf("invalid cost color %q on %s", color, card.ID)
+			}
+			if amount <= 0 || amount > 7 {
+				t.Fatalf("invalid cost amount %d for %s on %s", amount, color, card.ID)
+			}
+		}
+	}
+
+	for tier, expected := range expectedByTier {
+		if countsByTier[tier] != expected {
+			t.Fatalf("expected tier %d to have %d cards, got %d", tier, expected, countsByTier[tier])
+		}
+	}
+}
+
 func TestCreateInitialStateBuildsMarket(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
