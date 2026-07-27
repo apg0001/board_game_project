@@ -136,6 +136,7 @@ export function App() {
   const [roomMessage, setRoomMessage] = useState("방을 만들거나 초대 코드를 입력하세요.");
   const [selectedTileIds, setSelectedTileIds] = useState<string[]>([]);
   const [pendingRummikubGroups, setPendingRummikubGroups] = useState<string[][]>([]);
+  const [selectedDalmutiTaxIds, setSelectedDalmutiTaxIds] = useState<string[]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [selectedGemColors, setSelectedGemColors] = useState<string[]>([]);
   const [selectedBangTargetId, setSelectedBangTargetId] = useState("");
@@ -551,6 +552,10 @@ export function App() {
       : [{ tier: 1, cards: currentSession?.state.market ?? [], deckSize: currentSession?.state.deck?.length ?? 0 }];
   const dalmutiMe = davinciPlayers.find((player) => player.playerId === playerID);
   const dalmutiGroups = groupDalmutiHand(dalmutiMe?.hand ?? []);
+  const dalmutiPendingTax = currentSession?.gameId === "dalmuti" ? currentSession.state.pendingTax : undefined;
+  const dalmutiTaxExchange = dalmutiPendingTax?.exchanges?.[0];
+  const dalmutiMustChooseTax = Boolean(dalmutiPendingTax?.currentChooserId === playerID);
+  const dalmutiTaxSelectedIds = selectedDalmutiTaxIds.filter((id) => (dalmutiMe?.hand ?? []).some((card) => card.id === id));
   const werewolfMe = davinciPlayers.find((player) => player.playerId === playerID);
   const werewolfOthers = davinciPlayers.filter((player) => player.playerId !== playerID);
   const rummikubMe = davinciPlayers.find((player) => player.playerId === playerID);
@@ -1625,6 +1630,54 @@ export function App() {
                             리더 {participantName(currentRoom, currentSession.state.currentTrick?.playerId ?? "")}
                           </span>
                         </div>
+                        {dalmutiPendingTax ? (
+                          <div className="dalmuti-tax-panel" aria-label="세금 카드 선택">
+                            <strong>세금 카드 선택</strong>
+                            <span>
+                              {participantName(currentRoom, dalmutiPendingTax.currentChooserId)} 님이{" "}
+                              {participantName(currentRoom, dalmutiTaxExchange?.peonPlayerId ?? "")} 님에게 줄 카드{" "}
+                              {dalmutiTaxExchange?.count ?? 0}장을 선택합니다.
+                            </span>
+                            {dalmutiMustChooseTax ? (
+                              <>
+                                <div className="dalmuti-tax-grid">
+                                  {(dalmutiMe?.hand ?? []).map((card) => (
+                                    <button
+                                      className={`dalmuti-tax-card ${dalmutiTaxSelectedIds.includes(card.id) ? "selected" : ""}`}
+                                      key={card.id}
+                                      onClick={() =>
+                                        setSelectedDalmutiTaxIds((previous) =>
+                                          toggleLimitedSelected(previous, card.id, dalmutiTaxExchange?.count ?? 1)
+                                        )
+                                      }
+                                    >
+                                      {dalmutiRankLabel(Number(card.rank ?? 13))}
+                                    </button>
+                                  ))}
+                                </div>
+                                <button
+                                  className="mini-action-button dark-mini-action"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "dalmuti.tax",
+                                      (session) => {
+                                        setCurrentSession(session);
+                                        setSelectedDalmutiTaxIds([]);
+                                      },
+                                      setRoomMessage,
+                                      { cardIds: dalmutiTaxSelectedIds }
+                                    )
+                                  }
+                                  disabled={dalmutiTaxSelectedIds.length !== (dalmutiTaxExchange?.count ?? 0)}
+                                >
+                                  세금 카드 확정
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="dalmuti-hand" aria-label="내 카드">
                           {dalmutiGroups.map((group) => (
                             <div className="dalmuti-group" key={group.rank}>
@@ -1645,7 +1698,7 @@ export function App() {
                                         { rank: group.rank, count }
                                       )
                                     }
-                                    disabled={!isMyTurn}
+                                    disabled={!isMyTurn || Boolean(dalmutiPendingTax)}
                                   >
                                     {count}
                                   </button>
@@ -1676,7 +1729,7 @@ export function App() {
                               setRoomMessage
                             )
                           }
-                          disabled={!isMyTurn || !currentSession.state.currentTrick?.count}
+                          disabled={!isMyTurn || Boolean(dalmutiPendingTax) || !currentSession.state.currentTrick?.count}
                         >
                           패스
                           <ChevronRight size={18} />

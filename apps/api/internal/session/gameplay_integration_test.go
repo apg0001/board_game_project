@@ -125,13 +125,22 @@ func playSplendorTurn(t *testing.T, service *Service, testRoom room.Room, starte
 }
 
 func playDalmutiTurn(t *testing.T, service *Service, testRoom room.Room, started Session) {
-	state := started.State.(dalmuti.State)
+	current := started
+	state := current.State.(dalmuti.State)
+	for state.PendingTax != nil {
+		chooser := findDalmutiPlayerForTest(t, state, state.PendingTax.CurrentChooserID)
+		exchange := state.PendingTax.Exchanges[0]
+		current = applyGameplayAction(t, service, testRoom, current, chooser.PlayerID, dalmuti.ActionTax, map[string]any{
+			"cardIds": firstDalmutiCardIDsForTest(t, chooser.Hand, exchange.Count),
+		})
+		state = current.State.(dalmuti.State)
+	}
 	actor := state.Players[state.CurrentPlayerIndex]
 	if len(actor.Hand) == 0 {
 		t.Fatal("expected current dalmuti player to have cards")
 	}
 	card := actor.Hand[0]
-	updated := applyGameplayAction(t, service, testRoom, started, actor.PlayerID, dalmuti.ActionPlay, map[string]any{"rank": card.Rank, "count": 1})
+	updated := applyGameplayAction(t, service, testRoom, current, actor.PlayerID, dalmuti.ActionPlay, map[string]any{"rank": card.Rank, "count": 1})
 	next := updated.State.(dalmuti.State)
 	if next.CurrentTrick.PlayerID != actor.PlayerID || next.CurrentTrick.Count != 1 {
 		t.Fatalf("expected played trick, got %+v", next.CurrentTrick)
@@ -326,6 +335,29 @@ func threeAvailableGems(t *testing.T, bank map[string]int) []string {
 	}
 	t.Fatalf("expected three available splendor gems, got %+v", bank)
 	return nil
+}
+
+func findDalmutiPlayerForTest(t *testing.T, state dalmuti.State, playerID string) dalmuti.PlayerState {
+	t.Helper()
+	for _, player := range state.Players {
+		if player.PlayerID == playerID {
+			return player
+		}
+	}
+	t.Fatalf("expected dalmuti player %s in %+v", playerID, state.Players)
+	return dalmuti.PlayerState{}
+}
+
+func firstDalmutiCardIDsForTest(t *testing.T, hand []dalmuti.Card, count int) []any {
+	t.Helper()
+	if len(hand) < count {
+		t.Fatalf("expected at least %d dalmuti cards, got %+v", count, hand)
+	}
+	cardIDs := make([]any, 0, count)
+	for index := 0; index < count; index++ {
+		cardIDs = append(cardIDs, hand[index].ID)
+	}
+	return cardIDs
 }
 
 func nextActiveJokerPlayer(state jokerdraw.State, current int) int {

@@ -215,6 +215,14 @@ export interface GameSession {
       count?: number;
       playerId?: string;
     };
+    pendingTax?: {
+      currentChooserId: string;
+      exchanges: Array<{
+        dalmutiPlayerId: string;
+        peonPlayerId: string;
+        count: number;
+      }>;
+    };
     finishOrder?: string[];
     center?: string[];
     executed?: string[];
@@ -338,6 +346,7 @@ export type GameActionType =
   | "splendor.choose_noble"
   | "dalmuti.play"
   | "dalmuti.pass"
+  | "dalmuti.tax"
   | "werewolf.see_werewolves"
   | "werewolf.lone_wolf_center"
   | "werewolf.see_player"
