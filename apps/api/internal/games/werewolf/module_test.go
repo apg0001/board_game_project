@@ -122,6 +122,39 @@ func TestLoneWerewolfMayViewOneCenterCard(t *testing.T) {
 	}
 }
 
+func TestNightRoleOrderBlocksLaterRoles(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRob,
+		PlayerID: "p1",
+		Payload:  map[string]any{"targetPlayerId": "p3"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected robber to wait for lone werewolf action")
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionLoneWolfCenter,
+		PlayerID: "p2",
+		Payload:  map[string]any{"centerIndexes": []any{0}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionRob,
+		PlayerID: "p1",
+		Payload:  map[string]any{"targetPlayerId": "p3"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected robber to act after werewolf completes, got %v", err)
+	}
+}
+
 func TestVoteKillsWerewolfAndVillageWins(t *testing.T) {
 	module := NewModule()
 	state := fixedState()

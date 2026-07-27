@@ -367,7 +367,48 @@ func requireNightRole(state State, player PlayerState, role string) error {
 	if state.CompletedActions[player.PlayerID] {
 		return errors.New("night action already completed")
 	}
+	if err := requireNightOrder(state, role); err != nil {
+		return err
+	}
 	return nil
+}
+
+func requireNightOrder(state State, role string) error {
+	roleIndex := nightRoleIndex(role)
+	if roleIndex < 0 {
+		return nil
+	}
+	for _, earlierRole := range nightRoleOrder()[:roleIndex] {
+		if !nightRoleComplete(state, earlierRole) {
+			return errors.New("previous night role has not completed")
+		}
+	}
+	return nil
+}
+
+func nightRoleComplete(state State, role string) bool {
+	for _, player := range state.Players {
+		if !player.Active || player.OriginalRole != role {
+			continue
+		}
+		if !state.CompletedActions[player.PlayerID] {
+			return false
+		}
+	}
+	return true
+}
+
+func nightRoleIndex(role string) int {
+	for index, item := range nightRoleOrder() {
+		if item == role {
+			return index
+		}
+	}
+	return -1
+}
+
+func nightRoleOrder() []string {
+	return []string{RoleWerewolf, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk}
 }
 
 func requiredNightActionsComplete(state State) bool {
