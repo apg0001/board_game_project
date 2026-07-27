@@ -243,28 +243,33 @@ func playJokerDrawTurn(t *testing.T, service *Service, testRoom room.Room, start
 func playWerewolfRound(t *testing.T, service *Service, testRoom room.Room, started Session) {
 	current := started
 	state := current.State.(werewolf.State)
-	for _, player := range state.Players {
-		switch player.OriginalRole {
-		case werewolf.RoleWerewolf:
-			if countOriginalWerewolves(state) == 1 {
-				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionLoneWolfCenter, map[string]any{"centerIndexes": []any{0}})
-			} else {
-				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeWerewolves, nil)
+	for _, role := range []string{werewolf.RoleWerewolf, werewolf.RoleSeer, werewolf.RoleRobber, werewolf.RoleTroublemaker, werewolf.RoleDrunk} {
+		for _, player := range state.Players {
+			if player.OriginalRole != role {
+				continue
 			}
-		case werewolf.RoleSeer:
-			current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeCenter, map[string]any{"centerIndexes": []any{0, 1}})
-		case werewolf.RoleRobber:
-			current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionRob, map[string]any{"targetPlayerId": firstOtherWerewolfPlayer(state, player.PlayerID)})
-		case werewolf.RoleTroublemaker:
-			left, right := twoOtherWerewolfPlayers(t, state, player.PlayerID)
-			current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionTroublemake, map[string]any{
-				"leftPlayerId":  left,
-				"rightPlayerId": right,
-			})
-		case werewolf.RoleDrunk:
-			current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionDrunkSwap, map[string]any{"centerIndexes": []any{0}})
+			switch player.OriginalRole {
+			case werewolf.RoleWerewolf:
+				if countOriginalWerewolves(state) == 1 {
+					current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionLoneWolfCenter, map[string]any{"centerIndexes": []any{0}})
+				} else {
+					current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeWerewolves, nil)
+				}
+			case werewolf.RoleSeer:
+				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeCenter, map[string]any{"centerIndexes": []any{0, 1}})
+			case werewolf.RoleRobber:
+				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionRob, map[string]any{"targetPlayerId": firstOtherWerewolfPlayer(state, player.PlayerID)})
+			case werewolf.RoleTroublemaker:
+				left, right := twoOtherWerewolfPlayers(t, state, player.PlayerID)
+				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionTroublemake, map[string]any{
+					"leftPlayerId":  left,
+					"rightPlayerId": right,
+				})
+			case werewolf.RoleDrunk:
+				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionDrunkSwap, map[string]any{"centerIndexes": []any{0}})
+			}
+			state = current.State.(werewolf.State)
 		}
-		state = current.State.(werewolf.State)
 	}
 
 	current = applyGameplayAction(t, service, testRoom, current, state.Players[0].PlayerID, werewolf.ActionFinishNight, nil)
