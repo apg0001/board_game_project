@@ -11,60 +11,64 @@ import (
 )
 
 const (
-	ActionDraw           = "bang.draw"
-	ActionPlay           = "bang.play"
-	ActionEndTurn        = "bang.end_turn"
-	ActionUseBang        = "bang.use_bang"
-	ActionUseMissed      = "bang.use_missed"
-	ActionTakeHit        = "bang.take_hit"
-	ActionDiscard        = "bang.discard"
-	ActionChoose         = "bang.choose_general_store"
-	CardBang             = "bang"
-	CardMissed           = "missed"
-	CardBeer             = "beer"
-	CardGatling          = "gatling"
-	CardBarrel           = "barrel"
-	CardJail             = "jail"
-	CardDynamite         = "dynamite"
-	CardStagecoach       = "stagecoach"
-	CardWellsFargo       = "wells_fargo"
-	CardSaloon           = "saloon"
-	CardCatBalou         = "cat_balou"
-	CardPanic            = "panic"
-	CardDuel             = "duel"
-	CardIndians          = "indians"
-	CardGeneralStore     = "general_store"
-	CardScope            = "scope"
-	CardMustang          = "mustang"
-	CardVolcanic         = "volcanic"
-	CardSchofield        = "schofield"
-	CardRemington        = "remington"
-	CardCarabine         = "carabine"
-	CardWinchester       = "winchester"
-	RoleSheriff          = "sheriff"
-	RoleDeputy           = "deputy"
-	RoleOutlaw           = "outlaw"
-	RoleRenegade         = "renegade"
-	CharacterBart        = "bart_cassidy"
-	CharacterBlackJack   = "black_jack"
-	CharacterCalamity    = "calamity_janet"
-	CharacterElGringo    = "el_gringo"
-	CharacterJesse       = "jesse_jones"
-	CharacterJourdonnais = "jourdonnais"
-	CharacterKit         = "kit_carlson"
-	CharacterLucky       = "lucky_duke"
-	CharacterPaul        = "paul_regret"
-	CharacterPedro       = "pedro_ramirez"
-	CharacterRose        = "rose_doolan"
-	CharacterSid         = "sid_ketchum"
-	CharacterSlab        = "slab_the_killer"
-	CharacterSuzy        = "suzy_lafayette"
-	CharacterVulture     = "vulture_sam"
-	CharacterWilly       = "willy_the_kid"
-	SuitSpade            = "spade"
-	SuitHeart            = "heart"
-	SuitDiamond          = "diamond"
-	SuitClub             = "club"
+	ActionDraw            = "bang.draw"
+	ActionPlay            = "bang.play"
+	ActionEndTurn         = "bang.end_turn"
+	ActionUseBang         = "bang.use_bang"
+	ActionUseMissed       = "bang.use_missed"
+	ActionTakeHit         = "bang.take_hit"
+	ActionDiscard         = "bang.discard"
+	ActionChoose          = "bang.choose_general_store"
+	ActionChooseCharacter = "bang.choose_character_card"
+	ActionSidHeal         = "bang.sid_heal"
+	CardBang              = "bang"
+	CardMissed            = "missed"
+	CardBeer              = "beer"
+	CardGatling           = "gatling"
+	CardBarrel            = "barrel"
+	CardJail              = "jail"
+	CardDynamite          = "dynamite"
+	CardStagecoach        = "stagecoach"
+	CardWellsFargo        = "wells_fargo"
+	CardSaloon            = "saloon"
+	CardCatBalou          = "cat_balou"
+	CardPanic             = "panic"
+	CardDuel              = "duel"
+	CardIndians           = "indians"
+	CardGeneralStore      = "general_store"
+	CardScope             = "scope"
+	CardMustang           = "mustang"
+	CardVolcanic          = "volcanic"
+	CardSchofield         = "schofield"
+	CardRemington         = "remington"
+	CardCarabine          = "carabine"
+	CardWinchester        = "winchester"
+	RoleSheriff           = "sheriff"
+	RoleDeputy            = "deputy"
+	RoleOutlaw            = "outlaw"
+	RoleRenegade          = "renegade"
+	CharacterBart         = "bart_cassidy"
+	CharacterBlackJack    = "black_jack"
+	CharacterCalamity     = "calamity_janet"
+	CharacterElGringo     = "el_gringo"
+	CharacterJesse        = "jesse_jones"
+	CharacterJourdonnais  = "jourdonnais"
+	CharacterKit          = "kit_carlson"
+	CharacterLucky        = "lucky_duke"
+	CharacterPaul         = "paul_regret"
+	CharacterPedro        = "pedro_ramirez"
+	CharacterRose         = "rose_doolan"
+	CharacterSid          = "sid_ketchum"
+	CharacterSlab         = "slab_the_killer"
+	CharacterSuzy         = "suzy_lafayette"
+	CharacterVulture      = "vulture_sam"
+	CharacterWilly        = "willy_the_kid"
+	SuitSpade             = "spade"
+	SuitHeart             = "heart"
+	SuitDiamond           = "diamond"
+	SuitClub              = "club"
+	ChoiceKitDraw         = "kit_draw"
+	ChoicePedroDraw       = "pedro_draw"
 )
 
 type Card struct {
@@ -105,19 +109,28 @@ type PendingGeneralStore struct {
 	RemainingChooserIDs []string `json:"remainingChooserIds"`
 }
 
+type PendingCharacterChoice struct {
+	PlayerID      string `json:"playerId"`
+	CharacterID   string `json:"characterId"`
+	ChoiceType    string `json:"choiceType"`
+	Cards         []Card `json:"cards"`
+	RequiredCount int    `json:"requiredCount,omitempty"`
+}
+
 type State struct {
-	CurrentPlayerIndex  int                  `json:"currentPlayerIndex"`
-	Round               int                  `json:"round"`
-	Players             []PlayerState        `json:"players"`
-	Deck                []Card               `json:"deck"`
-	Discard             []Card               `json:"discard"`
-	PendingAttack       *PendingAttack       `json:"pendingAttack,omitempty"`
-	PendingGeneralStore *PendingGeneralStore `json:"pendingGeneralStore,omitempty"`
-	PendingDiscardID    string               `json:"pendingDiscardPlayerId,omitempty"`
-	PendingDiscardCount int                  `json:"pendingDiscardCount,omitempty"`
-	Winner              string               `json:"winner,omitempty"`
-	Log                 []string             `json:"log"`
-	Finished            bool                 `json:"finished"`
+	CurrentPlayerIndex     int                     `json:"currentPlayerIndex"`
+	Round                  int                     `json:"round"`
+	Players                []PlayerState           `json:"players"`
+	Deck                   []Card                  `json:"deck"`
+	Discard                []Card                  `json:"discard"`
+	PendingAttack          *PendingAttack          `json:"pendingAttack,omitempty"`
+	PendingGeneralStore    *PendingGeneralStore    `json:"pendingGeneralStore,omitempty"`
+	PendingCharacterChoice *PendingCharacterChoice `json:"pendingCharacterChoice,omitempty"`
+	PendingDiscardID       string                  `json:"pendingDiscardPlayerId,omitempty"`
+	PendingDiscardCount    int                     `json:"pendingDiscardCount,omitempty"`
+	Winner                 string                  `json:"winner,omitempty"`
+	Log                    []string                `json:"log"`
+	Finished               bool                    `json:"finished"`
 }
 
 type PlayPayload struct {
@@ -128,6 +141,12 @@ type PlayPayload struct {
 
 type DiscardPayload struct {
 	CardIDs []string `json:"cardIds"`
+}
+
+type CharacterChoicePayload struct {
+	CardID     string
+	CardIDs    []string
+	UseDiscard bool
 }
 
 type Module struct{}
@@ -189,6 +208,14 @@ func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
 	current := asState(state)
 	current.Deck = make([]Card, len(current.Deck))
 	current.Players = append([]PlayerState(nil), current.Players...)
+	if current.PendingCharacterChoice != nil {
+		choice := *current.PendingCharacterChoice
+		choice.Cards = append([]Card(nil), current.PendingCharacterChoice.Cards...)
+		if choice.PlayerID != string(viewerID) {
+			choice.Cards = maskedCards(len(choice.Cards))
+		}
+		current.PendingCharacterChoice = &choice
+	}
 	revealed := current.Finished
 	for index := range current.Players {
 		player := &current.Players[index]
@@ -207,6 +234,15 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	current := asState(state)
 	if current.Finished {
 		return errors.New("game is already finished")
+	}
+	if action.Type == ActionSidHeal {
+		return validateSidHealAction(current, action)
+	}
+	if action.Type == ActionChooseCharacter {
+		return validateCharacterChoiceAction(current, action)
+	}
+	if current.PendingCharacterChoice != nil {
+		return errors.New("pending character choice")
 	}
 	if action.Type == ActionUseBang || action.Type == ActionUseMissed || action.Type == ActionTakeHit {
 		return validatePendingAttackAction(current, action)
@@ -413,27 +449,95 @@ func validateGeneralStoreAction(state State, action gamecore.Action) error {
 	return nil
 }
 
+func validateCharacterChoiceAction(state State, action gamecore.Action) error {
+	if state.PendingCharacterChoice == nil || state.PendingCharacterChoice.PlayerID == "" {
+		return errors.New("no pending character choice")
+	}
+	if state.PendingCharacterChoice.PlayerID != string(action.PlayerID) {
+		return errors.New("not your character choice")
+	}
+	payload, err := characterChoicePayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	switch state.PendingCharacterChoice.ChoiceType {
+	case ChoiceKitDraw:
+		if len(payload.CardIDs) != state.PendingCharacterChoice.RequiredCount {
+			return fmt.Errorf("must choose %d cards", state.PendingCharacterChoice.RequiredCount)
+		}
+		seen := map[string]bool{}
+		for _, cardID := range payload.CardIDs {
+			if seen[cardID] {
+				return errors.New("duplicate character choice card")
+			}
+			seen[cardID] = true
+			if _, ok := findCard(state.PendingCharacterChoice.Cards, cardID); !ok {
+				return errors.New("character choice card not found")
+			}
+		}
+	case ChoicePedroDraw:
+		if payload.CardID == "" {
+			return nil
+		}
+		if len(state.PendingCharacterChoice.Cards) == 0 || state.PendingCharacterChoice.Cards[0].ID != payload.CardID {
+			return errors.New("pedro discard card not found")
+		}
+	default:
+		return errors.New("unsupported character choice")
+	}
+	return nil
+}
+
+func validateSidHealAction(state State, action gamecore.Action) error {
+	playerIndex := findPlayer(state, string(action.PlayerID))
+	if playerIndex < 0 || !state.Players[playerIndex].Alive {
+		return errors.New("player is not active")
+	}
+	player := state.Players[playerIndex]
+	if !hasCharacter(player, CharacterSid) {
+		return errors.New("not sid ketchum")
+	}
+	if player.HP >= player.MaxHP {
+		return errors.New("sid can only heal missing hp")
+	}
+	payload, err := discardPayload(action.Payload)
+	if err != nil {
+		return err
+	}
+	if len(payload.CardIDs) != 2 {
+		return errors.New("sid must discard two cards")
+	}
+	seen := map[string]bool{}
+	for _, cardID := range payload.CardIDs {
+		if seen[cardID] {
+			return errors.New("duplicate sid discard card")
+		}
+		seen[cardID] = true
+		if _, ok := findCard(player.Hand, cardID); !ok {
+			return errors.New("sid discard card not found")
+		}
+	}
+	return nil
+}
+
 func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) (gamecore.ActionResult, error) {
 	current := asState(state)
 	player := &current.Players[current.CurrentPlayerIndex]
 	switch action.Type {
+	case ActionSidHeal:
+		payload, err := discardPayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		current = applySidHeal(current, string(action.PlayerID), payload.CardIDs)
+	case ActionChooseCharacter:
+		payload, err := characterChoicePayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		current = applyCharacterChoice(current, string(action.PlayerID), payload)
 	case ActionDraw:
-		var shouldContinue bool
-		current, shouldContinue = resolveStartOfTurnCards(current, current.CurrentPlayerIndex)
-		if !shouldContinue || current.Finished {
-			break
-		}
-		player = &current.Players[current.CurrentPlayerIndex]
-		drawn := drawCards(&current, 2)
-		if hasCharacter(*player, CharacterBlackJack) && len(drawn) >= 2 && isRedSuit(drawn[1].Suit) {
-			extra := drawCards(&current, 1)
-			drawn = append(drawn, extra...)
-			current.Log = append(current.Log, player.PlayerID+" 님이 블랙 잭 능력으로 추가 카드를 확인했습니다.")
-		}
-		player.Hand = append(player.Hand, drawn...)
-		player.HandSize = len(player.Hand)
-		player.Drawn = true
-		current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", player.PlayerID, len(drawn)))
+		current = applyDrawPhase(current)
 	case ActionPlay:
 		payload, err := playPayload(action.Payload)
 		if err != nil {
@@ -608,6 +712,9 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 			current.PendingGeneralStore.CurrentChooserID = ""
 			current = advanceGeneralStore(current)
 		}
+		if current.PendingCharacterChoice != nil && current.PendingCharacterChoice.PlayerID == string(playerID) && !current.Finished {
+			current = cancelPendingCharacterChoice(current)
+		}
 		if current.CurrentPlayerIndex == index && !current.Finished {
 			current.CurrentPlayerIndex = nextAliveIndex(current, index)
 		}
@@ -659,6 +766,159 @@ func applyPendingDiscard(state State, playerID string, cardIDs []string) State {
 	state.PendingDiscardCount = 0
 	state.Log = append(state.Log, player.PlayerID+" 님이 손패 제한을 맞췄습니다.")
 	return finishTurn(state)
+}
+
+func applyDrawPhase(state State) State {
+	playerIndex := state.CurrentPlayerIndex
+	current, shouldContinue := resolveStartOfTurnCards(state, playerIndex)
+	if !shouldContinue || current.Finished {
+		return current
+	}
+	playerIndex = current.CurrentPlayerIndex
+	player := &current.Players[playerIndex]
+	if hasCharacter(*player, CharacterKit) {
+		choices := drawCards(&current, 3)
+		if len(choices) > 2 {
+			current.PendingCharacterChoice = &PendingCharacterChoice{
+				PlayerID:      player.PlayerID,
+				CharacterID:   player.CharacterID,
+				ChoiceType:    ChoiceKitDraw,
+				Cards:         choices,
+				RequiredCount: 2,
+			}
+			current.Log = append(current.Log, player.PlayerID+" 님이 Kit Carlson 능력으로 카드 2장을 선택해야 합니다.")
+			return current
+		}
+		player.Hand = append(player.Hand, choices...)
+		player.HandSize = len(player.Hand)
+		player.Drawn = true
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", player.PlayerID, len(choices)))
+		return current
+	}
+	if hasCharacter(*player, CharacterPedro) && len(current.Discard) > 0 {
+		topDiscard := current.Discard[len(current.Discard)-1]
+		current.PendingCharacterChoice = &PendingCharacterChoice{
+			PlayerID:      player.PlayerID,
+			CharacterID:   player.CharacterID,
+			ChoiceType:    ChoicePedroDraw,
+			Cards:         []Card{topDiscard},
+			RequiredCount: 1,
+		}
+		current.Log = append(current.Log, player.PlayerID+" 님이 Pedro Ramirez 능력 사용 여부를 선택해야 합니다.")
+		return current
+	}
+	return applyStandardDraw(current, playerIndex)
+}
+
+func applyStandardDraw(state State, playerIndex int) State {
+	player := &state.Players[playerIndex]
+	drawn := drawCards(&state, 2)
+	if hasCharacter(*player, CharacterBlackJack) && len(drawn) >= 2 && isRedSuit(drawn[1].Suit) {
+		extra := drawCards(&state, 1)
+		drawn = append(drawn, extra...)
+		state.Log = append(state.Log, player.PlayerID+" 님이 블랙 잭 능력으로 추가 카드를 확인했습니다.")
+	}
+	player.Hand = append(player.Hand, drawn...)
+	player.HandSize = len(player.Hand)
+	player.Drawn = true
+	state.Log = append(state.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", player.PlayerID, len(drawn)))
+	return state
+}
+
+func applyCharacterChoice(state State, playerID string, payload CharacterChoicePayload) State {
+	if state.PendingCharacterChoice == nil || state.PendingCharacterChoice.PlayerID != playerID {
+		return state
+	}
+	switch state.PendingCharacterChoice.ChoiceType {
+	case ChoiceKitDraw:
+		return applyKitDrawChoice(state, playerID, payload.CardIDs)
+	case ChoicePedroDraw:
+		return applyPedroDrawChoice(state, playerID, payload.CardID)
+	default:
+		return state
+	}
+}
+
+func applyKitDrawChoice(state State, playerID string, cardIDs []string) State {
+	playerIndex := findPlayer(state, playerID)
+	if playerIndex < 0 || state.PendingCharacterChoice == nil {
+		return state
+	}
+	chosen := []Card{}
+	for _, cardID := range cardIDs {
+		if card, ok := findCard(state.PendingCharacterChoice.Cards, cardID); ok {
+			chosen = append(chosen, card)
+		}
+	}
+	unchosen := []Card{}
+	for _, card := range state.PendingCharacterChoice.Cards {
+		if _, ok := findCard(chosen, card.ID); !ok {
+			unchosen = append(unchosen, card)
+		}
+	}
+	state.Deck = append(unchosen, state.Deck...)
+	player := &state.Players[playerIndex]
+	player.Hand = append(player.Hand, chosen...)
+	player.HandSize = len(player.Hand)
+	player.Drawn = true
+	state.PendingCharacterChoice = nil
+	state.Log = append(state.Log, playerID+" 님이 Kit Carlson 능력으로 카드 2장을 골랐습니다.")
+	return state
+}
+
+func applyPedroDrawChoice(state State, playerID string, cardID string) State {
+	playerIndex := findPlayer(state, playerID)
+	if playerIndex < 0 || state.PendingCharacterChoice == nil {
+		return state
+	}
+	player := &state.Players[playerIndex]
+	drawn := []Card{}
+	if cardID != "" && len(state.Discard) > 0 && state.Discard[len(state.Discard)-1].ID == cardID {
+		drawn = append(drawn, state.Discard[len(state.Discard)-1])
+		state.Discard = state.Discard[:len(state.Discard)-1]
+		drawn = append(drawn, drawCards(&state, 1)...)
+		state.Log = append(state.Log, playerID+" 님이 Pedro Ramirez 능력으로 버림 더미에서 첫 카드를 뽑았습니다.")
+	} else {
+		drawn = drawCards(&state, 2)
+		state.Log = append(state.Log, playerID+" 님이 Pedro Ramirez 능력을 사용하지 않았습니다.")
+	}
+	player.Hand = append(player.Hand, drawn...)
+	player.HandSize = len(player.Hand)
+	player.Drawn = true
+	state.PendingCharacterChoice = nil
+	state.Log = append(state.Log, fmt.Sprintf("%s 님이 카드 %d장을 뽑았습니다.", playerID, len(drawn)))
+	return state
+}
+
+func applySidHeal(state State, playerID string, cardIDs []string) State {
+	playerIndex := findPlayer(state, playerID)
+	if playerIndex < 0 {
+		return state
+	}
+	player := &state.Players[playerIndex]
+	for _, cardID := range cardIDs {
+		if card, ok := removeCard(player, cardID); ok {
+			state.Discard = append(state.Discard, card)
+		}
+	}
+	if player.HP < player.MaxHP {
+		player.HP++
+	}
+	triggerSuzyIfEmpty(&state, playerIndex)
+	state.Log = append(state.Log, playerID+" 님이 Sid Ketchum 능력으로 회복했습니다.")
+	return state
+}
+
+func cancelPendingCharacterChoice(state State) State {
+	if state.PendingCharacterChoice == nil {
+		return state
+	}
+	if state.PendingCharacterChoice.ChoiceType == ChoiceKitDraw {
+		state.Discard = append(state.Discard, state.PendingCharacterChoice.Cards...)
+	}
+	state.PendingCharacterChoice = nil
+	state.Log = append(state.Log, "캐릭터 선택 대기를 취소했습니다.")
+	return state
 }
 
 func generalStoreChooserOrder(state State, startIndex int) []string {
@@ -1480,6 +1740,35 @@ func playPayload(payload any) (PlayPayload, error) {
 	return PlayPayload{CardID: cardID, TargetPlayerID: targetID, TargetCardID: targetCardID}, nil
 }
 
+func characterChoicePayload(payload any) (CharacterChoicePayload, error) {
+	raw, ok := payload.(map[string]any)
+	if !ok {
+		return CharacterChoicePayload{}, errors.New("invalid character choice payload")
+	}
+	cardID, _ := raw["cardId"].(string)
+	useDiscard, _ := raw["useDiscard"].(bool)
+	cardIDs := []string{}
+	switch typed := raw["cardIds"].(type) {
+	case []string:
+		cardIDs = append(cardIDs, typed...)
+	case []any:
+		for _, item := range typed {
+			cardID, _ := item.(string)
+			if cardID == "" {
+				return CharacterChoicePayload{}, errors.New("invalid character choice card")
+			}
+			cardIDs = append(cardIDs, cardID)
+		}
+	case nil:
+	default:
+		return CharacterChoicePayload{}, errors.New("invalid character choice cards")
+	}
+	if !useDiscard && cardID == "" {
+		return CharacterChoicePayload{UseDiscard: false, CardIDs: cardIDs}, nil
+	}
+	return CharacterChoicePayload{CardID: cardID, CardIDs: cardIDs, UseDiscard: useDiscard || cardID != ""}, nil
+}
+
 func discardPayload(payload any) (DiscardPayload, error) {
 	raw, ok := payload.(map[string]any)
 	if !ok {
@@ -1514,6 +1803,14 @@ func findCard(hand []Card, cardID string) (Card, bool) {
 		}
 	}
 	return Card{}, false
+}
+
+func maskedCards(count int) []Card {
+	cards := make([]Card, 0, count)
+	for index := 0; index < count; index++ {
+		cards = append(cards, Card{ID: fmt.Sprintf("hidden-%d", index), Type: "hidden"})
+	}
+	return cards
 }
 
 func findCardByType(hand []Card, cardType string) (Card, bool) {
