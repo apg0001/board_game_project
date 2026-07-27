@@ -419,6 +419,29 @@ func TestPublicStateMasksDeckAndDoesNotMutatePrivateState(t *testing.T) {
 	}
 }
 
+func TestPublicStateMasksOtherPlayersReservedCards(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Players[0].Reserved = []Card{{ID: "p1-secret", Tier: 1, Color: "white", Points: 1, Cost: map[string]int{"blue": 1}}}
+	state.Players[1].Reserved = []Card{{ID: "p2-secret", Tier: 2, Color: "red", Points: 2, Cost: map[string]int{"black": 3}}}
+
+	p1View := module.PublicState(state, "p1").(State)
+	if p1View.Players[0].Reserved[0].ID != "p1-secret" || p1View.Players[0].Reserved[0].Hidden {
+		t.Fatalf("expected viewer's own reserved card to stay visible, got %+v", p1View.Players[0].Reserved[0])
+	}
+	if !p1View.Players[1].Reserved[0].Hidden || p1View.Players[1].Reserved[0].ID == "p2-secret" {
+		t.Fatalf("expected opponent reserved card to be hidden, got %+v", p1View.Players[1].Reserved[0])
+	}
+
+	broadcastView := module.PublicState(state, "").(State)
+	if !broadcastView.Players[0].Reserved[0].Hidden || !broadcastView.Players[1].Reserved[0].Hidden {
+		t.Fatalf("expected broadcast view to hide all reserved cards, got %+v", broadcastView.Players)
+	}
+	if state.Players[1].Reserved[0].Hidden || state.Players[1].Reserved[0].ID != "p2-secret" {
+		t.Fatalf("public state must not mutate private reserved cards, got %+v", state.Players[1].Reserved[0])
+	}
+}
+
 func TestReaching15PointsTriggersFinalRoundInsteadOfInstantEnd(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)

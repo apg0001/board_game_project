@@ -1896,6 +1896,13 @@ button.rummikub-tile {
   background: linear-gradient(155deg, #17212b, #46505c);
 }
 
+.splendor-hidden-card {
+  color: #fff8e8;
+  background:
+    linear-gradient(135deg, rgba(23, 33, 43, 0.94), rgba(31, 78, 101, 0.86)),
+    #17212b;
+}
+
 .splendor-noble-face {
   max-width: none;
   gap: 5px;

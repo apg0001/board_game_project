@@ -138,6 +138,17 @@ export function DalmutiCardFan({ rank, count }: DalmutiCardFanProps) {
 }
 
 export function SplendorCardFace({ card, badge }: SplendorCardFaceProps) {
+  if (card.hidden) {
+    return (
+      <span className="card-face splendor-card-face splendor-hidden-card">
+        <span className="splendor-points">?</span>
+        <strong>예약</strong>
+        <small>비공개</small>
+        {badge ? <span className="splendor-badge">{badge}</span> : null}
+      </span>
+    );
+  }
+
   return (
     <span className={`card-face splendor-card-face gem-${card.color}`}>
       <span className="splendor-points">{card.points}점</span>
