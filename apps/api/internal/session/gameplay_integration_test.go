@@ -237,6 +237,12 @@ func playWerewolfRound(t *testing.T, service *Service, testRoom room.Room, start
 	state := current.State.(werewolf.State)
 	for _, player := range state.Players {
 		switch player.OriginalRole {
+		case werewolf.RoleWerewolf:
+			if countOriginalWerewolves(state) == 1 {
+				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionLoneWolfCenter, map[string]any{"centerIndexes": []any{0}})
+			} else {
+				current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeWerewolves, nil)
+			}
 		case werewolf.RoleSeer:
 			current = applyGameplayAction(t, service, testRoom, current, player.PlayerID, werewolf.ActionSeeCenter, map[string]any{"centerIndexes": []any{0, 1}})
 		case werewolf.RoleRobber:
@@ -266,6 +272,16 @@ func playWerewolfRound(t *testing.T, service *Service, testRoom room.Room, start
 	if current.Status != StatusFinished {
 		t.Fatalf("expected werewolf vote to finish, got %+v", current)
 	}
+}
+
+func countOriginalWerewolves(state werewolf.State) int {
+	count := 0
+	for _, player := range state.Players {
+		if player.OriginalRole == werewolf.RoleWerewolf {
+			count++
+		}
+	}
+	return count
 }
 
 type indexedDavinciTile struct {

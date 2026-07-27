@@ -2152,6 +2152,44 @@ export function App() {
                         </div>
                         {currentSession.state.phase === "NIGHT" ? (
                           <div className="werewolf-actions">
+                            {werewolfMe?.originalRole === "werewolf" ? (
+                              <>
+                                <button
+                                  className="wide-button"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "werewolf.see_werewolves",
+                                      setCurrentSession,
+                                      setRoomMessage
+                                    )
+                                  }
+                                >
+                                  늑대 동료 확인
+                                  <ChevronRight size={18} />
+                                </button>
+                                {[0, 1, 2].map((centerIndex) => (
+                                  <button
+                                    className="wide-button dark"
+                                    key={`lone-wolf-center-${centerIndex}`}
+                                    onClick={() =>
+                                      sendGameAction(
+                                        currentSession.id,
+                                        currentRoom?.id,
+                                        "werewolf.lone_wolf_center",
+                                        setCurrentSession,
+                                        setRoomMessage,
+                                        { centerIndexes: [centerIndex] }
+                                      )
+                                    }
+                                  >
+                                    외로운 늑대 중앙 {centerIndex + 1}번
+                                    <ChevronRight size={18} />
+                                  </button>
+                                ))}
+                              </>
+                            ) : null}
                             {werewolfMe?.originalRole === "seer" ? (
                               <>
                                 {werewolfOthers.map((player) => (
