@@ -1425,6 +1425,27 @@ export function App() {
                               <div className="splendor-tier-header">
                                 <strong>{romanTier(row.tier)} 단계</strong>
                                 <span>덱 {row.deckSize}장</span>
+                                <button
+                                  className="splendor-deck-reserve"
+                                  onClick={() =>
+                                    sendGameAction(
+                                      currentSession.id,
+                                      currentRoom?.id,
+                                      "splendor.reserve_card",
+                                      setCurrentSession,
+                                      setRoomMessage,
+                                      { marketTier: row.tier, fromDeck: true }
+                                    )
+                                  }
+                                  disabled={
+                                    !isMyTurn ||
+                                    splendorReturnCount > 0 ||
+                                    row.deckSize <= 0 ||
+                                    (splendorMe?.reserved?.length ?? 0) >= 3
+                                  }
+                                >
+                                  덱 예약
+                                </button>
                               </div>
                               <div className="splendor-market">
                                 {row.cards.map((card, index) => (

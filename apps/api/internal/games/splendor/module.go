@@ -72,6 +72,7 @@ type BuyPayload struct {
 	MarketTier    int
 	MarketIndex   int
 	ReservedIndex int
+	FromDeck      bool
 }
 
 type Module struct{}
@@ -134,6 +135,7 @@ func (m Module) PublicState(state any, _ gamecore.PlayerID) any {
 
 func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Action, _ gamecore.Context) error {
 	current := asState(state)
+	ensureTieredMarket(&current)
 	if current.Finished {
 		return errors.New("game is already finished")
 	}
@@ -166,7 +168,11 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if err != nil {
 			return err
 		}
-		if _, ok := selectedMarketCard(current, payload); !ok {
+		if payload.FromDeck {
+			if !canReserveFromDeck(current, payload.MarketTier) {
+				return errors.New("deck is not available")
+			}
+		} else if _, ok := selectedMarketCard(current, payload); !ok {
 			return errors.New("card index out of range")
 		}
 		if len(current.Players[current.CurrentPlayerIndex].Reserved) >= 3 {
@@ -224,7 +230,13 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
-		card, ok := removeAndRefillMarketCard(&current, payload)
+		var card Card
+		var ok bool
+		if payload.FromDeck {
+			card, ok = removeDeckTopCard(&current, payload.MarketTier)
+		} else {
+			card, ok = removeAndRefillMarketCard(&current, payload)
+		}
 		if !ok {
 			return gamecore.ActionResult{}, errors.New("card index out of range")
 		}
@@ -524,6 +536,21 @@ func removeAndRefillMarketCard(state *State, payload BuyPayload) (Card, bool) {
 	return card, true
 }
 
+func canReserveFromDeck(state State, tier int) bool {
+	return tier > 0 && len(state.Decks[tier]) > 0
+}
+
+func removeDeckTopCard(state *State, tier int) (Card, bool) {
+	ensureTieredMarket(state)
+	if !canReserveFromDeck(*state, tier) {
+		return Card{}, false
+	}
+	card := state.Decks[tier][0]
+	state.Decks[tier] = state.Decks[tier][1:]
+	syncLegacyMarket(state)
+	return card, true
+}
+
 func resolveMarketSelection(markets map[int][]Card, payload BuyPayload) (int, int, bool) {
 	if payload.MarketIndex < 0 {
 		return 0, 0, false
@@ -677,14 +704,24 @@ func reservePayload(payload any) (BuyPayload, error) {
 	if !ok {
 		return BuyPayload{}, errors.New("invalid reserve payload")
 	}
+	result := BuyPayload{MarketIndex: -1, ReservedIndex: -1}
+	if fromDeck, ok := raw["fromDeck"].(bool); ok {
+		result.FromDeck = fromDeck
+	}
+	if tier, ok := gameutil.Int(raw["marketTier"]); ok {
+		result.MarketTier = tier
+	}
+	if result.FromDeck {
+		if result.MarketTier <= 0 {
+			return BuyPayload{}, errors.New("market tier is required")
+		}
+		return result, nil
+	}
 	value, ok := gameutil.Int(raw["marketIndex"])
 	if !ok {
 		return BuyPayload{}, errors.New("market index is required")
 	}
-	result := BuyPayload{MarketIndex: value, ReservedIndex: -1}
-	if tier, ok := gameutil.Int(raw["marketTier"]); ok {
-		result.MarketTier = tier
-	}
+	result.MarketIndex = value
 	return result, nil
 }
 

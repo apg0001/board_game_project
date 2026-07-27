@@ -207,6 +207,53 @@ func TestReserveCardTakesGoldAndRefillsMarket(t *testing.T) {
 	}
 }
 
+func TestReserveTopDeckCardDoesNotChangeVisibleMarket(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	reserved := state.Decks[2][0]
+	beforeDeckLen := len(state.Decks[2])
+	beforeMarketIDs := cardIDs(state.Markets[2])
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionReserveCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"marketTier": 2, "fromDeck": true},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := result.State.(State)
+	if len(next.Players[0].Reserved) != 1 || next.Players[0].Reserved[0].ID != reserved.ID {
+		t.Fatalf("expected top tier 2 deck card reserved, got %+v", next.Players[0].Reserved)
+	}
+	if len(next.Decks[2]) != beforeDeckLen-1 {
+		t.Fatalf("expected tier 2 deck to shrink by one, got %d want %d", len(next.Decks[2]), beforeDeckLen-1)
+	}
+	if got := cardIDs(next.Markets[2]); !sameStrings(got, beforeMarketIDs) {
+		t.Fatalf("visible tier 2 market should not change, got %+v want %+v", got, beforeMarketIDs)
+	}
+	if next.Players[0].Tokens["gold"] != 1 || next.Bank["gold"] != 4 {
+		t.Fatalf("expected one gold token after deck reservation, got player=%d bank=%d", next.Players[0].Tokens["gold"], next.Bank["gold"])
+	}
+}
+
+func TestReserveTopDeckCardRequiresAvailableTierDeck(t *testing.T) {
+	module := NewModule()
+	state := module.CreateInitialState(testContext()).(State)
+	state.Decks[2] = nil
+	syncLegacyMarket(&state)
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionReserveCard,
+		PlayerID: "p1",
+		Payload:  map[string]any{"marketTier": 2, "fromDeck": true},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected empty tier deck reservation to be rejected")
+	}
+}
+
 func TestReserveAtTokenLimitTakesGoldThenRequiresReturn(t *testing.T) {
 	module := NewModule()
 	state := module.CreateInitialState(testContext()).(State)
@@ -433,6 +480,26 @@ func setVisibleCard(state *State, tier int, index int, card Card) {
 	}
 	state.Markets[tier][index] = card
 	syncLegacyMarket(state)
+}
+
+func cardIDs(cards []Card) []string {
+	ids := make([]string, len(cards))
+	for index, card := range cards {
+		ids[index] = card.ID
+	}
+	return ids
+}
+
+func sameStrings(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func testContext() gamecore.Context {
