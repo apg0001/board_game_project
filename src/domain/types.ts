@@ -202,6 +202,8 @@ export interface GameSession {
     markets?: Record<string, SplendorCard[]>;
     decks?: Record<string, SplendorCard[]>;
     nobles?: SplendorNoble[];
+    pendingReturnPlayerId?: string;
+    pendingReturnCount?: number;
     currentTrick?: {
       rank?: number;
       count?: number;
@@ -303,6 +305,7 @@ export type GameActionType =
   | "splendor.take_token"
   | "splendor.buy_card"
   | "splendor.reserve_card"
+  | "splendor.return_tokens"
   | "dalmuti.play"
   | "dalmuti.pass"
   | "werewolf.see_player"

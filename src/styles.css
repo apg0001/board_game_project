@@ -1474,6 +1474,11 @@ button.davinci-tile {
   background: #17212b;
 }
 
+.gem-button.gold {
+  color: #17212b;
+  background: #f2c14e;
+}
+
 .splendor-market {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
