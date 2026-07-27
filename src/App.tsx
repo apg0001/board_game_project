@@ -2444,25 +2444,29 @@ export function App() {
                           </label>
                         </div>
                         <div className="standard-hand" aria-label="내 원카드 손패">
-                          {(onecardMe?.hand ?? []).map((card) => (
-                            <button
-                              className={`standard-card ${card.suit ?? ""}`}
-                              key={card.id}
-                              onClick={() =>
-                                sendGameAction(
-                                  currentSession.id,
-                                  currentRoom?.id,
-                                  "onecard.play",
-                                  setCurrentSession,
-                                  setRoomMessage,
-                                  onecardPlayPayload(card, currentSession.state.rules, onecardDeclaredSuit, onecardMe?.hand?.length ?? 0)
-                                )
-                              }
-                              disabled={!isMyTurn}
-                            >
-                              <PlayingCardFace card={card} />
-                            </button>
-                          ))}
+                          {(onecardMe?.hand ?? []).map((card) => {
+                            const handSize = onecardMe?.hand?.length ?? onecardMe?.handSize ?? 0;
+                            const canPlayCard = onecardCanPlayCard(card, currentSession.state, handSize);
+                            return (
+                              <button
+                                className={`standard-card ${card.suit ?? ""}`}
+                                key={card.id}
+                                onClick={() =>
+                                  sendGameAction(
+                                    currentSession.id,
+                                    currentRoom?.id,
+                                    "onecard.play",
+                                    setCurrentSession,
+                                    setRoomMessage,
+                                    onecardPlayPayload(card, currentSession.state.rules, onecardDeclaredSuit, handSize)
+                                  )
+                                }
+                                disabled={!isMyTurn || !canPlayCard}
+                              >
+                                <PlayingCardFace card={card} />
+                              </button>
+                            );
+                          })}
                         </div>
                         <div className="splendor-players">
                           {davinciPlayers.map((player) => (
@@ -3458,6 +3462,50 @@ function onecardPlayPayload(card: HandCard, rules: OneCardRules | undefined, dec
     payload.declareOne = true;
   }
   return payload;
+}
+
+function onecardCanPlayCard(card: HandCard, state: GameSession["state"], handSize: number) {
+  const rules = state.rules;
+  if (handSize === 1) {
+    if (onecardAttackAmount(card, rules) > 0 && rules?.allowFinalAttack === false) return false;
+    if (onecardIsSpecialCard(card, rules) && rules?.allowFinalSpecial === false) return false;
+  }
+  const top = state.discardPile?.[(state.discardPile?.length ?? 0) - 1];
+  if (!top) return true;
+  if ((state.pendingDraw ?? 0) > 0) {
+    return onecardCanDefend(card, top, state);
+  }
+  if (card.joker) return true;
+  const topSuit = state.declaredSuit || top.suit || "";
+  if (top.joker && topSuit === "") return true;
+  return card.suit === topSuit || String(card.rank ?? "") === String(top.rank ?? "");
+}
+
+function onecardCanDefend(card: HandCard, top: HandCard, state: GameSession["state"]) {
+  const rules = state.rules;
+  const isAttackCard = onecardAttackAmount(card, rules) > 0;
+  switch (rules?.defenseMode ?? "attack-or-joker") {
+    case "same-rank":
+      if (card.joker || top.joker) return Boolean(card.joker && top.joker);
+      return isAttackCard && String(card.rank ?? "") === String(top.rank ?? "");
+    case "any-attack":
+      return isAttackCard;
+    default:
+      return isAttackCard || Boolean(card.joker);
+  }
+}
+
+function onecardAttackAmount(card: HandCard, rules: OneCardRules | undefined) {
+  const attackCards = rules?.attackCards ?? ["2", "A", "JOKER"];
+  if (card.joker && attackCards.includes("JOKER")) return rules?.jokerDrawCount ?? 5;
+  if (String(card.rank ?? "") === "2" && attackCards.includes("2")) return rules?.twoDrawCount ?? 2;
+  if (String(card.rank ?? "") === "A" && attackCards.includes("A")) return 3;
+  return 0;
+}
+
+function onecardIsSpecialCard(card: HandCard, rules: OneCardRules | undefined) {
+  const rank = String(card.rank ?? "");
+  return Boolean(card.joker) || rank === "J" || rank === "Q" || rank === "K" || onecardCanChangeSuit(card, rules);
 }
 
 function onecardCanChangeSuit(card: HandCard, rules: OneCardRules | undefined) {
