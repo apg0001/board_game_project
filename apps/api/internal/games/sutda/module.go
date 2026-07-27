@@ -47,6 +47,7 @@ type State struct {
 	WinnerID           string        `json:"winnerId,omitempty"`
 	WinnerIDs          []string      `json:"winnerIds,omitempty"`
 	Draw               bool          `json:"draw,omitempty"`
+	Rematch            bool          `json:"rematch,omitempty"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
 }
@@ -243,6 +244,16 @@ func (m Module) CalculateResult(state any, _ gamecore.Context) []gamecore.Result
 }
 
 func finish(state State) State {
+	if gusaRematchApplies(state) {
+		state.WinnerID = ""
+		state.WinnerIDs = activePlayerIDs(state)
+		state.Draw = true
+		state.Rematch = true
+		state.Finished = true
+		state.Log = append(state.Log, "구사로 섯다 승부가 재경기 처리되었습니다.")
+		return state
+	}
+
 	bestIndexes := []int{}
 	for index, player := range state.Players {
 		if player.Folded {
@@ -307,6 +318,7 @@ func evaluate(hand []Card) (int, string) {
 		{4, 6}:  {650, "세륙"},
 		{4, 7}:  {501, "암행어사"},
 		{3, 7}:  {500, "땡잡이"},
+		{4, 9}:  {499, "구사"},
 	}
 	if found, ok := specials[[2]int{months[0], months[1]}]; ok {
 		return found.score, found.name
@@ -351,6 +363,10 @@ func isTtaengJabi(hand []Card) bool {
 	return hasMonths(hand, 3, 7)
 }
 
+func isGusa(hand []Card) bool {
+	return hasMonths(hand, 4, 9)
+}
+
 func isGwangTtaeng(hand []Card) (bool, bool) {
 	if len(hand) != 2 || !hand[0].Gwang || !hand[1].Gwang {
 		return false, false
@@ -372,6 +388,36 @@ func hasMonths(hand []Card, first int, second int) bool {
 	months := []int{hand[0].Month, hand[1].Month}
 	sort.Ints(months)
 	return months[0] == first && months[1] == second
+}
+
+func gusaRematchApplies(state State) bool {
+	hasGusa := false
+	bestRank := 0
+	activePlayers := 0
+	for _, player := range state.Players {
+		if player.Folded || !player.Active {
+			continue
+		}
+		activePlayers++
+		rank, _ := evaluate(player.Hand)
+		if rank > bestRank {
+			bestRank = rank
+		}
+		if isGusa(player.Hand) {
+			hasGusa = true
+		}
+	}
+	return activePlayers > 1 && hasGusa && bestRank <= 700
+}
+
+func activePlayerIDs(state State) []string {
+	playerIDs := []string{}
+	for _, player := range state.Players {
+		if !player.Folded && player.Active {
+			playerIDs = append(playerIDs, player.PlayerID)
+		}
+	}
+	return playerIDs
 }
 
 func activeCount(state State) int {
