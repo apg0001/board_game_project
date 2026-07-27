@@ -17,6 +17,11 @@ func TestCreateInitialStateRevealsSheriff(t *testing.T) {
 	if state.Players[0].HP != 5 {
 		t.Fatalf("expected sheriff 5 hp, got %d", state.Players[0].HP)
 	}
+	for _, player := range state.Players {
+		if player.CharacterID == "" || player.CharacterName == "" {
+			t.Fatalf("expected character assignment, got %+v", player)
+		}
+	}
 }
 
 func TestBangDamageCanBeMissed(t *testing.T) {
@@ -691,6 +696,178 @@ func TestDynamiteSafeDrawMovesToNextAlivePlayer(t *testing.T) {
 	}
 	if !next.Players[0].Drawn || len(next.Players[0].Hand) != 2 {
 		t.Fatalf("expected p1 to continue draw phase, got %+v", next.Players[0])
+	}
+}
+
+func TestWillyTheKidCanPlayMultipleBangCards(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterWilly
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}, {ID: "bang-2", Type: CardBang}}
+	state.Players[1].Hand = []Card{}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	err = module.ValidateAction(context.Background(), next, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-2", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected willy to allow second bang, got %v", err)
+	}
+}
+
+func TestRoseAndPaulAdjustDistanceLikeScopeAndMustang(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterRose
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p3"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected rose to see p3 at distance one, got %v", err)
+	}
+
+	state.Players[0].CharacterID = ""
+	state.Players[2].CharacterID = CharacterPaul
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected paul not to affect p2, got %v", err)
+	}
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p3"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected paul to push p3 farther away")
+	}
+}
+
+func TestJourdonnaisHasBuiltInBarrel(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}}
+	state.Players[1].CharacterID = CharacterJourdonnais
+	state.Players[1].Hand = []Card{}
+	state.Deck = []Card{{ID: "check-1", Type: CardBeer, Suit: SuitHeart, Rank: 6}}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "bang-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.PendingAttack != nil || next.Players[1].HP != 4 {
+		t.Fatalf("expected jourdonnais barrel ability to avoid bang, got pending=%+v player=%+v", next.PendingAttack, next.Players[1])
+	}
+}
+
+func TestBlackJackDrawsExtraOnRedSecondCard(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterBlackJack
+	state.Deck = []Card{
+		{ID: "draw-1", Type: CardBang, Suit: SuitSpade, Rank: 4},
+		{ID: "draw-2", Type: CardBeer, Suit: SuitHeart, Rank: 6},
+		{ID: "draw-3", Type: CardMissed, Suit: SuitClub, Rank: 10},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDraw,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if len(next.Players[0].Hand) != 3 || len(next.Deck) != 0 {
+		t.Fatalf("expected black jack to draw three cards, got hand=%+v deck=%+v", next.Players[0].Hand, next.Deck)
+	}
+}
+
+func TestBartCassidyDrawsWhenLosingHP(t *testing.T) {
+	state := fixedState()
+	state.Players[1].CharacterID = CharacterBart
+	state.Players[1].Hand = []Card{}
+	state.Deck = []Card{{ID: "bart-1", Type: CardBeer}}
+
+	next := damageTargetWithoutMissed(state, "p2", 1, "p1")
+	if next.Players[1].HP != 3 || len(next.Players[1].Hand) != 1 {
+		t.Fatalf("expected bart to draw after losing hp, got %+v", next.Players[1])
+	}
+}
+
+func TestVultureSamTakesEliminatedPlayerCards(t *testing.T) {
+	state := fixedState()
+	state.Players[2].CharacterID = CharacterVulture
+	state.Players[1].HP = 1
+	state.Players[1].Hand = []Card{{ID: "loot-1", Type: CardCatBalou}}
+	state.Players[1].Equipment = []Card{{ID: "loot-2", Type: CardBarrel}}
+
+	next := damageTargetWithoutMissed(state, "p2", 1, "p1")
+	if next.Players[1].Alive {
+		t.Fatal("expected p2 to be eliminated")
+	}
+	if len(next.Players[2].Hand) != 2 {
+		t.Fatalf("expected vulture sam to take two cards, got %+v", next.Players[2].Hand)
+	}
+}
+
+func TestCalamityJanetUsesMissedAsBangAndBangAsMissed(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].CharacterID = CharacterCalamity
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "missed-1", Type: CardMissed}}
+	state.Players[1].Hand = []Card{}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "missed-1", "targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected calamity to play missed as bang, got %v", err)
+	}
+
+	state = fixedState()
+	state.Players[1].CharacterID = CharacterCalamity
+	state.Players[1].Hand = []Card{{ID: "bang-2", Type: CardBang}}
+	state.PendingAttack = &PendingAttack{
+		SourcePlayerID: "p1",
+		TargetPlayerID: "p2",
+		CardType:       CardBang,
+		Damage:         1,
+	}
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionUseMissed,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected calamity to use bang as missed, got %v", err)
 	}
 }
 

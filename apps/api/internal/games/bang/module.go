@@ -11,44 +11,60 @@ import (
 )
 
 const (
-	ActionDraw       = "bang.draw"
-	ActionPlay       = "bang.play"
-	ActionEndTurn    = "bang.end_turn"
-	ActionUseBang    = "bang.use_bang"
-	ActionUseMissed  = "bang.use_missed"
-	ActionTakeHit    = "bang.take_hit"
-	ActionDiscard    = "bang.discard"
-	ActionChoose     = "bang.choose_general_store"
-	CardBang         = "bang"
-	CardMissed       = "missed"
-	CardBeer         = "beer"
-	CardGatling      = "gatling"
-	CardBarrel       = "barrel"
-	CardJail         = "jail"
-	CardDynamite     = "dynamite"
-	CardStagecoach   = "stagecoach"
-	CardWellsFargo   = "wells_fargo"
-	CardSaloon       = "saloon"
-	CardCatBalou     = "cat_balou"
-	CardPanic        = "panic"
-	CardDuel         = "duel"
-	CardIndians      = "indians"
-	CardGeneralStore = "general_store"
-	CardScope        = "scope"
-	CardMustang      = "mustang"
-	CardVolcanic     = "volcanic"
-	CardSchofield    = "schofield"
-	CardRemington    = "remington"
-	CardCarabine     = "carabine"
-	CardWinchester   = "winchester"
-	RoleSheriff      = "sheriff"
-	RoleDeputy       = "deputy"
-	RoleOutlaw       = "outlaw"
-	RoleRenegade     = "renegade"
-	SuitSpade        = "spade"
-	SuitHeart        = "heart"
-	SuitDiamond      = "diamond"
-	SuitClub         = "club"
+	ActionDraw           = "bang.draw"
+	ActionPlay           = "bang.play"
+	ActionEndTurn        = "bang.end_turn"
+	ActionUseBang        = "bang.use_bang"
+	ActionUseMissed      = "bang.use_missed"
+	ActionTakeHit        = "bang.take_hit"
+	ActionDiscard        = "bang.discard"
+	ActionChoose         = "bang.choose_general_store"
+	CardBang             = "bang"
+	CardMissed           = "missed"
+	CardBeer             = "beer"
+	CardGatling          = "gatling"
+	CardBarrel           = "barrel"
+	CardJail             = "jail"
+	CardDynamite         = "dynamite"
+	CardStagecoach       = "stagecoach"
+	CardWellsFargo       = "wells_fargo"
+	CardSaloon           = "saloon"
+	CardCatBalou         = "cat_balou"
+	CardPanic            = "panic"
+	CardDuel             = "duel"
+	CardIndians          = "indians"
+	CardGeneralStore     = "general_store"
+	CardScope            = "scope"
+	CardMustang          = "mustang"
+	CardVolcanic         = "volcanic"
+	CardSchofield        = "schofield"
+	CardRemington        = "remington"
+	CardCarabine         = "carabine"
+	CardWinchester       = "winchester"
+	RoleSheriff          = "sheriff"
+	RoleDeputy           = "deputy"
+	RoleOutlaw           = "outlaw"
+	RoleRenegade         = "renegade"
+	CharacterBart        = "bart_cassidy"
+	CharacterBlackJack   = "black_jack"
+	CharacterCalamity    = "calamity_janet"
+	CharacterElGringo    = "el_gringo"
+	CharacterJesse       = "jesse_jones"
+	CharacterJourdonnais = "jourdonnais"
+	CharacterKit         = "kit_carlson"
+	CharacterLucky       = "lucky_duke"
+	CharacterPaul        = "paul_regret"
+	CharacterPedro       = "pedro_ramirez"
+	CharacterRose        = "rose_doolan"
+	CharacterSid         = "sid_ketchum"
+	CharacterSlab        = "slab_the_killer"
+	CharacterSuzy        = "suzy_lafayette"
+	CharacterVulture     = "vulture_sam"
+	CharacterWilly       = "willy_the_kid"
+	SuitSpade            = "spade"
+	SuitHeart            = "heart"
+	SuitDiamond          = "diamond"
+	SuitClub             = "club"
 )
 
 type Card struct {
@@ -59,17 +75,19 @@ type Card struct {
 }
 
 type PlayerState struct {
-	PlayerID  string `json:"playerId"`
-	Role      string `json:"role,omitempty"`
-	HP        int    `json:"hp"`
-	MaxHP     int    `json:"maxHp"`
-	Hand      []Card `json:"hand"`
-	Equipment []Card `json:"equipment"`
-	HandSize  int    `json:"handSize"`
-	Alive     bool   `json:"alive"`
-	Drawn     bool   `json:"drawn"`
-	BangUsed  bool   `json:"bangUsed"`
-	Active    bool   `json:"active"`
+	PlayerID      string `json:"playerId"`
+	Role          string `json:"role,omitempty"`
+	CharacterID   string `json:"characterId,omitempty"`
+	CharacterName string `json:"characterName,omitempty"`
+	HP            int    `json:"hp"`
+	MaxHP         int    `json:"maxHp"`
+	Hand          []Card `json:"hand"`
+	Equipment     []Card `json:"equipment"`
+	HandSize      int    `json:"handSize"`
+	Alive         bool   `json:"alive"`
+	Drawn         bool   `json:"drawn"`
+	BangUsed      bool   `json:"bangUsed"`
+	Active        bool   `json:"active"`
 }
 
 type PendingAttack struct {
@@ -135,24 +153,28 @@ func (m Module) MaxPlayers() int {
 
 func (m Module) CreateInitialState(ctx gamecore.Context) any {
 	roles := rolesFor(len(ctx.Players))
+	characters := shuffledCharacters(ctx.RandomSeed, len(ctx.Players))
 	deck := shuffledDeck(ctx.RandomSeed)
 	players := make([]PlayerState, 0, len(ctx.Players))
 	for index, player := range ctx.Players {
-		maxHP := 4
+		character := characters[index]
+		maxHP := character.MaxHP
 		if roles[index] == RoleSheriff {
-			maxHP = 5
+			maxHP++
 		}
 		hand := append([]Card(nil), deck[:maxHP]...)
 		deck = deck[maxHP:]
 		players = append(players, PlayerState{
-			PlayerID: string(player.ID),
-			Role:     roles[index],
-			HP:       maxHP,
-			MaxHP:    maxHP,
-			Hand:     hand,
-			HandSize: len(hand),
-			Alive:    true,
-			Active:   true,
+			PlayerID:      string(player.ID),
+			Role:          roles[index],
+			CharacterID:   character.ID,
+			CharacterName: character.Name,
+			HP:            maxHP,
+			MaxHP:         maxHP,
+			Hand:          hand,
+			HandSize:      len(hand),
+			Alive:         true,
+			Active:        true,
 		})
 	}
 	return State{
@@ -235,10 +257,11 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		if !ok {
 			return errors.New("card not found")
 		}
-		if card.Type == CardBang && player.BangUsed && !hasEquipment(player, CardVolcanic) {
+		playType := effectivePlayType(player, card, payload)
+		if playType == CardBang && player.BangUsed && !hasEquipment(player, CardVolcanic) && !hasCharacter(player, CharacterWilly) {
 			return errors.New("only one bang per turn")
 		}
-		switch card.Type {
+		switch playType {
 		case CardBeer:
 			if player.HP >= player.MaxHP {
 				return errors.New("beer can only heal missing hp")
@@ -354,14 +377,14 @@ func validatePendingAttackAction(state State, action gamecore.Action) error {
 		if requiredPendingResponseCard(state.PendingAttack.CardType) != CardBang {
 			return errors.New("bang response is not allowed")
 		}
-		if _, ok := findCardByType(state.Players[targetIndex].Hand, CardBang); !ok {
+		if _, ok := findBangResponseCard(state.Players[targetIndex]); !ok {
 			return errors.New("bang card not found")
 		}
 	case ActionUseMissed:
 		if requiredPendingResponseCard(state.PendingAttack.CardType) != CardMissed {
 			return errors.New("missed response is not allowed")
 		}
-		if _, ok := findCardByType(state.Players[targetIndex].Hand, CardMissed); !ok {
+		if _, ok := findMissedResponseCard(state.Players[targetIndex]); !ok {
 			return errors.New("missed card not found")
 		}
 	case ActionTakeHit:
@@ -401,6 +424,11 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 		player = &current.Players[current.CurrentPlayerIndex]
 		drawn := drawCards(&current, 2)
+		if hasCharacter(*player, CharacterBlackJack) && len(drawn) >= 2 && isRedSuit(drawn[1].Suit) {
+			extra := drawCards(&current, 1)
+			drawn = append(drawn, extra...)
+			current.Log = append(current.Log, player.PlayerID+" 님이 블랙 잭 능력으로 추가 카드를 확인했습니다.")
+		}
 		player.Hand = append(player.Hand, drawn...)
 		player.HandSize = len(player.Hand)
 		player.Drawn = true
@@ -410,8 +438,11 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		if err != nil {
 			return gamecore.ActionResult{}, err
 		}
+		playerBefore := *player
 		card, _ := removeCard(player, payload.CardID)
-		switch card.Type {
+		triggerSuzyIfEmpty(&current, current.CurrentPlayerIndex)
+		playType := effectivePlayType(playerBefore, card, payload)
+		switch playType {
 		case CardBeer:
 			current.Discard = append(current.Discard, card)
 			if player.HP < player.MaxHP {
@@ -420,7 +451,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			current.Log = append(current.Log, player.PlayerID+" 님이 맥주로 회복했습니다.")
 		case CardBang:
 			current.Discard = append(current.Discard, card)
-			if !hasEquipment(*player, CardVolcanic) {
+			if !hasEquipment(*player, CardVolcanic) && !hasCharacter(*player, CharacterWilly) {
 				player.BangUsed = true
 			}
 			current.Log = append(current.Log, player.PlayerID+" 님이 BANG!을 사용했습니다.")
@@ -482,9 +513,13 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			if targetIndex < 0 || targetIndex == current.CurrentPlayerIndex {
 				return gamecore.ActionResult{}, errors.New("invalid target")
 			}
+			targetHandSize := len(current.Players[targetIndex].Hand)
 			removed, ok := removeRemovableCard(&current.Players[targetIndex], payload.TargetCardID)
 			if !ok {
 				return gamecore.ActionResult{}, errors.New("target has no removable card")
+			}
+			if len(current.Players[targetIndex].Hand) < targetHandSize {
+				triggerSuzyIfEmpty(&current, targetIndex)
 			}
 			current.Discard = append(current.Discard, removed)
 			current.Log = append(current.Log, player.PlayerID+" 님이 캣 벌루로 카드를 버리게 했습니다.")
@@ -494,9 +529,13 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			if targetIndex < 0 || targetIndex == current.CurrentPlayerIndex {
 				return gamecore.ActionResult{}, errors.New("invalid target")
 			}
+			targetHandSize := len(current.Players[targetIndex].Hand)
 			stolen, ok := removeRemovableCard(&current.Players[targetIndex], payload.TargetCardID)
 			if !ok {
 				return gamecore.ActionResult{}, errors.New("target has no removable card")
+			}
+			if len(current.Players[targetIndex].Hand) < targetHandSize {
+				triggerSuzyIfEmpty(&current, targetIndex)
 			}
 			player.Hand = append(player.Hand, stolen)
 			player.HandSize = len(player.Hand)
@@ -608,6 +647,7 @@ func applyPendingDiscard(state State, playerID string, cardIDs []string) State {
 			state.Discard = append(state.Discard, card)
 		}
 	}
+	triggerSuzyIfEmpty(&state, playerIndex)
 	if excess := handLimitExcess(*player); excess > 0 {
 		state.PendingDiscardID = player.PlayerID
 		state.PendingDiscardCount = excess
@@ -729,7 +769,13 @@ func attackDistance(state State, sourceIndex int, targetIndex int) int {
 	if hasEquipment(state.Players[sourceIndex], CardScope) {
 		distance--
 	}
+	if hasCharacter(state.Players[sourceIndex], CharacterRose) {
+		distance--
+	}
 	if hasEquipment(state.Players[targetIndex], CardMustang) {
+		distance++
+	}
+	if hasCharacter(state.Players[targetIndex], CharacterPaul) {
 		distance++
 	}
 	if distance < 1 {
@@ -770,6 +816,107 @@ func hasEquipment(player PlayerState, cardType string) bool {
 		}
 	}
 	return false
+}
+
+func hasCharacter(player PlayerState, characterID string) bool {
+	return player.CharacterID == characterID
+}
+
+func effectivePlayType(player PlayerState, card Card, payload PlayPayload) string {
+	if hasCharacter(player, CharacterCalamity) && card.Type == CardMissed && payload.TargetPlayerID != "" {
+		return CardBang
+	}
+	return card.Type
+}
+
+func responseAvailable(player PlayerState, cardType string) bool {
+	if cardType == CardMissed {
+		_, ok := findMissedResponseCard(player)
+		return ok
+	}
+	if cardType == CardBang {
+		_, ok := findBangResponseCard(player)
+		return ok
+	}
+	_, ok := findCardByType(player.Hand, cardType)
+	return ok
+}
+
+func findBangResponseCard(player PlayerState) (Card, bool) {
+	if card, ok := findCardByType(player.Hand, CardBang); ok {
+		return card, true
+	}
+	if hasCharacter(player, CharacterCalamity) {
+		return findCardByType(player.Hand, CardMissed)
+	}
+	return Card{}, false
+}
+
+func removeBangResponseCard(player *PlayerState) (Card, bool) {
+	if card, ok := removeFirstType(player, CardBang); ok {
+		return card, true
+	}
+	if hasCharacter(*player, CharacterCalamity) {
+		return removeFirstType(player, CardMissed)
+	}
+	return Card{}, false
+}
+
+func findMissedResponseCard(player PlayerState) (Card, bool) {
+	if card, ok := findCardByType(player.Hand, CardMissed); ok {
+		return card, true
+	}
+	if hasCharacter(player, CharacterCalamity) {
+		return findCardByType(player.Hand, CardBang)
+	}
+	return Card{}, false
+}
+
+func removeMissedResponseCard(player *PlayerState) (Card, bool) {
+	if card, ok := removeFirstType(player, CardMissed); ok {
+		return card, true
+	}
+	if hasCharacter(*player, CharacterCalamity) {
+		return removeFirstType(player, CardBang)
+	}
+	return Card{}, false
+}
+
+func barrelAttemptCount(player PlayerState) int {
+	count := 0
+	if hasEquipment(player, CardBarrel) {
+		count++
+	}
+	if hasCharacter(player, CharacterJourdonnais) {
+		count++
+	}
+	return count
+}
+
+func triggerSuzyIfEmpty(state *State, playerIndex int) {
+	if playerIndex < 0 || playerIndex >= len(state.Players) {
+		return
+	}
+	player := &state.Players[playerIndex]
+	if !player.Alive || !hasCharacter(*player, CharacterSuzy) || len(player.Hand) != 0 {
+		return
+	}
+	drawn := drawCards(state, 1)
+	if len(drawn) == 0 {
+		return
+	}
+	player.Hand = append(player.Hand, drawn...)
+	player.HandSize = len(player.Hand)
+	state.Log = append(state.Log, player.PlayerID+" 님이 수지 라파예트 능력으로 카드 1장을 뽑았습니다.")
+}
+
+func findAliveCharacter(state State, characterID string, excludePlayerID string) int {
+	for index, player := range state.Players {
+		if player.Alive && player.PlayerID != excludePlayerID && hasCharacter(player, characterID) {
+			return index
+		}
+	}
+	return -1
 }
 
 func firstEquipmentID(player PlayerState, cardType string) string {
@@ -897,15 +1044,23 @@ func advancePendingAttack(state State) State {
 			continue
 		}
 		responseCard := requiredPendingResponseCard(state.PendingAttack.CardType)
-		if responseCard == CardMissed && canUseBarrelForAttack(state.PendingAttack.CardType) && hasEquipment(state.Players[targetIndex], CardBarrel) {
-			check, ok := drawCheck(&state)
-			if ok && drawCheckIsHeart(check) {
-				state.Log = append(state.Log, targetPlayerID+" 님이 술통으로 공격을 피했습니다.")
+		if responseCard == CardMissed && canUseBarrelForAttack(state.PendingAttack.CardType) {
+			barrelAttempts := barrelAttemptCount(state.Players[targetIndex])
+			avoided := false
+			for attempt := 0; attempt < barrelAttempts; attempt++ {
+				check, ok := drawCheck(&state)
+				if ok && drawCheckIsHeart(check) {
+					state.Log = append(state.Log, targetPlayerID+" 님이 술통으로 공격을 피했습니다.")
+					avoided = true
+					break
+				}
+				state.Log = append(state.Log, targetPlayerID+" 님의 술통 판정이 실패했습니다.")
+			}
+			if avoided {
 				continue
 			}
-			state.Log = append(state.Log, targetPlayerID+" 님의 술통 판정이 실패했습니다.")
 		}
-		if _, ok := findCardByType(state.Players[targetIndex].Hand, responseCard); ok {
+		if responseAvailable(state.Players[targetIndex], responseCard) {
 			state.PendingAttack.TargetPlayerID = targetPlayerID
 			state.Log = append(state.Log, fmt.Sprintf("%s 님의 %s 반응을 기다립니다.", targetPlayerID, bangCardName(responseCard)))
 			return state
@@ -935,7 +1090,7 @@ func advancePendingDuel(state State) State {
 		state.PendingAttack = nil
 		return state
 	}
-	if _, ok := findCardByType(state.Players[targetIndex].Hand, CardBang); ok {
+	if responseAvailable(state.Players[targetIndex], CardBang) {
 		state.Log = append(state.Log, pending.TargetPlayerID+" 님의 결투 BANG! 반응을 기다립니다.")
 		return state
 	}
@@ -969,12 +1124,13 @@ func resolvePendingAttackWithBang(state State, playerID string) State {
 	if targetIndex < 0 {
 		return state
 	}
-	bang, ok := removeFirstType(&state.Players[targetIndex], CardBang)
+	bang, ok := removeBangResponseCard(&state.Players[targetIndex])
 	if !ok {
 		return state
 	}
 	pending := *state.PendingAttack
 	state.Discard = append(state.Discard, bang)
+	triggerSuzyIfEmpty(&state, targetIndex)
 	if pending.CardType == CardDuel {
 		state.Log = append(state.Log, playerID+" 님이 결투에 BANG!으로 응수했습니다.")
 		state.PendingAttack = &PendingAttack{
@@ -1003,10 +1159,11 @@ func resolvePendingAttackWithMissed(state State, playerID string) State {
 	if targetIndex < 0 {
 		return state
 	}
-	missed, ok := removeFirstType(&state.Players[targetIndex], CardMissed)
+	missed, ok := removeMissedResponseCard(&state.Players[targetIndex])
 	if !ok {
 		return state
 	}
+	triggerSuzyIfEmpty(&state, targetIndex)
 	pending := *state.PendingAttack
 	state.Discard = append(state.Discard, missed)
 	state.Log = append(state.Log, playerID+" 님이 빗맞음으로 피했습니다.")
@@ -1061,15 +1218,18 @@ func damageTargetInternal(state State, targetPlayerID string, amount int, source
 	if allowMissed {
 		if missed, ok := removeFirstType(target, CardMissed); ok {
 			state.Discard = append(state.Discard, missed)
+			triggerSuzyIfEmpty(&state, targetIndex)
 			state.Log = append(state.Log, target.PlayerID+" 님이 빗맞음으로 피했습니다.")
 			return state
 		}
 	}
+	oldHP := target.HP
 	target.HP -= amount
 	if target.HP <= 0 {
 		if alivePlayerCount(state) > 2 {
 			if beer, ok := removeFirstType(target, CardBeer); ok {
 				state.Discard = append(state.Discard, beer)
+				triggerSuzyIfEmpty(&state, targetIndex)
 				target.HP = 1
 				state.Log = append(state.Log, target.PlayerID+" 님이 맥주로 버텼습니다.")
 				return state
@@ -1079,13 +1239,45 @@ func damageTargetInternal(state State, targetPlayerID string, amount int, source
 		target.HP = 0
 		target.Alive = false
 		target.Active = false
-		state.Discard = append(state.Discard, target.Hand...)
-		state.Discard = append(state.Discard, target.Equipment...)
+		eliminatedCards := append([]Card{}, target.Hand...)
+		eliminatedCards = append(eliminatedCards, target.Equipment...)
 		target.Hand = []Card{}
 		target.Equipment = []Card{}
 		target.HandSize = 0
+		if vultureIndex := findAliveCharacter(state, CharacterVulture, target.PlayerID); vultureIndex >= 0 {
+			state.Players[vultureIndex].Hand = append(state.Players[vultureIndex].Hand, eliminatedCards...)
+			state.Players[vultureIndex].HandSize = len(state.Players[vultureIndex].Hand)
+			state.Log = append(state.Log, state.Players[vultureIndex].PlayerID+" 님이 벌처 샘 능력으로 탈락자의 카드를 가져갔습니다.")
+		} else {
+			state.Discard = append(state.Discard, eliminatedCards...)
+		}
 		state.Log = append(state.Log, target.PlayerID+" 님이 탈락했습니다.")
 		state = applyEliminationReward(state, sourcePlayerID, targetRole)
+		return state
+	}
+	lostHP := oldHP - target.HP
+	if lostHP > 0 {
+		state = applyLostHPAbilities(state, targetIndex, sourcePlayerID, lostHP)
+	}
+	return state
+}
+
+func applyLostHPAbilities(state State, targetIndex int, sourcePlayerID string, lostHP int) State {
+	target := &state.Players[targetIndex]
+	if hasCharacter(*target, CharacterBart) {
+		drawn := drawCards(&state, lostHP)
+		target.Hand = append(target.Hand, drawn...)
+		target.HandSize = len(target.Hand)
+		state.Log = append(state.Log, fmt.Sprintf("%s 님이 바트 캐시디 능력으로 카드 %d장을 뽑았습니다.", target.PlayerID, len(drawn)))
+	}
+	if hasCharacter(*target, CharacterElGringo) && sourcePlayerID != "" {
+		sourceIndex := findPlayer(state, sourcePlayerID)
+		for stolenCount := 0; sourceIndex >= 0 && sourceIndex != targetIndex && stolenCount < lostHP && len(state.Players[sourceIndex].Hand) > 0; stolenCount++ {
+			stolen, _ := removeCard(&state.Players[sourceIndex], state.Players[sourceIndex].Hand[0].ID)
+			target.Hand = append(target.Hand, stolen)
+			target.HandSize = len(target.Hand)
+			triggerSuzyIfEmpty(&state, sourceIndex)
+		}
 	}
 	return state
 }
@@ -1191,6 +1383,10 @@ func drawCheck(state *State) (Card, bool) {
 
 func drawCheckIsHeart(card Card) bool {
 	return card.Suit == SuitHeart
+}
+
+func isRedSuit(suit string) bool {
+	return suit == SuitHeart || suit == SuitDiamond
 }
 
 func dynamiteExplodes(card Card) bool {
@@ -1452,6 +1648,45 @@ func officialBaseDeck() []Card {
 	addCards(&deck, CardSaloon, SuitHeart, 5)
 	addCards(&deck, CardWellsFargo, SuitHeart, 3)
 	return deck
+}
+
+type characterDefinition struct {
+	ID    string
+	Name  string
+	MaxHP int
+}
+
+func shuffledCharacters(seed string, count int) []characterDefinition {
+	characters := officialCharacters()
+	random := rand.New(rand.NewSource(seedToInt("characters:" + seed)))
+	random.Shuffle(len(characters), func(i, j int) {
+		characters[i], characters[j] = characters[j], characters[i]
+	})
+	if count > len(characters) {
+		count = len(characters)
+	}
+	return characters[:count]
+}
+
+func officialCharacters() []characterDefinition {
+	return []characterDefinition{
+		{ID: CharacterBart, Name: "Bart Cassidy", MaxHP: 4},
+		{ID: CharacterBlackJack, Name: "Black Jack", MaxHP: 4},
+		{ID: CharacterCalamity, Name: "Calamity Janet", MaxHP: 4},
+		{ID: CharacterElGringo, Name: "El Gringo", MaxHP: 3},
+		{ID: CharacterJesse, Name: "Jesse Jones", MaxHP: 4},
+		{ID: CharacterJourdonnais, Name: "Jourdonnais", MaxHP: 4},
+		{ID: CharacterKit, Name: "Kit Carlson", MaxHP: 4},
+		{ID: CharacterLucky, Name: "Lucky Duke", MaxHP: 4},
+		{ID: CharacterPaul, Name: "Paul Regret", MaxHP: 3},
+		{ID: CharacterPedro, Name: "Pedro Ramirez", MaxHP: 4},
+		{ID: CharacterRose, Name: "Rose Doolan", MaxHP: 4},
+		{ID: CharacterSid, Name: "Sid Ketchum", MaxHP: 4},
+		{ID: CharacterSlab, Name: "Slab the Killer", MaxHP: 4},
+		{ID: CharacterSuzy, Name: "Suzy Lafayette", MaxHP: 4},
+		{ID: CharacterVulture, Name: "Vulture Sam", MaxHP: 4},
+		{ID: CharacterWilly, Name: "Willy the Kid", MaxHP: 4},
+	}
 }
 
 func addCardRange(deck *[]Card, cardType string, suit string, start int, end int) {

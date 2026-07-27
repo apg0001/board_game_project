@@ -116,6 +116,8 @@ export interface DavinciPlayer {
   hand?: HandCard[];
   equipment?: HandCard[];
   handSize?: number;
+  characterId?: string;
+  characterName?: string;
   rack?: RummikubTile[];
   rackSize?: number;
   initialMelded?: boolean;
