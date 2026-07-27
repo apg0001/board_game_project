@@ -37,6 +37,57 @@ func TestInitialMeldRequiresThirtyPoints(t *testing.T) {
 	}
 }
 
+func TestInitialMeldJokerUsesRepresentedTileValue(t *testing.T) {
+	lowGroupWithJoker := []Tile{
+		{ID: "black-1", Color: "black", Number: 1},
+		{ID: "blue-1", Color: "blue", Number: 1},
+		{ID: "joker-1", Joker: true},
+	}
+	if meldValue(lowGroupWithJoker) != 3 {
+		t.Fatalf("expected joker to represent a one-point tile in group, got %d", meldValue(lowGroupWithJoker))
+	}
+
+	runWithJoker := []Tile{
+		{ID: "blue-11", Color: "blue", Number: 11},
+		{ID: "blue-13", Color: "blue", Number: 13},
+		{ID: "joker-1", Joker: true},
+	}
+	if meldValue(runWithJoker) != 36 {
+		t.Fatalf("expected joker to represent blue 12 in run, got %d", meldValue(runWithJoker))
+	}
+}
+
+func TestInitialMeldRejectsLowJokerGroupUnderThirty(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Players: []PlayerState{
+			{
+				PlayerID: "p1",
+				Rack: []Tile{
+					{ID: "black-1", Color: "black", Number: 1},
+					{ID: "blue-1", Color: "blue", Number: 1},
+					{ID: "joker-1", Joker: true},
+				},
+				Active: true,
+			},
+			{PlayerID: "p2", Rack: []Tile{}, Active: true},
+		},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionMeld,
+		PlayerID: "p1",
+		Payload: map[string]any{
+			"groups": []any{
+				[]any{"black-1", "blue-1", "joker-1"},
+			},
+		},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected low joker group to remain under the initial 30-point requirement")
+	}
+}
+
 func TestInitialMeldCanUseMultipleGroupsTotalingThirty(t *testing.T) {
 	module := NewModule()
 	state := State{
