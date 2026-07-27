@@ -21,9 +21,12 @@ func TestCreateInitialStateRevealsSheriff(t *testing.T) {
 
 func TestBangDamageCanBeMissed(t *testing.T) {
 	state := fixedState()
-	next := damageTarget(state, "p2", 1)
+	next := damageTargetBy(state, "p2", 1, "p1")
 	if next.Players[1].HP != 4 || len(next.Players[1].Hand) != 0 {
 		t.Fatalf("expected missed to prevent damage, got %+v", next.Players[1])
+	}
+	if len(next.Discard) != 1 || next.Discard[0].Type != CardMissed {
+		t.Fatalf("expected missed card to move to discard pile, got %+v", next.Discard)
 	}
 }
 
@@ -125,6 +128,97 @@ func TestDrawRecyclesDiscardWhenDeckIsEmpty(t *testing.T) {
 	next := result.State.(State)
 	if len(next.Players[0].Hand) != 2 || len(next.Discard) != 0 {
 		t.Fatalf("expected recycled discard to be drawn, got hand=%d discard=%d", len(next.Players[0].Hand), len(next.Discard))
+	}
+}
+
+func TestEliminatingOutlawDrawsThreeCardReward(t *testing.T) {
+	state := fixedState()
+	state.Players[3].HP = 1
+	state.Deck = []Card{
+		{ID: "reward-1", Type: CardBang},
+		{ID: "reward-2", Type: CardMissed},
+		{ID: "reward-3", Type: CardBeer},
+	}
+
+	next := damageTargetBy(state, "p4", 1, "p1")
+	if next.Players[3].Alive {
+		t.Fatal("expected outlaw to be eliminated")
+	}
+	if len(next.Players[0].Hand) != 3 {
+		t.Fatalf("expected sheriff to draw three reward cards, got %+v", next.Players[0].Hand)
+	}
+	if len(next.Deck) != 0 {
+		t.Fatalf("expected reward cards to leave deck, got %d", len(next.Deck))
+	}
+}
+
+func TestSheriffEliminatingDeputyDiscardsOwnHand(t *testing.T) {
+	state := fixedState()
+	state.Players[1].Role = RoleDeputy
+	state.Players[1].HP = 1
+	state.Players[1].Hand = []Card{}
+	state.Players[0].Hand = []Card{{ID: "bang-1", Type: CardBang}, {ID: "beer-1", Type: CardBeer}}
+
+	next := damageTargetBy(state, "p2", 1, "p1")
+	if next.Players[1].Alive {
+		t.Fatal("expected deputy to be eliminated")
+	}
+	if len(next.Players[0].Hand) != 0 || next.Players[0].HandSize != 0 {
+		t.Fatalf("expected sheriff hand to be discarded, got %+v", next.Players[0])
+	}
+	if len(next.Discard) != 2 {
+		t.Fatalf("expected sheriff hand cards in discard pile, got %+v", next.Discard)
+	}
+}
+
+func TestBeerCannotBePlayedWithTwoPlayersLeft(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].HP = 4
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "beer-1", Type: CardBeer}}
+	state.Players[2].Alive = false
+	state.Players[3].Alive = false
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "beer-1"},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected beer to be rejected with only two alive players")
+	}
+}
+
+func TestBeerDoesNotSaveEliminationWithTwoPlayersLeft(t *testing.T) {
+	state := fixedState()
+	state.Players[1].HP = 1
+	state.Players[1].Hand = []Card{{ID: "beer-1", Type: CardBeer}}
+	state.Players[2].Alive = false
+	state.Players[3].Alive = false
+
+	next := damageTarget(state, "p2", 1)
+	if next.Players[1].Alive {
+		t.Fatal("expected beer not to save target with only two alive players")
+	}
+	if len(next.Discard) != 1 || next.Discard[0].Type != CardBeer {
+		t.Fatalf("expected eliminated beer card to move to discard pile, got %+v", next.Discard)
+	}
+}
+
+func TestGatlingDoesNotRequireSingleTarget(t *testing.T) {
+	module := NewModule()
+	state := fixedState()
+	state.Players[0].Drawn = true
+	state.Players[0].Hand = []Card{{ID: "gatling-1", Type: CardGatling}}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionPlay,
+		PlayerID: "p1",
+		Payload:  map[string]any{"cardId": "gatling-1"},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected gatling without target to be valid, got %v", err)
 	}
 }
 
