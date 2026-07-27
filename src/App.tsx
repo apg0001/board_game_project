@@ -2238,7 +2238,9 @@ export function App() {
                         </div>
                         <div className="werewolf-panel">
                           <strong>{sutdaMe?.rankName ?? "족보 대기"}</strong>
-                          <span>판돈 {currentSession.state.pot ?? 0}</span>
+                          <span>
+                            판돈 {currentSession.state.pot ?? 0} · 현재 베팅 {currentSession.state.currentBet ?? 1}
+                          </span>
                           {currentSession.state.finished ? (
                             <small>
                               {currentSession.state.draw
@@ -2251,7 +2253,9 @@ export function App() {
                           {davinciPlayers.map((player) => (
                             <div className="halli-player" key={player.playerId}>
                               <strong>{participantName(currentRoom, player.playerId)}</strong>
-                              <span>{player.folded ? "다이" : player.ready ? "콜" : "대기"}</span>
+                              <span>
+                                {player.folded ? "다이" : player.ready ? "콜" : "대기"} · 베팅 {player.bet ?? 0}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -2269,6 +2273,23 @@ export function App() {
                           disabled={!isMyTurn}
                         >
                           콜
+                          <ChevronRight size={18} />
+                        </button>
+                        <button
+                          className="wide-button"
+                          onClick={() =>
+                            sendGameAction(
+                              currentSession.id,
+                              currentRoom?.id,
+                              "sutda.raise",
+                              setCurrentSession,
+                              setRoomMessage,
+                              { amount: 1 }
+                            )
+                          }
+                          disabled={!isMyTurn || (currentSession.state.raisesThisRound ?? 0) >= 3}
+                        >
+                          레이즈
                           <ChevronRight size={18} />
                         </button>
                         <button
