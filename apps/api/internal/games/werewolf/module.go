@@ -15,7 +15,9 @@ import (
 const (
 	ActionSeeWerewolves  = "werewolf.see_werewolves"
 	ActionLoneWolfCenter = "werewolf.lone_wolf_center"
+	ActionDoppelganger   = "werewolf.doppelganger"
 	ActionSeeMinion      = "werewolf.see_minion"
+	ActionSeeMasons      = "werewolf.see_masons"
 	ActionSeePlayer      = "werewolf.see_player"
 	ActionSeeCenter      = "werewolf.see_center"
 	ActionRob            = "werewolf.rob"
@@ -26,8 +28,10 @@ const (
 	PhaseNight           = "NIGHT"
 	PhaseDiscussion      = "DISCUSSION"
 	PhaseFinished        = "FINISHED"
+	RoleDoppelganger     = "doppelganger"
 	RoleWerewolf         = "werewolf"
 	RoleMinion           = "minion"
+	RoleMason            = "mason"
 	RoleSeer             = "seer"
 	RoleRobber           = "robber"
 	RoleTroublemaker     = "troublemaker"
@@ -48,18 +52,20 @@ type PlayerState struct {
 }
 
 type State struct {
-	Phase              string            `json:"phase"`
-	CurrentPlayerIndex int               `json:"currentPlayerIndex"`
-	Round              int               `json:"round"`
-	Players            []PlayerState     `json:"players"`
-	Center             []string          `json:"center,omitempty"`
-	CompletedActions   map[string]bool   `json:"completedActions"`
-	Votes              map[string]string `json:"votes,omitempty"`
-	Executed           []string          `json:"executed,omitempty"`
-	WinningTeam        string            `json:"winningTeam,omitempty"`
-	WinningPlayerIDs   []string          `json:"winningPlayerIds,omitempty"`
-	Log                []string          `json:"log"`
-	Finished           bool              `json:"finished"`
+	Phase                  string            `json:"phase"`
+	CurrentPlayerIndex     int               `json:"currentPlayerIndex"`
+	Round                  int               `json:"round"`
+	Players                []PlayerState     `json:"players"`
+	Center                 []string          `json:"center,omitempty"`
+	CompletedActions       map[string]bool   `json:"completedActions"`
+	Votes                  map[string]string `json:"votes,omitempty"`
+	DoppelgangerPlayerID   string            `json:"doppelgangerPlayerId,omitempty"`
+	DoppelgangerCopiedRole string            `json:"doppelgangerCopiedRole,omitempty"`
+	Executed               []string          `json:"executed,omitempty"`
+	WinningTeam            string            `json:"winningTeam,omitempty"`
+	WinningPlayerIDs       []string          `json:"winningPlayerIds,omitempty"`
+	Log                    []string          `json:"log"`
+	Finished               bool              `json:"finished"`
 }
 
 type Module struct{}
@@ -124,6 +130,10 @@ func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
 		player.SeenRoles = nil
 	}
 	if !revealed {
+		if current.DoppelgangerPlayerID != string(viewerID) {
+			current.DoppelgangerPlayerID = ""
+			current.DoppelgangerCopiedRole = ""
+		}
 		current.Center = []string{"hidden", "hidden", "hidden"}
 	}
 	if !revealed {
@@ -152,18 +162,29 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 	}
 	player := current.Players[playerIndex]
 	switch action.Type {
+	case ActionDoppelganger:
+		if err := requireDoppelgangerAction(current, player); err != nil {
+			return err
+		}
+		target, err := targetPayload(action.Payload)
+		if err != nil {
+			return err
+		}
+		if target == player.PlayerID || findPlayer(current, target) < 0 {
+			return errors.New("invalid doppelganger target")
+		}
 	case ActionSeeWerewolves:
 		if err := requireNightRole(current, player, RoleWerewolf); err != nil {
 			return err
 		}
-		if originalWerewolfCount(current) < 2 {
+		if nightWerewolfCount(current) < 2 {
 			return errors.New("lone werewolf may view one center card instead")
 		}
 	case ActionLoneWolfCenter:
 		if err := requireNightRole(current, player, RoleWerewolf); err != nil {
 			return err
 		}
-		if originalWerewolfCount(current) != 1 {
+		if nightWerewolfCount(current) != 1 {
 			return errors.New("only lone werewolf may view center")
 		}
 		if _, err := centerIndexes(action.Payload, 1); err != nil {
@@ -171,6 +192,8 @@ func (m Module) ValidateAction(_ context.Context, state any, action gamecore.Act
 		}
 	case ActionSeeMinion:
 		return requireNightRole(current, player, RoleMinion)
+	case ActionSeeMasons:
+		return requireNightRole(current, player, RoleMason)
 	case ActionSeePlayer:
 		return requireNightRole(current, player, RoleSeer)
 	case ActionSeeCenter:
@@ -211,14 +234,30 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 	player := &current.Players[playerIndex]
 
 	switch action.Type {
+	case ActionDoppelganger:
+		target, err := targetPayload(action.Payload)
+		if err != nil {
+			return gamecore.ActionResult{}, err
+		}
+		targetIndex := findPlayer(current, target)
+		if targetIndex < 0 || target == player.PlayerID {
+			return gamecore.ActionResult{}, errors.New("invalid doppelganger target")
+		}
+		copiedRole := current.Players[targetIndex].CurrentRole
+		current.DoppelgangerPlayerID = player.PlayerID
+		current.DoppelgangerCopiedRole = copiedRole
+		player.SeenRoles["player:"+target] = copiedRole
+		player.SeenRoles["self:doppelgangerRole"] = copiedRole
+		current.CompletedActions[player.PlayerID] = true
+		current.Log = append(current.Log, fmt.Sprintf("%s 님이 도플갱어로 역할을 복사했습니다.", player.PlayerID))
 	case ActionSeeWerewolves:
-		for _, other := range current.Players {
-			if other.PlayerID == player.PlayerID || other.OriginalRole != RoleWerewolf {
+		for _, otherID := range nightWerewolfIDs(current) {
+			if otherID == player.PlayerID {
 				continue
 			}
-			player.SeenRoles["player:"+other.PlayerID] = other.OriginalRole
+			player.SeenRoles["player:"+otherID] = RoleWerewolf
 		}
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleWerewolf)
 		current.Log = append(current.Log, player.PlayerID+" 님이 늑대인간 동료를 확인했습니다.")
 	case ActionLoneWolfCenter:
 		indexes, err := centerIndexes(action.Payload, 1)
@@ -226,16 +265,26 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, err
 		}
 		player.SeenRoles[fmt.Sprintf("center:%d", indexes[0])] = current.Center[indexes[0]]
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleWerewolf)
 		current.Log = append(current.Log, player.PlayerID+" 님이 외로운 늑대로 중앙 카드 1장을 확인했습니다.")
 	case ActionSeeMinion:
-		for _, other := range current.Players {
-			if other.OriginalRole == RoleWerewolf {
-				player.SeenRoles["player:"+other.PlayerID] = other.OriginalRole
+		for _, otherID := range nightWerewolfIDs(current) {
+			if otherID == player.PlayerID {
+				continue
 			}
+			player.SeenRoles["player:"+otherID] = RoleWerewolf
 		}
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleMinion)
 		current.Log = append(current.Log, player.PlayerID+" 님이 앞잡이로 늑대인간을 확인했습니다.")
+	case ActionSeeMasons:
+		for _, otherID := range nightMasonIDs(current) {
+			if otherID == player.PlayerID {
+				continue
+			}
+			player.SeenRoles["player:"+otherID] = RoleMason
+		}
+		markNightActionComplete(&current, *player, RoleMason)
+		current.Log = append(current.Log, player.PlayerID+" 님이 석공 동료를 확인했습니다.")
 	case ActionSeePlayer:
 		target, err := targetPayload(action.Payload)
 		if err != nil {
@@ -246,7 +295,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, errors.New("target not found")
 		}
 		player.SeenRoles["player:"+target] = current.Players[targetIndex].CurrentRole
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleSeer)
 		current.Log = append(current.Log, player.PlayerID+" 님이 한 플레이어를 확인했습니다.")
 	case ActionSeeCenter:
 		indexes, err := centerIndexes(action.Payload, 2)
@@ -256,7 +305,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		for _, index := range indexes {
 			player.SeenRoles[fmt.Sprintf("center:%d", index)] = current.Center[index]
 		}
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleSeer)
 		current.Log = append(current.Log, player.PlayerID+" 님이 중앙 카드 2장을 확인했습니다.")
 	case ActionRob:
 		target, err := targetPayload(action.Payload)
@@ -269,7 +318,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 		}
 		player.CurrentRole, current.Players[targetIndex].CurrentRole = current.Players[targetIndex].CurrentRole, player.CurrentRole
 		player.SeenRoles["self:current"] = player.CurrentRole
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleRobber)
 		current.Log = append(current.Log, player.PlayerID+" 님이 역할을 강탈했습니다.")
 	case ActionTroublemake:
 		left, right, err := twoTargets(action.Payload)
@@ -282,7 +331,7 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, errors.New("invalid troublemaker targets")
 		}
 		current.Players[leftIndex].CurrentRole, current.Players[rightIndex].CurrentRole = current.Players[rightIndex].CurrentRole, current.Players[leftIndex].CurrentRole
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleTroublemaker)
 		current.Log = append(current.Log, player.PlayerID+" 님이 두 플레이어의 카드를 바꿨습니다.")
 	case ActionDrunkSwap:
 		indexes, err := centerIndexes(action.Payload, 1)
@@ -290,11 +339,11 @@ func (m Module) ApplyAction(_ context.Context, state any, action gamecore.Action
 			return gamecore.ActionResult{}, err
 		}
 		player.CurrentRole, current.Center[indexes[0]] = current.Center[indexes[0]], player.CurrentRole
-		current.CompletedActions[player.PlayerID] = true
+		markNightActionComplete(&current, *player, RoleDrunk)
 		current.Log = append(current.Log, player.PlayerID+" 님이 중앙 카드와 바꿨습니다.")
 	case ActionFinishNight:
 		for index := range current.Players {
-			if current.Players[index].OriginalRole == RoleInsomniac {
+			if current.Players[index].OriginalRole == RoleInsomniac || isDoppelgangerActingAs(current, current.Players[index], RoleInsomniac) {
 				current.Players[index].SeenRoles["self:current"] = current.Players[index].CurrentRole
 			}
 		}
@@ -326,8 +375,7 @@ func (m Module) ApplyTimeout(_ context.Context, state any, playerID gamecore.Pla
 	current := asState(state)
 	if current.Phase == PhaseNight {
 		index := findPlayer(current, string(playerID))
-		if index >= 0 && isRequiredNightRole(current.Players[index].OriginalRole) {
-			current.CompletedActions[current.Players[index].PlayerID] = true
+		if index >= 0 && skipPendingNightAction(&current, current.Players[index]) {
 			current.Log = append(current.Log, current.Players[index].PlayerID+" 님의 밤 행동이 시간 초과로 건너뛰어졌습니다.")
 		}
 		if requiredNightActionsComplete(current) {
@@ -379,16 +427,66 @@ func requireNightRole(state State, player PlayerState, role string) error {
 	if state.Phase != PhaseNight {
 		return errors.New("night action is closed")
 	}
-	if player.OriginalRole != role {
+	if !canPerformNightRole(state, player, role) {
+		return errors.New("role cannot perform this action")
+	}
+	if nightActionCompleted(state, player, role) {
+		return errors.New("night action already completed")
+	}
+	if err := requireNightOrderForAction(state, player, role); err != nil {
+		return err
+	}
+	return nil
+}
+
+func requireDoppelgangerAction(state State, player PlayerState) error {
+	if state.Phase != PhaseNight {
+		return errors.New("night action is closed")
+	}
+	if player.OriginalRole != RoleDoppelganger {
 		return errors.New("role cannot perform this action")
 	}
 	if state.CompletedActions[player.PlayerID] {
 		return errors.New("night action already completed")
 	}
-	if err := requireNightOrder(state, role); err != nil {
-		return err
+	return requireNightOrder(state, RoleDoppelganger)
+}
+
+func canPerformNightRole(state State, player PlayerState, role string) bool {
+	return player.OriginalRole == role || isDoppelgangerActingAs(state, player, role)
+}
+
+func isDoppelgangerActingAs(state State, player PlayerState, role string) bool {
+	return player.OriginalRole == RoleDoppelganger &&
+		state.DoppelgangerPlayerID == player.PlayerID &&
+		state.DoppelgangerCopiedRole == role &&
+		doppelgangerCanActAs(role)
+}
+
+func nightActionCompleted(state State, player PlayerState, role string) bool {
+	return state.CompletedActions[nightActionKey(state, player, role)]
+}
+
+func markNightActionComplete(state *State, player PlayerState, role string) {
+	state.CompletedActions[nightActionKey(*state, player, role)] = true
+}
+
+func nightActionKey(state State, player PlayerState, role string) string {
+	if isDoppelgangerActingAs(state, player, role) {
+		return doppelgangerActionKey(player.PlayerID, role)
 	}
-	return nil
+	return player.PlayerID
+}
+
+func doppelgangerActionKey(playerID string, role string) string {
+	return playerID + ":doppelganger:" + role
+}
+
+func requireNightOrderForAction(state State, player PlayerState, role string) error {
+	if isDoppelgangerActingAs(state, player, role) && doppelgangerImmediateAction(role) {
+		return nil
+	}
+	return requireNightOrder(state, role)
 }
 
 func requireNightOrder(state State, role string) error {
@@ -405,12 +503,36 @@ func requireNightOrder(state State, role string) error {
 }
 
 func nightRoleComplete(state State, role string) bool {
+	if role == RoleDoppelganger {
+		for _, player := range state.Players {
+			if !player.Active || player.OriginalRole != RoleDoppelganger {
+				continue
+			}
+			if !state.CompletedActions[player.PlayerID] {
+				return false
+			}
+			if state.DoppelgangerPlayerID == player.PlayerID &&
+				doppelgangerImmediateAction(state.DoppelgangerCopiedRole) &&
+				!state.CompletedActions[doppelgangerActionKey(player.PlayerID, state.DoppelgangerCopiedRole)] {
+				return false
+			}
+		}
+		return true
+	}
 	for _, player := range state.Players {
-		if !player.Active || player.OriginalRole != role {
+		if !player.Active {
 			continue
 		}
-		if !state.CompletedActions[player.PlayerID] {
-			return false
+		if player.OriginalRole == role {
+			if !state.CompletedActions[player.PlayerID] {
+				return false
+			}
+			continue
+		}
+		if isDoppelgangerActingAs(state, player, role) && doppelgangerNormalOrderAction(role) {
+			if !state.CompletedActions[doppelgangerActionKey(player.PlayerID, role)] {
+				return false
+			}
 		}
 	}
 	return true
@@ -426,15 +548,12 @@ func nightRoleIndex(role string) int {
 }
 
 func nightRoleOrder() []string {
-	return []string{RoleWerewolf, RoleMinion, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk}
+	return []string{RoleDoppelganger, RoleWerewolf, RoleMinion, RoleMason, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk}
 }
 
 func requiredNightActionsComplete(state State) bool {
-	for _, player := range state.Players {
-		if !player.Active || !isRequiredNightRole(player.OriginalRole) {
-			continue
-		}
-		if !state.CompletedActions[player.PlayerID] {
+	for _, role := range nightRoleOrder() {
+		if !nightRoleComplete(state, role) {
 			return false
 		}
 	}
@@ -443,7 +562,34 @@ func requiredNightActionsComplete(state State) bool {
 
 func isRequiredNightRole(role string) bool {
 	switch role {
-	case RoleWerewolf, RoleMinion, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
+	case RoleDoppelganger, RoleWerewolf, RoleMinion, RoleMason, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
+		return true
+	default:
+		return false
+	}
+}
+
+func doppelgangerCanActAs(role string) bool {
+	switch role {
+	case RoleWerewolf, RoleMinion, RoleMason, RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk, RoleInsomniac:
+		return true
+	default:
+		return false
+	}
+}
+
+func doppelgangerImmediateAction(role string) bool {
+	switch role {
+	case RoleSeer, RoleRobber, RoleTroublemaker, RoleDrunk:
+		return true
+	default:
+		return false
+	}
+}
+
+func doppelgangerNormalOrderAction(role string) bool {
+	switch role {
+	case RoleWerewolf, RoleMinion, RoleMason:
 		return true
 	default:
 		return false
@@ -458,6 +604,60 @@ func originalWerewolfCount(state State) int {
 		}
 	}
 	return count
+}
+
+func nightWerewolfCount(state State) int {
+	return len(nightWerewolfIDs(state))
+}
+
+func nightWerewolfIDs(state State) []string {
+	ids := []string{}
+	for _, player := range state.Players {
+		if !player.Active {
+			continue
+		}
+		if player.OriginalRole == RoleWerewolf || isDoppelgangerActingAs(state, player, RoleWerewolf) {
+			ids = append(ids, player.PlayerID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func nightMasonIDs(state State) []string {
+	ids := []string{}
+	for _, player := range state.Players {
+		if !player.Active {
+			continue
+		}
+		if player.OriginalRole == RoleMason || isDoppelgangerActingAs(state, player, RoleMason) {
+			ids = append(ids, player.PlayerID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func skipPendingNightAction(state *State, player PlayerState) bool {
+	if state.Phase != PhaseNight || !player.Active {
+		return false
+	}
+	if player.OriginalRole == RoleDoppelganger && !state.CompletedActions[player.PlayerID] {
+		state.CompletedActions[player.PlayerID] = true
+		return true
+	}
+	if player.OriginalRole == RoleDoppelganger &&
+		state.DoppelgangerPlayerID == player.PlayerID &&
+		doppelgangerCanActAs(state.DoppelgangerCopiedRole) &&
+		!state.CompletedActions[doppelgangerActionKey(player.PlayerID, state.DoppelgangerCopiedRole)] {
+		state.CompletedActions[doppelgangerActionKey(player.PlayerID, state.DoppelgangerCopiedRole)] = true
+		return true
+	}
+	if isRequiredNightRole(player.OriginalRole) && !state.CompletedActions[player.PlayerID] {
+		state.CompletedActions[player.PlayerID] = true
+		return true
+	}
+	return false
 }
 
 func finishVote(state State) State {
@@ -516,7 +716,7 @@ func applyHunterExecution(state State, executed []string) []string {
 	next := append([]string(nil), executed...)
 	for _, playerID := range executed {
 		playerIndex := findPlayer(state, playerID)
-		if playerIndex < 0 || state.Players[playerIndex].CurrentRole != RoleHunter {
+		if playerIndex < 0 || effectiveRole(state, state.Players[playerIndex]) != RoleHunter {
 			continue
 		}
 		target := state.Votes[playerID]
@@ -555,7 +755,7 @@ func winningPlayers(state State, executed []string, werewolfKilled bool, hasWere
 
 func appendVillageWinners(state State, winners []string) []string {
 	for _, player := range state.Players {
-		if teamFor(player.CurrentRole) == "village" {
+		if teamFor(effectiveRole(state, player)) == "village" {
 			winners = append(winners, player.PlayerID)
 		}
 	}
@@ -564,7 +764,7 @@ func appendVillageWinners(state State, winners []string) []string {
 
 func appendWerewolfTeamWinners(state State, winners []string) []string {
 	for _, player := range state.Players {
-		if teamFor(player.CurrentRole) == "werewolf" {
+		if teamFor(effectiveRole(state, player)) == "werewolf" {
 			winners = append(winners, player.PlayerID)
 		}
 	}
@@ -573,7 +773,7 @@ func appendWerewolfTeamWinners(state State, winners []string) []string {
 
 func appendRoleWinners(state State, winners []string, role string) []string {
 	for _, player := range state.Players {
-		if player.CurrentRole == role {
+		if effectiveRole(state, player) == role {
 			winners = append(winners, player.PlayerID)
 		}
 	}
@@ -592,7 +792,7 @@ func appendNoWerewolfMinionWinners(state State, winners []string, executed []str
 func tannerExecuted(state State, executed []string) bool {
 	for _, playerID := range executed {
 		playerIndex := findPlayer(state, playerID)
-		if playerIndex >= 0 && state.Players[playerIndex].CurrentRole == RoleTanner {
+		if playerIndex >= 0 && effectiveRole(state, state.Players[playerIndex]) == RoleTanner {
 			return true
 		}
 	}
@@ -605,7 +805,7 @@ func nonTannerNonWerewolfTeamExecuted(state State, executed []string) bool {
 		if playerIndex < 0 {
 			continue
 		}
-		role := state.Players[playerIndex].CurrentRole
+		role := effectiveRole(state, state.Players[playerIndex])
 		if role != RoleTanner && teamFor(role) != "werewolf" {
 			return true
 		}
@@ -629,11 +829,18 @@ func uniqueStrings(values []string) []string {
 func currentWerewolves(state State) []string {
 	werewolves := []string{}
 	for _, player := range state.Players {
-		if player.CurrentRole == RoleWerewolf {
+		if effectiveRole(state, player) == RoleWerewolf {
 			werewolves = append(werewolves, player.PlayerID)
 		}
 	}
 	return werewolves
+}
+
+func effectiveRole(state State, player PlayerState) string {
+	if player.CurrentRole == RoleDoppelganger && state.DoppelgangerCopiedRole != "" {
+		return state.DoppelgangerCopiedRole
+	}
+	return player.CurrentRole
 }
 
 func teamFor(role string) string {
@@ -712,9 +919,12 @@ func centerIndexes(payload any, expected int) ([]int, error) {
 
 func shuffledRoles(seed string, count int) []string {
 	roles := []string{
+		RoleDoppelganger,
 		RoleWerewolf,
 		RoleWerewolf,
 		RoleMinion,
+		RoleMason,
+		RoleMason,
 		RoleSeer,
 		RoleRobber,
 		RoleTroublemaker,
@@ -729,12 +939,12 @@ func shuffledRoles(seed string, count int) []string {
 	if count > len(roles) {
 		count = len(roles)
 	}
-	selected := append([]string(nil), roles[:count]...)
+	selected := append([]string(nil), roles...)
 	random := rand.New(rand.NewSource(seedToInt(seed)))
 	random.Shuffle(len(selected), func(i, j int) {
 		selected[i], selected[j] = selected[j], selected[i]
 	})
-	return selected
+	return selected[:count]
 }
 
 func findPlayer(state State, playerID string) int {

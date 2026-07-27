@@ -209,6 +209,153 @@ func TestMinionSeesWerewolvesAndBlocksSeerUntilComplete(t *testing.T) {
 	}
 }
 
+func TestDoppelgangerCopiesRoleBeforeWerewolvesCanAct(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Phase: PhaseNight,
+		Players: []PlayerState{
+			{PlayerID: "p1", OriginalRole: RoleDoppelganger, CurrentRole: RoleDoppelganger, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p2", OriginalRole: RoleWerewolf, CurrentRole: RoleWerewolf, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p3", OriginalRole: RoleVillager, CurrentRole: RoleVillager, SeenRoles: map[string]string{}, Active: true},
+		},
+		Center:           []string{RoleSeer, RoleDrunk, RoleVillager},
+		CompletedActions: map[string]bool{},
+		Votes:            map[string]string{},
+	}
+
+	err := module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionLoneWolfCenter,
+		PlayerID: "p2",
+		Payload:  map[string]any{"centerIndexes": []any{0}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected werewolf to wait for doppelganger")
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDoppelganger,
+		PlayerID: "p1",
+		Payload:  map[string]any{"targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+	if state.DoppelgangerCopiedRole != RoleWerewolf || state.Players[0].SeenRoles["self:doppelgangerRole"] != RoleWerewolf {
+		t.Fatalf("expected doppelganger to copy werewolf, got copied=%q seen=%+v", state.DoppelgangerCopiedRole, state.Players[0].SeenRoles)
+	}
+
+	result, err = module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeWerewolves,
+		PlayerID: "p2",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+	if state.Players[1].SeenRoles["player:p1"] != RoleWerewolf {
+		t.Fatalf("expected original werewolf to see doppelganger-werewolf, got %+v", state.Players[1].SeenRoles)
+	}
+
+	result, err = module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeWerewolves,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+	if state.Players[0].SeenRoles["player:p2"] != RoleWerewolf {
+		t.Fatalf("expected doppelganger-werewolf to see original werewolf, got %+v", state.Players[0].SeenRoles)
+	}
+}
+
+func TestDoppelgangerCopiedSeerMustResolveImmediately(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Phase: PhaseNight,
+		Players: []PlayerState{
+			{PlayerID: "p1", OriginalRole: RoleDoppelganger, CurrentRole: RoleDoppelganger, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p2", OriginalRole: RoleSeer, CurrentRole: RoleSeer, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p3", OriginalRole: RoleWerewolf, CurrentRole: RoleWerewolf, SeenRoles: map[string]string{}, Active: true},
+		},
+		Center:           []string{RoleRobber, RoleDrunk, RoleVillager},
+		CompletedActions: map[string]bool{},
+		Votes:            map[string]string{},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionDoppelganger,
+		PlayerID: "p1",
+		Payload:  map[string]any{"targetPlayerId": "p2"},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionLoneWolfCenter,
+		PlayerID: "p3",
+		Payload:  map[string]any{"centerIndexes": []any{0}},
+	}, testContext())
+	if err == nil {
+		t.Fatal("expected copied seer action to block later roles")
+	}
+
+	result, err = module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeCenter,
+		PlayerID: "p1",
+		Payload:  map[string]any{"centerIndexes": []any{0, 1}},
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = result.State.(State)
+	if state.Players[0].SeenRoles["center:0"] != RoleRobber || state.Players[0].SeenRoles["center:1"] != RoleDrunk {
+		t.Fatalf("expected copied seer to see center cards, got %+v", state.Players[0].SeenRoles)
+	}
+
+	err = module.ValidateAction(context.Background(), state, gamecore.Action{
+		Type:     ActionLoneWolfCenter,
+		PlayerID: "p3",
+		Payload:  map[string]any{"centerIndexes": []any{0}},
+	}, testContext())
+	if err != nil {
+		t.Fatalf("expected werewolf to act after copied seer, got %v", err)
+	}
+}
+
+func TestMasonsSeeEachOther(t *testing.T) {
+	module := NewModule()
+	state := State{
+		Phase: PhaseNight,
+		Players: []PlayerState{
+			{PlayerID: "p1", OriginalRole: RoleMason, CurrentRole: RoleMason, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p2", OriginalRole: RoleMason, CurrentRole: RoleMason, SeenRoles: map[string]string{}, Active: true},
+			{PlayerID: "p3", OriginalRole: RoleVillager, CurrentRole: RoleVillager, SeenRoles: map[string]string{}, Active: true},
+		},
+		Center:           []string{RoleRobber, RoleDrunk, RoleVillager},
+		CompletedActions: map[string]bool{},
+		Votes:            map[string]string{},
+	}
+
+	result, err := module.ApplyAction(context.Background(), state, gamecore.Action{
+		Type:     ActionSeeMasons,
+		PlayerID: "p1",
+	}, testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := result.State.(State)
+	if next.Players[0].SeenRoles["player:p2"] != RoleMason {
+		t.Fatalf("expected mason to see teammate, got %+v", next.Players[0].SeenRoles)
+	}
+	if _, ok := next.Players[0].SeenRoles["player:p1"]; ok {
+		t.Fatal("mason should not record self as teammate")
+	}
+}
+
 func TestVoteKillsWerewolfAndVillageWins(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
@@ -359,6 +506,21 @@ func TestMinionWinsWithoutWerewolvesIfVillagerDiesAndMinionSurvives(t *testing.T
 	result := finishVote(state)
 	if result.WinningTeam != "werewolf" || len(result.WinningPlayerIDs) != 1 || result.WinningPlayerIDs[0] != "p1" {
 		t.Fatalf("expected lone minion to win when a villager dies, got team=%q winners=%+v", result.WinningTeam, result.WinningPlayerIDs)
+	}
+}
+
+func TestDoppelgangerCopiedTannerWinsWhenExecuted(t *testing.T) {
+	state := fixedState()
+	state.Players[0].OriginalRole = RoleDoppelganger
+	state.Players[0].CurrentRole = RoleDoppelganger
+	state.DoppelgangerPlayerID = "p1"
+	state.DoppelgangerCopiedRole = RoleTanner
+	state.Phase = PhaseDiscussion
+	state.Votes = map[string]string{"p1": "p1", "p2": "p1", "p3": "p2"}
+
+	result := finishVote(state)
+	if result.WinningTeam != "tanner" || len(result.WinningPlayerIDs) != 1 || result.WinningPlayerIDs[0] != "p1" {
+		t.Fatalf("expected doppelganger-tanner to win alone, got team=%q winners=%+v", result.WinningTeam, result.WinningPlayerIDs)
 	}
 }
 
