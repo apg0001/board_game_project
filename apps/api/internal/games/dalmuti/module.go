@@ -43,6 +43,9 @@ type State struct {
 	Players            []PlayerState `json:"players"`
 	CurrentTrick       Trick         `json:"currentTrick"`
 	FinishOrder        []string      `json:"finishOrder"`
+	TaxApplied         bool          `json:"taxApplied"`
+	Revolution         bool          `json:"revolution"`
+	GreaterRevolution  bool          `json:"greaterRevolution"`
 	Log                []string      `json:"log"`
 	Finished           bool          `json:"finished"`
 }
@@ -90,12 +93,13 @@ func (m Module) CreateInitialState(ctx gamecore.Context) any {
 			Active:   true,
 		})
 	}
-	return State{
+	state := State{
 		CurrentPlayerIndex: 0,
 		Round:              1,
 		Players:            players,
 		Log:                []string{"위대한 달무티가 시작되었습니다."},
 	}
+	return applyOpeningTaxAndRevolution(state)
 }
 
 func (m Module) PublicState(state any, viewerID gamecore.PlayerID) any {
@@ -305,6 +309,92 @@ func playCards(player *PlayerState, payload PlayPayload) {
 	}
 	player.Hand = next
 	player.HandSize = len(next)
+}
+
+func applyOpeningTaxAndRevolution(state State) State {
+	if len(state.Players) < 4 {
+		return state
+	}
+	greaterPeonIndex := len(state.Players) - 1
+	jesterHolder := playerWithBothJesters(state.Players)
+	if jesterHolder >= 0 {
+		state.Revolution = true
+		if jesterHolder == greaterPeonIndex {
+			state.GreaterRevolution = true
+			reversePlayers(state.Players)
+			state.Log = append(state.Log, "큰 하인이 대혁명을 선언해 계급 순서가 뒤집혔습니다.")
+		} else {
+			state.Log = append(state.Log, "혁명이 선언되어 세금이 취소되었습니다.")
+		}
+		return state
+	}
+
+	exchangeTax(&state, len(state.Players)-1, 0, 2)
+	exchangeTax(&state, len(state.Players)-2, 1, 1)
+	state.TaxApplied = true
+	state.Log = append(state.Log, "세금 교환이 적용되었습니다.")
+	return state
+}
+
+func exchangeTax(state *State, peonIndex int, dalmutiIndex int, count int) {
+	if peonIndex < 0 || peonIndex >= len(state.Players) || dalmutiIndex < 0 || dalmutiIndex >= len(state.Players) {
+		return
+	}
+	fromPeon := takeBestCards(&state.Players[peonIndex], count)
+	fromDalmuti := takeWorstCards(&state.Players[dalmutiIndex], count)
+	state.Players[peonIndex].Hand = append(state.Players[peonIndex].Hand, fromDalmuti...)
+	state.Players[dalmutiIndex].Hand = append(state.Players[dalmutiIndex].Hand, fromPeon...)
+	sortHand(state.Players[peonIndex].Hand)
+	sortHand(state.Players[dalmutiIndex].Hand)
+	state.Players[peonIndex].HandSize = len(state.Players[peonIndex].Hand)
+	state.Players[dalmutiIndex].HandSize = len(state.Players[dalmutiIndex].Hand)
+}
+
+func takeBestCards(player *PlayerState, count int) []Card {
+	sortHand(player.Hand)
+	return takeCardsAt(player, count, func(index int) int { return index })
+}
+
+func takeWorstCards(player *PlayerState, count int) []Card {
+	sortHand(player.Hand)
+	return takeCardsAt(player, count, func(index int) int { return len(player.Hand) - 1 - index })
+}
+
+func takeCardsAt(player *PlayerState, count int, pickIndex func(int) int) []Card {
+	if count <= 0 || len(player.Hand) == 0 {
+		return nil
+	}
+	selected := make([]Card, 0, count)
+	remove := map[int]bool{}
+	for step := 0; step < count && step < len(player.Hand); step++ {
+		index := pickIndex(step)
+		selected = append(selected, player.Hand[index])
+		remove[index] = true
+	}
+	next := make([]Card, 0, len(player.Hand)-len(remove))
+	for index, card := range player.Hand {
+		if !remove[index] {
+			next = append(next, card)
+		}
+	}
+	player.Hand = next
+	player.HandSize = len(next)
+	return selected
+}
+
+func playerWithBothJesters(players []PlayerState) int {
+	for index, player := range players {
+		if countRank(player.Hand, 13) >= 2 {
+			return index
+		}
+	}
+	return -1
+}
+
+func reversePlayers(players []PlayerState) {
+	for left, right := 0, len(players)-1; left < right; left, right = left+1, right-1 {
+		players[left], players[right] = players[right], players[left]
+	}
 }
 
 func trickComplete(state State) bool {

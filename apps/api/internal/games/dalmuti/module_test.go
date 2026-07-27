@@ -20,6 +20,48 @@ func TestCreateInitialStateDealsWholeDeck(t *testing.T) {
 	}
 }
 
+func TestOpeningTaxExchangesPeonBestCardsForDalmutiWorstCards(t *testing.T) {
+	state := applyOpeningTaxAndRevolution(State{
+		Players: []PlayerState{
+			{PlayerID: "greater-dalmuti", Hand: []Card{{ID: "9-1", Rank: 9}, {ID: "12-1", Rank: 12}, {ID: "jester-1", Rank: 13}}, Active: true},
+			{PlayerID: "lesser-dalmuti", Hand: []Card{{ID: "8-1", Rank: 8}, {ID: "11-1", Rank: 11}}, Active: true},
+			{PlayerID: "lesser-peon", Hand: []Card{{ID: "2-1", Rank: 2}, {ID: "10-1", Rank: 10}}, Active: true},
+			{PlayerID: "greater-peon", Hand: []Card{{ID: "1-1", Rank: 1}, {ID: "3-1", Rank: 3}, {ID: "12-2", Rank: 12}}, Active: true},
+		},
+	})
+
+	if !state.TaxApplied || state.Revolution {
+		t.Fatalf("expected taxation without revolution, got %+v", state)
+	}
+	if !hasRank(state.Players[0].Hand, 1) || !hasRank(state.Players[0].Hand, 3) {
+		t.Fatalf("greater dalmuti should receive greater peon's best two cards, got %+v", state.Players[0].Hand)
+	}
+	if !hasRank(state.Players[3].Hand, 12) || !hasRank(state.Players[3].Hand, 13) {
+		t.Fatalf("greater peon should receive greater dalmuti's worst two cards, got %+v", state.Players[3].Hand)
+	}
+	if !hasRank(state.Players[1].Hand, 2) || !hasRank(state.Players[2].Hand, 11) {
+		t.Fatalf("lesser tax exchange was not applied correctly, players=%+v", state.Players)
+	}
+}
+
+func TestOpeningGreaterRevolutionReversesPlayerOrderAndSkipsTax(t *testing.T) {
+	state := applyOpeningTaxAndRevolution(State{
+		Players: []PlayerState{
+			{PlayerID: "greater-dalmuti", Hand: []Card{{ID: "1-1", Rank: 1}}, Active: true},
+			{PlayerID: "merchant-a", Hand: []Card{{ID: "8-1", Rank: 8}}, Active: true},
+			{PlayerID: "merchant-b", Hand: []Card{{ID: "9-1", Rank: 9}}, Active: true},
+			{PlayerID: "greater-peon", Hand: []Card{{ID: "jester-1", Rank: 13}, {ID: "jester-2", Rank: 13}}, Active: true},
+		},
+	})
+
+	if !state.Revolution || !state.GreaterRevolution || state.TaxApplied {
+		t.Fatalf("expected greater revolution without taxation, got %+v", state)
+	}
+	if state.Players[0].PlayerID != "greater-peon" || state.Players[3].PlayerID != "greater-dalmuti" {
+		t.Fatalf("expected player order to reverse, got %+v", state.Players)
+	}
+}
+
 func TestPlayRequiresSameCountAndStrongerRank(t *testing.T) {
 	module := NewModule()
 	state := fixedState()
@@ -132,6 +174,15 @@ func fixedState() State {
 			{PlayerID: "p4", Hand: []Card{{ID: "7-1", Rank: 7}, {ID: "7-2", Rank: 7}}, Active: true},
 		},
 	}
+}
+
+func hasRank(hand []Card, rank int) bool {
+	for _, card := range hand {
+		if card.Rank == rank {
+			return true
+		}
+	}
+	return false
 }
 
 func testContext() gamecore.Context {
